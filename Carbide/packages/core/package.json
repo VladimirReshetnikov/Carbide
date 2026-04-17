@@ -1,0 +1,38 @@
+{
+  "name": "@carbide/core",
+  "version": "0.0.0",
+  "description": "C# compile-and-run framework for browser and Node.js, powered by Roslyn on Mono-WASM.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/bin/Release/net10.0/publish/wwwroot/_framework"
+  ],
+  "scripts": {
+    "build:dotnet": "dotnet publish -c Release src/Carbide.Core.csproj",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:dotnet && npm run build:ts",
+    "test": "node --test test/smoke.node.test.mjs",
+    "pack:core": "npm pack"
+  },
+  "keywords": [
+    "wasm",
+    "webassembly",
+    "carbide",
+    "csharp",
+    "dotnet",
+    "compiler",
+    "roslyn"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <IsTrimmable>true</IsTrimmable>
+    <PublishTrimmed>true</PublishTrimmed>
+
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+
+    <WasmFingerprintAssets>false</WasmFingerprintAssets>
+    <CompressionEnabled>false</CompressionEnabled>
+    <WasmBundlerFriendlyBootConfig>true</WasmBundlerFriendlyBootConfig>
+
+    <WasmEnableWebcil>false</WasmEnableWebcil>
+
+    <RootNamespace>Carbide.Core</RootNamespace>
+    <AssemblyName>Carbide.Core</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$(Configuration) == 'Release'">
+    <TrimmerRemoveSymbols>true</TrimmerRemoveSymbols>
+    <DebuggerSupport>false</DebuggerSupport>
+    <UseNativeHttpHandler>true</UseNativeHttpHandler>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Jab" Version="0.11.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" Version="4.14.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-preview.5.25277.114" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="$(Configuration) == 'Debug'">
+    <WasmNativeStrip>false</WasmNativeStrip>
+    <WasmEmitSymbolMap>true</WasmEmitSymbolMap>
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmDebugLevel>1</WasmDebugLevel>
+    <WasmNativeDebugSymbols>true</WasmNativeDebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(PublishTrimmed)' == 'True'">
+    <TrimmerRootDescriptor Include="roots.xml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="node_modules/**/*" />
+    <None Remove="dist/**/*" />
+  </ItemGroup>
+</Project>

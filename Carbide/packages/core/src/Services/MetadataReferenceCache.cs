@@ -1,0 +1,22 @@
+// Adapted from WasmSharp.Core.Services.MetadataReferenceCache.
+// Upstream: https://github.com/JakeYallop/WasmSharp (Apache-2.0).
+
+using Microsoft.CodeAnalysis;
+
+namespace Carbide.Core.Services;
+
+public static class MetadataReferenceCache
+{
+    public static readonly Dictionary<string, Compilation> Compilations = [];
+    public static IReadOnlyCollection<MetadataReference> MetadataReferences => _metadataReferences.AsReadOnly();
+#pragma warning disable IDE0079 // Remove unnecessary suppression
+#pragma warning disable IDE1006 // Naming Styles
+    private static readonly List<MetadataReference> _metadataReferences = [];
+#pragma warning restore IDE1006 // Naming Styles
+#pragma warning restore IDE0079 // Remove unnecessary suppression
+
+    public static void AddReference(MetadataReference reference)
+    {
+        _metadataReferences.Add(reference);
+    }
+}

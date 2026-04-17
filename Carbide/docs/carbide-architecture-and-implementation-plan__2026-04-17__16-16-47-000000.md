@@ -445,9 +445,9 @@ No Python-specific code lives inside the Carbide project. All Python-side work i
 
 ## 9. Implementation plan
 
-Milestones are sized in weeks of focused work for one engineer. Real elapsed time scales with other commitments. Each milestone has a crisp acceptance test; a milestone is "done" when its test is green on both browser and Node hosts.
+Milestones are ordered by dependency. Each milestone has a crisp acceptance test; a milestone is "done" when its test is green on both browser and Node hosts.
 
-### M0 — Fork skeleton (week 1)
+### M0 — Fork skeleton
 
 - Create `src/Carbide/` with a Blazor WASM core project, `Microsoft.NET.Sdk.WebAssembly`, pinned to the same package versions WasmSharp uses.
 - Bring across WasmSharp's `MetadataReferenceCache`, `WasmMetadataReferenceResolver`, `roots.xml`, and `Host.cs` DI scaffold. Rename namespaces to `Carbide.Core`.
@@ -456,7 +456,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** `dotnet publish -c Release` emits `_framework/`; npm pack produces a valid tarball; a sanity TypeScript test imports the package and prints "Carbide initialised" in both Node and a headless-browser (Playwright) harness.
 
-### M1 — Single-file parity with WasmSharp (week 2)
+### M1 — Single-file parity with WasmSharp
 
 - Port `CodeSession` into `Carbide.Core.Services.ProjectCompiler` but keep it single-document for now.
 - Wire up JSExport `InitAsync`, `CreateSession`, `CreateProject`, `AddSource`, `GetDiagnosticsAsync`, `RunAsync`.
@@ -466,7 +466,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** A test calls `createProject(); addSource("Program.cs", "Console.WriteLine(\"hello\");"); build(); run()`, gets `success: true, stdOut: "hello\n"`. Runs identically in Node and headless Chromium.
 
-### M2 — Multi-document (week 3)
+### M2 — Multi-document
 
 - Replace single-`DocumentId` storage in `ProjectCompiler` with a path-keyed dictionary.
 - Implement `UpdateSource`, `RemoveSource` via `Solution.WithDocumentText` / `.RemoveDocument`.
@@ -475,7 +475,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** A multi-file fixture (Program.cs + Helper.cs with a class used by Program) builds and runs; introducing a type error in Helper.cs yields a diagnostic whose path equals `Helper.cs`.
 
-### M3 — Reference DLL injection (week 4)
+### M3 — Reference DLL injection
 
 - Add the reference registry in `Carbide.Core` (`AddReference(bytes, name)` → id).
 - Extend `WasmMetadataReferenceResolver` to look up both the bundled cache and the registry when resolving references for a compilation.
@@ -485,7 +485,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** A test that references a vendored DLL (e.g. a built helper library produced ahead of time) compiles and runs successfully.
 
-### M4 — PE emission & artefact output (week 5)
+### M4 — PE emission & artefact output
 
 - JSExport `BuildAsync` returns PE + PDB bytes separately from Run.
 - Node CLI `carbide build --out <dir>` writes `Project.Assembly.dll` and `Project.Assembly.pdb`.
@@ -493,7 +493,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** CLI `carbide build --source Program.cs --out out/` produces `out/Program.dll` whose bytes load successfully when fed back as a reference to a subsequent `carbide build`.
 
-### M5 — Project-file input (weeks 6-7)
+### M5 — Project-file input
 
 - Port relevant parts of `cs_kit.msbuild_lite` to TypeScript as `@carbide/msbuild-lite`.
 - Node CLI `carbide build --project Foo.csproj` uses it to parse, glob-expand compile items, derive options.
@@ -501,7 +501,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** Given `Foo.csproj` + its referenced `.cs` files, `carbide build --project Foo.csproj` produces the same PE bytes as `carbide build --source ...` with equivalent options flattened.
 
-### M6 — NuGet resolver (weeks 8-12)
+### M6 — NuGet resolver
 
 - Implement `@carbide/nuget`: flat-container client, registration-v3 client, nuspec reader, version-range evaluator, TFM-compat matrix, nearest-wins resolver.
 - Define the allow-list; seed with 10 managed-only packages (see vision §7 for the seed list).
@@ -511,7 +511,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** For each allow-listed package, `carbide build --project` succeeds and the built program runs. Lock-file round-trip: replay `carbide build --lock carbide.lock.json` without network and gets the same result.
 
-### M7 — Published API + stability lock (week 13)
+### M7 — Published API + stability lock
 
 - Public TypeScript types get semver-stable exports; JSON schemas get version fields and compat tests.
 - CHANGELOG automation; API-diff report on every PR.
@@ -519,7 +519,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** A compatibility-freeze test harness pins the JSON schemas and TypeScript types at 0.1.0; subsequent PRs that break them are caught by the harness.
 
-### M8 — Webcil mode (weeks 14-15, optional)
+### M8 — Webcil mode (optional)
 
 - Flip `<WasmEnableWebcil>true</WasmEnableWebcil>` in `Carbide.Core.csproj`; rebuild the `_framework/` pipeline.
 - Teach the reference resolver to load `.webcil` alongside `.dll`.
@@ -527,7 +527,7 @@ Milestones are sized in weeks of focused work for one engineer. Real elapsed tim
 
 **Acceptance.** Both browser (served from a Webcil-preferring CDN fixture) and Node builds pass the M1–M4 acceptance tests.
 
-### M9 — Shape S5: project-to-project references (week 16)
+### M9 — Shape S5: project-to-project references
 
 - Extend `CreateProject` to accept a list of sibling-project references.
 - In the resolver, build a compile order based on `ProjectReference` edges; compile each project; emit PEs into a per-session temp cache; feed sibling-project PEs as references to the root project.
@@ -598,7 +598,7 @@ Tests are mandatory gates on every acceptance milestone and on every release.
 
 **Outbound.** Carbide produces npm packages with integrity hashes, published from a release pipeline that also emits an SBOM listing every bundled NuGet package and BCL assembly. The SBOM attaches to the GitHub release.
 
-**Upstream tracking.** A monthly (initially) upstream-drift report in `docs/proposals/carbide/drift/` tracks: Roslyn newest version vs. Carbide-pinned, .NET runtime newest LTS/STS vs. Carbide-targeted, any new issues in `dotnet/runtime` or `dotnet/roslyn` labelled against WASM/browser. First drift report due within 30 days of M1.
+**Upstream tracking.** A periodic upstream-drift report in `src/Carbide/docs/drift/` tracks: Roslyn newest version vs. Carbide-pinned, .NET runtime newest LTS/STS vs. Carbide-targeted, any new issues in `dotnet/runtime` or `dotnet/roslyn` labelled against WASM/browser.
 
 **Fork of WasmSharp.** Day-one relationship: Carbide *uses* WasmSharp as inspiration and may *vendor code* from it. It does not *depend* on the `@wasmsharp/core` npm package in its shipped artefact. An internal ATTRIBUTION file records each vendored piece with its upstream path and commit. WasmSharp's Apache-2.0 license is compatible.
 

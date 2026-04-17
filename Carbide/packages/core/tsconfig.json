@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src/ts",
+    "lib": ["ES2022", "DOM"],
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/ts/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/bin", "src/obj"]
+}
