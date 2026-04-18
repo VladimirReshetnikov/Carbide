@@ -18,6 +18,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [M4 — detailed plan (PE emission & CLI)](carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md) — sub-milestones, `project.build()` returning `{pe, pdb}`, `@carbide/cli` package with `build` / `run` / `validate` commands, round-trip acceptance, and M4 non-goals.
 - [M5 — detailed plan (project-file input)](carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md) — sub-milestones, `@carbide/msbuild-lite` port of `cs_kit.msbuild_lite`, `carbide build --project Foo.csproj`, extended `ProjectOptions`, deterministic builds for byte-identical PE, parity fixtures, and M5 non-goals.
 - [M6 — detailed plan (NuGet resolver)](carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md) — sub-milestones, `@carbide/nuget` (flat-container + registration clients, nuspec/zip reader, version-range evaluator, TFM-compat matrix, nearest-wins resolver), 10-package allow-list, safety refusals, `carbide.lock.json` for offline replay, and M6 non-goals.
+- [M9 — detailed plan (Shape S5: project-to-project references)](carbide-M9-detailed-plan__2026-04-18__23-18-54-749142.md) — sub-milestones, project-graph orchestration inside `@carbide/cli`, transitive `<ProjectReference>` walk with cycle / assembly-name-collision detection, per-sub-project Carbide `Project` + NuGet lock, sibling-PE attachment in topological order, diagnostic attribution by csproj, and M9 non-goals. M7 (stability lock) and M8 (Webcil mode) are deferred; M9 takes the slot directly after M6.
 
 ## Feature proposals
 
