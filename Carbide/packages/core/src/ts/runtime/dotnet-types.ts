@@ -47,6 +47,8 @@ export interface CarbideInteropExports {
     DisposeSession(sessionId: string): void;
     CreateProject(sessionId: string, optionsJson: string): string;
     AddSource(projectId: string, path: string, code: string): void;
+    UpdateSource(projectId: string, path: string, code: string): void;
+    RemoveSource(projectId: string, path: string): void;
     GetDiagnosticsAsync(projectId: string): Promise<string>;
     RunAsync(projectId: string): Promise<string>;
 }

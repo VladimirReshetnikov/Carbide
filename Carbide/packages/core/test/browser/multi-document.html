@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide browser smoke — multi-document</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Helper.cs",
+          `namespace MyApp; public static class Greeter { public static string Greet(string name) => $"hello, {name}"; }`,
+        );
+        project.addSource(
+          "Program.cs",
+          `using MyApp; Console.WriteLine(Greeter.Greet("Vladimir"));`,
+        );
+
+        const first = await project.run();
+
+        // Exercise updateSource + removeSource so the browser build covers the full M2 surface.
+        project.updateSource(
+          "Helper.cs",
+          `namespace MyApp; public static class Greeter { public static string Greet(string n) => $"hi, {n}"; }`,
+        );
+        const second = await project.run();
+
+        project.removeSource("Helper.cs");
+        const diagAfterRemove = await project.getDiagnostics();
+        const removeBroke = diagAfterRemove.some((d) => d.severity === "error");
+
+        return { first, second, removeBroke };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    run()
+      .then((result) => {
+        resultEl.textContent = JSON.stringify(result);
+        const ok =
+          result.first.success &&
+          result.first.stdOut === "hello, Vladimir\n" &&
+          result.second.success &&
+          result.second.stdOut === "hi, Vladimir\n" &&
+          result.removeBroke;
+        resultEl.dataset.status = ok ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 A C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process. Targeted at environments that cannot install the .NET SDK.
 
-**Status:** M1 — Single-file parity with WasmSharp. `CarbideSession.initializeAsync` boots the bundled Mono-WASM runtime in Node and in headless Chromium, a `Project` accepts a single `.cs` source, `getDiagnostics()` returns Roslyn diagnostics with file/line/column populated, and `run()` executes the program and captures stdout/stderr. See `docs/carbide-M1-detailed-plan__*.md` for what M1 covers and `docs/drift/` for known limitations.
+**Status:** M2 — Multi-document. `CarbideSession` boots the bundled Mono-WASM runtime in Node and in headless Chromium; a `Project` accepts any number of `.cs` sources via `addSource` / `updateSource` / `removeSource`; diagnostics carry the source path; a seed golden-corpus of five Shape-S2 fixtures (records, generics, pattern matching, LINQ, two-file hello) round-trips stdout. User-supplied DLLs and NuGet packages come in later milestones. See `docs/carbide-M2-detailed-plan__*.md` for what M2 covers and `docs/drift/` for known limitations.
 
 ## Layout
 
@@ -32,11 +32,23 @@ import { CarbideSession } from "@carbide/core";
 
 const session = await CarbideSession.initializeAsync();
 const project = session.createProject();
-project.addSource("Program.cs", 'Console.WriteLine("hello");');
+
+project.addSource(
+    "Greeter.cs",
+    `namespace MyApp; public static class Greeter { public static string Greet(string name) => $"hello, {name}"; }`,
+);
+project.addSource("Program.cs", 'using MyApp; Console.WriteLine(Greeter.Greet("Vladimir"));');
+
 const result = await project.run();
-console.log(result.stdOut); // "hello\n"
+console.log(result.stdOut); // "hello, Vladimir\n"
 await session.shutdown();
 ```
+
+Additional APIs land alongside:
+
+- `project.updateSource(path, code)` — replace an existing file's contents.
+- `project.removeSource(path)` — drop a file (no-op if it was never added).
+- `project.getDiagnostics()` — Roslyn diagnostics with `path`, `spanStart/End`, `lineStart/End` populated.
 
 ## Origin
 

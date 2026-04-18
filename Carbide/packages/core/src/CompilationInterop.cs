@@ -48,6 +48,14 @@ public static partial class CompilationInterop
         => Host.Dispatch(s => s.AddSource(projectId, path, code));
 
     [JSExport]
+    public static void UpdateSource(string projectId, string path, string code)
+        => Host.Dispatch(s => s.UpdateSource(projectId, path, code));
+
+    [JSExport]
+    public static void RemoveSource(string projectId, string path)
+        => Host.Dispatch(s => s.RemoveSource(projectId, path));
+
+    [JSExport]
     public static async Task<string> GetDiagnosticsAsync(string projectId)
     {
         var diagnostics = await Host.Dispatch(s => s.GetDiagnosticsAsync(projectId)).ConfigureAwait(false);

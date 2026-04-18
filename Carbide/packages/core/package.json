@@ -27,9 +27,9 @@
     "build:dotnet": "dotnet publish -c Release src/Carbide.Core.csproj",
     "build:ts": "tsc -p tsconfig.json",
     "build": "npm run build:dotnet && npm run build:ts",
-    "test": "node --test test/smoke.node.test.mjs test/node/*.test.mjs",
+    "test": "node --test --test-concurrency=1 test/smoke.node.test.mjs test/node/*.test.mjs",
     "test:smoke": "node --test test/smoke.node.test.mjs",
-    "test:node": "node --test test/node/*.test.mjs",
+    "test:node": "node --test --test-concurrency=1 test/node/*.test.mjs",
     "test:browser": "playwright test",
     "pack:core": "npm pack"
   },

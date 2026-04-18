@@ -89,6 +89,12 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     public void AddSource(string projectId, string path, string code)
         => GetProject(projectId).AddSource(path, code);
 
+    public void UpdateSource(string projectId, string path, string code)
+        => GetProject(projectId).UpdateSource(path, code);
+
+    public void RemoveSource(string projectId, string path)
+        => GetProject(projectId).RemoveSource(path);
+
     public Task<Diagnostic[]> GetDiagnosticsAsync(string projectId)
         => GetProject(projectId).GetDiagnosticsAsync();
 

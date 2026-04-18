@@ -14,6 +14,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [M1 — detailed plan (single-file parity with WasmSharp)](carbide-M1-detailed-plan__2026-04-17__23-14-49-240376.md) — sub-milestones, file-by-file deliverables, explicit decisions, risks, and M1 non-goals.
 - [M2 — detailed plan (multi-document)](carbide-M2-detailed-plan__2026-04-18__00-58-47-753934.md) — sub-milestones, public-API additions (`updateSource`, `removeSource`), diagnostic-attribution rules, fixture seed, and M2 non-goals.
+- [M3 — detailed plan (reference DLL injection + ref-pack)](carbide-M3-detailed-plan__2026-04-18__05-18-02-170097.md) — sub-milestones, `ReferenceRegistry`, `session.addReference` / `project.addReference`, `@carbide/refs-net10.0` package, best-effort trim restoration, and M3 non-goals.
 
 ## Operations
 

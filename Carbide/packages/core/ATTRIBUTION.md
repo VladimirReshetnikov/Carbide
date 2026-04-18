@@ -18,14 +18,14 @@ Upstream: https://github.com/JakeYallop/WasmSharp — vendored snapshot at `lib/
 | `src/Services/MetadataReferenceCache.cs` | `packages/core/src/Services/MetadataReferenceCache.cs` — namespace rename only. |
 | `src/Services/MetadataReferenceResolver.cs` | `packages/core/src/Services/MetadataReferenceResolver.cs` — namespace rename only. |
 | `src/Services/WasmMetadataReferenceResolver.cs` | `packages/core/src/Services/WasmMetadataReferenceResolver.cs` — M1 extended: switched to `CreateFromImage` with full-stream copy, added `PEReader.HasMetadata` pre-check so trimmed-facade DLLs don't surface as CS0009. |
-| `src/Services/ProjectCompiler.cs` | `packages/core/src/Services/CodeSession.cs` — M1 rename + extensions: use `Compilation.GetEntryPoint` (fixes WasmSharp#5), handle `Task`/`Task<int>`/`int`/`ValueTask` return types, capture stderr alongside stdout, ship a hidden implicit-usings document so bare `Console.WriteLine` compiles. |
-| `src/Services/SessionSolutions.cs` | `packages/core/src/Services/WasmSolution.cs` — M1 rename + extensions: explicit session layer, metadata references loaded from explicit URL list. |
+| `src/Services/ProjectCompiler.cs` | `packages/core/src/Services/CodeSession.cs` — M1 rename + extensions: use `Compilation.GetEntryPoint` (fixes WasmSharp#5), handle `Task`/`Task<int>`/`int`/`ValueTask` return types, capture stderr alongside stdout, ship a hidden implicit-usings document so bare `Console.WriteLine` compiles. M2 extensions: path-keyed `Dictionary<string, DocumentId>` for multi-document, `AddSource` / `UpdateSource` / `RemoveSource` with reserved-path guard, `OpenDocument` dropped to stop workspace leaks. |
+| `src/Services/SessionSolutions.cs` | `packages/core/src/Services/WasmSolution.cs` — M1 rename + extensions: explicit session layer, metadata references loaded from explicit URL list. M2: Update/Remove wrappers delegated to ProjectCompiler. |
 | `src/Services/Diagnostic.cs` | `packages/core/src/Services/Diagnostic.cs` — extended with path, line/column, and string severity for the JSON boundary. |
 | `src/Services/DiagnosticCollectionExtensions.cs` | `packages/core/src/Services/DiagnosticCollectionExtensions.cs` — rewritten to populate extended Diagnostic fields. |
 | `src/Services/DocumentOptions.cs` | `packages/core/src/Services/DocumentOptions.cs` — namespace rename only. |
 | `src/Services/RunResult.cs` | `packages/core/src/Services/RunResult.cs` — extended with `ExitCode`, `UncaughtException`, `DurationMs`, `SchemaVersion`. |
 | `src/Services/Tracer.cs` | `packages/core/src/Services/Tracer.cs` — namespace rename only. |
-| `src/CompilationInterop.cs` | `packages/core/src/CompilationInterop.cs` — rewritten to the M1 JSExport surface (InitAsync, CreateSession, DisposeSession, CreateProject, AddSource, GetDiagnosticsAsync, RunAsync) with a source-generated `JsonSerializerContext`. |
+| `src/CompilationInterop.cs` | `packages/core/src/CompilationInterop.cs` — rewritten to the M1 JSExport surface (InitAsync, CreateSession, DisposeSession, CreateProject, AddSource, GetDiagnosticsAsync, RunAsync) with a source-generated `JsonSerializerContext`. M2: extended with `UpdateSource` and `RemoveSource` JSExports; JSON schema unchanged. |
 
 ## From cs-agent-tools
 
