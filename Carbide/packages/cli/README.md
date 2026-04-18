@@ -81,7 +81,19 @@ carbide run --project Foo.csproj
 carbide validate --project Foo.csproj
 ```
 
-See [`@carbide/msbuild-lite`](../msbuild-lite/README.md) for the supported `.csproj` subset. In particular, `PackageReference` and `ProjectReference` are *captured* — they surface as `MSBLITE013` and `MSBLITE014` warnings — but not resolved. Those land in M6 and M9 respectively.
+See [`@carbide/msbuild-lite`](../msbuild-lite/README.md) for the supported `.csproj` subset. Current behavior is:
+
+- `<PackageReference>` is parsed by `@carbide/msbuild-lite` and then resolved by `@carbide/nuget` when the CLI runs in `--project` mode.
+- `<ProjectReference>` is still captured-only and surfaces as `MSBLITE014`; sibling-project builds remain future work.
+
+When a project declares packages, Carbide writes `carbide.lock.json` next to the project by default and replays it on subsequent runs:
+
+```bash
+carbide run --project Foo.csproj
+carbide run --project Foo.csproj --offline
+```
+
+Use `--allow-list-mode advisory` or `--allow-list-mode off` if you need to experiment outside Carbide's default allow-list policy. See [`@carbide/nuget`](../nuget/README.md) for resolver details and warning codes.
 
 ## Exit-code summary
 
