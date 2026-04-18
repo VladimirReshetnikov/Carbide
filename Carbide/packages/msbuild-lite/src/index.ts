@@ -169,7 +169,7 @@ export async function parseCsprojString(
                 pkgRefs.push({ id, version });
                 addWarning(
                     "MSBLITE013",
-                    `<PackageReference Include="${id}"/> is captured but not resolved; NuGet resolution lands in M6.`,
+                    `<PackageReference Include="${id}"/> captured by msbuild-lite; resolution is the consumer's responsibility (wire @carbide/nuget to resolve).`,
                     "package-reference",
                 );
             } else if (tag === "ProjectReference") {

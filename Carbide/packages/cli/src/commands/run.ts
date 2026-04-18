@@ -7,10 +7,15 @@ import { type ParsedArgs, lastString, stringList } from "../args.js";
 import { deriveAssemblyName, readReferenceBytes, readSource } from "../io.js";
 import { parseFormat, renderDiagnostic, writeJson } from "../format.js";
 import { runCsprojPipeline } from "../project-file.js";
+import {
+    NUGET_BOOLEAN_FLAGS,
+    NUGET_STRING_FLAGS,
+    extractNugetOptions,
+} from "../nuget-options.js";
 
 export const RUN_ARG_SPEC = {
-    strings: ["source", "ref", "assembly-name", "format", "project"],
-    booleans: ["help"],
+    strings: ["source", "ref", "assembly-name", "format", "project", ...NUGET_STRING_FLAGS],
+    booleans: ["help", ...NUGET_BOOLEAN_FLAGS],
 } as const;
 
 export async function runRun(args: ParsedArgs): Promise<number> {
@@ -40,7 +45,8 @@ export async function runRun(args: ParsedArgs): Promise<number> {
         let assemblyName: string;
 
         if (projectPath) {
-            const pipeline = await runCsprojPipeline(session, projectPath, refs);
+            const nugetOptions = extractNugetOptions(args, "run");
+            const pipeline = await runCsprojPipeline(session, projectPath, refs, nugetOptions);
             project = pipeline.project;
             const modelAsmName = pipeline.model.properties.assemblyName as string | undefined;
             assemblyName =
@@ -48,8 +54,11 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                     ? modelAsmName
                     : path.basename(pipeline.model.projectPath, path.extname(pipeline.model.projectPath));
             if (format === "human") {
-                for (const w of pipeline.model.warnings) {
+                for (const w of pipeline.warnings) {
                     process.stderr.write(`carbide: ${w.severity} ${w.code}: ${w.message}\n`);
+                }
+                if (pipeline.nugetLockWritten && pipeline.nugetLockPath) {
+                    process.stderr.write(`carbide: wrote ${pipeline.nugetLockPath}\n`);
                 }
             }
         } else {
@@ -132,8 +141,16 @@ Input modes (mutually exclusive):
   --source <path>          Source file. Repeatable. '-' reads one source from stdin.
 
 Options:
-  --ref <path>           Reference DLL. Repeatable.
-  --assembly-name <n>    Assembly name. Rejected when --project is used.
-  --format json|human    Output format (default: json).
-  --help                 Print this message.
+  --ref <path>             Reference DLL. Repeatable.
+  --assembly-name <n>      Assembly name. Rejected when --project is used.
+  --format json|human      Output format (default: json).
+  --help                   Print this message.
+
+NuGet flags (only relevant with --project):
+  --offline                Forbid network. Require cached bytes or a matching lock.
+  --lock <path>            Override lock file path. Default: <projectDir>/carbide.lock.json.
+                           When the file exists it is replayed verbatim.
+  --no-lock-write          Skip writing the lock after a fresh resolve.
+  --nuget-source <url>     Override the flat-container base URL (default: nuget.org).
+  --allow-list-mode <mode> strict | advisory | off. Default: strict.
 `;

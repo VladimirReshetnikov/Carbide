@@ -1,0 +1,35 @@
+{
+  "name": "@carbide/nuget",
+  "version": "0.0.0",
+  "description": "Bounded NuGet v3 resolver for Carbide: allow-listed managed-only packages only, with nearest-wins conflict resolution, TFM compatibility, a ~/.carbide/nuget-cache/ filesystem cache, and carbide.lock.json for offline replay.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:ts",
+    "test": "node --test --test-concurrency=1 test/unit/*.test.mjs",
+    "test:live": "node --test --test-concurrency=1 test/integration/*.test.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "csharp",
+    "dotnet",
+    "nuget",
+    "resolver"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.9.0"
+  }
+}

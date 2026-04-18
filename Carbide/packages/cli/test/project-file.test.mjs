@@ -155,8 +155,11 @@ test("carbide build --project --source combined exits 3", () => {
     assert.match(r.stderr, /mutually exclusive/);
 });
 
-test("PackageReference in .csproj surfaces as MSBLITE013 warning but build succeeds", async (t) => {
-    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-m5-pkg-"));
+test("M6: PackageReference in .csproj suppresses MSBLITE013 and replays empty lock hermetically", async (t) => {
+    // After M6 wiring, the CLI resolves PackageReferences via @carbide/nuget; MSBLITE013
+    // was an M5-era placeholder and is now suppressed when resolution actually runs.
+    // We drive the resolver through an empty lock so no network is needed.
+    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-m6-suppress-"));
     t.after(() => rmSync(workDir, { recursive: true, force: true }));
 
     writeFileSync(
@@ -169,6 +172,17 @@ test("PackageReference in .csproj surfaces as MSBLITE013 warning but build succe
 </Project>`,
     );
     writeFileSync(path.join(workDir, "Program.cs"), `Console.Write("ok");`);
+    // Pre-seed an empty lock so the resolver replays it (zero packages, no network).
+    writeFileSync(
+        path.join(workDir, "carbide.lock.json"),
+        JSON.stringify({
+            schemaVersion: 1,
+            generator: "carbide",
+            generatedAt: "2026-04-18T00:00:00Z",
+            packages: [],
+            warnings: [],
+        }) + "\n",
+    );
 
     const build = runCarbide([
         "build", "--project", path.join(workDir, "Foo.csproj"),
@@ -178,9 +192,12 @@ test("PackageReference in .csproj surfaces as MSBLITE013 warning but build succe
     assert.equal(build.status, 0, build.stderr);
     const payload = JSON.parse(build.stdout.trim());
     assert.equal(payload.success, true);
-    assert.ok(
-        (payload.warnings ?? []).some((w) => w.code === "MSBLITE013"),
-        `expected MSBLITE013 warning, got: ${JSON.stringify(payload.warnings)}`,
+    // M6 suppresses MSBLITE013 when resolution runs.
+    const msblite013 = (payload.warnings ?? []).filter((w) => w.code === "MSBLITE013");
+    assert.equal(
+        msblite013.length,
+        0,
+        `MSBLITE013 should be suppressed after M6 wiring, got: ${JSON.stringify(payload.warnings)}`,
     );
 });
 

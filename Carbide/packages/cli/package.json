@@ -13,7 +13,8 @@
   "scripts": {
     "build:ts": "tsc -p tsconfig.json",
     "build": "npm run build:ts",
-    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "test:live": "node --test --test-concurrency=1 test/integration/*.test.mjs"
   },
   "keywords": [
     "carbide",
@@ -25,7 +26,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@carbide/core": "file:../core",
-    "@carbide/msbuild-lite": "file:../msbuild-lite"
+    "@carbide/msbuild-lite": "file:../msbuild-lite",
+    "@carbide/nuget": "file:../nuget"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

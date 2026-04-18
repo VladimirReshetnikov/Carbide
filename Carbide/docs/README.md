@@ -33,6 +33,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - `packages/refs-net10.0/` — `@carbide/refs-net10.0`, the .NET 10 reference pack (`Microsoft.NETCore.App.Ref` → extracted `ref/net10.0/*.dll`). Opt-in sibling; when installed, Carbide's compile-time API surface is stable against runtime trim decisions.
 - `packages/cli/` — `@carbide/cli`, the `carbide` binary wrapping `@carbide/core` with `build` / `run` / `validate` subcommands.
 - `packages/msbuild-lite/` — `@carbide/msbuild-lite`, a bounded `.csproj` parser (semantic port of `cs_kit.msbuild_lite`). Consumed by the CLI's `--project` path.
+- `packages/nuget/` — `@carbide/nuget`, a bounded NuGet v3 resolver (flat-container client, nupkg/nuspec reader, TFM-compat matrix, allow-list, filesystem cache, `carbide.lock.json` read/write). Consumed by the CLI when a `.csproj` declares `<PackageReference>`s.
 
 ## Operations
 
