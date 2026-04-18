@@ -39,3 +39,46 @@ export function parseRunResult(json: string): import("../types.js").RunResult {
     }
     return parsed;
 }
+
+/** Wire shape of BuildResult — matches C# BuildResultDto. PE/PDB are base64 here. */
+interface BuildResultWire {
+    schemaVersion: number;
+    success: boolean;
+    peBase64?: string | null;
+    pdbBase64?: string | null;
+    diagnostics: import("../types.js").Diagnostic[];
+    durationMs: number;
+}
+
+export function parseBuildResult(json: string): import("../types.js").BuildResult {
+    const parsed = JSON.parse(json) as BuildResultWire & { schemaVersion?: unknown };
+    if (parsed.schemaVersion !== SCHEMA_VERSION) {
+        throw new CarbideSchemaError(json, SCHEMA_VERSION, parsed.schemaVersion);
+    }
+    return {
+        schemaVersion: parsed.schemaVersion,
+        success: parsed.success,
+        pe: decodeBase64(parsed.peBase64),
+        pdb: decodeBase64(parsed.pdbBase64),
+        diagnostics: parsed.diagnostics ?? [],
+        durationMs: parsed.durationMs,
+    };
+}
+
+function decodeBase64(value: string | null | undefined): Uint8Array | undefined {
+    if (!value) return undefined;
+    // Prefer Node's Buffer (single-shot, no chunking). Fall back to atob in the browser.
+    const nodeBuffer = (globalThis as { Buffer?: { from(s: string, enc: "base64"): Uint8Array } }).Buffer;
+    if (typeof nodeBuffer?.from === "function") {
+        return new Uint8Array(nodeBuffer.from(value, "base64"));
+    }
+    if (typeof atob !== "function") {
+        throw new Error("No base64 decoder available (neither Buffer.from nor atob).");
+    }
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}

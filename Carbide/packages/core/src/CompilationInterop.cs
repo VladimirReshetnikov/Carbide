@@ -79,6 +79,26 @@ public static partial class CompilationInterop
         return JsonSerializer.Serialize(diagnostics, CarbideJsonContext.Default.DiagnosticArray);
     }
 
+    /// <summary>
+    /// Emits PE + portable-PDB bytes without running. Returns a JSON payload with the byte
+    /// arrays base64-encoded; the TS side decodes them back into Uint8Array. See M4 plan §5 D38.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> BuildAsync(string projectId)
+    {
+        var result = await Host.Dispatch(s => s.BuildAsync(projectId)).ConfigureAwait(false);
+        var dto = new BuildResultDto
+        {
+            SchemaVersion = result.SchemaVersion,
+            Success = result.Success,
+            PeBase64 = result.Pe is null ? null : Convert.ToBase64String(result.Pe),
+            PdbBase64 = result.Pdb is null ? null : Convert.ToBase64String(result.Pdb),
+            Diagnostics = result.Diagnostics,
+            DurationMs = result.DurationMs,
+        };
+        return JsonSerializer.Serialize(dto, CarbideJsonContext.Default.BuildResultDto);
+    }
+
     [JSExport]
     public static async Task<string> RunAsync(string projectId)
     {
@@ -135,6 +155,21 @@ internal sealed class ProjectOptionsDto
     public string? RootNamespace { get; set; }
 }
 
+/// <summary>
+/// Wire shape of <see cref="Carbide.Core.Services.BuildResult"/>. PE and PDB bytes are
+/// base64-encoded so the JSExport string pipeline can carry them without custom
+/// <c>Uint8Array</c> marshalling (M4 plan §5 D38).
+/// </summary>
+internal sealed class BuildResultDto
+{
+    public int SchemaVersion { get; set; } = 1;
+    public bool Success { get; set; }
+    public string? PeBase64 { get; set; }
+    public string? PdbBase64 { get; set; }
+    public Carbide.Core.Services.Diagnostic[] Diagnostics { get; set; } = [];
+    public double DurationMs { get; set; }
+}
+
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Metadata,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -144,6 +179,7 @@ internal sealed class ProjectOptionsDto
 [JsonSerializable(typeof(Diagnostic))]
 [JsonSerializable(typeof(Diagnostic[]), TypeInfoPropertyName = "DiagnosticArray")]
 [JsonSerializable(typeof(RunResult))]
+[JsonSerializable(typeof(BuildResultDto))]
 [JsonSerializable(typeof(ProjectOptionsDto))]
 internal sealed partial class CarbideJsonContext : JsonSerializerContext
 {

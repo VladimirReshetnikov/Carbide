@@ -1,0 +1,30 @@
+// M4 BuildResult: the structured outcome of ProjectCompiler.BuildAsync. Mirrors the layout
+// of RunResult (SchemaVersion, Success, Diagnostics, DurationMs) so consumers can treat the
+// two uniformly in match/switch code.
+
+namespace Carbide.Core.Services;
+
+public sealed class BuildResult
+{
+    public int SchemaVersion { get; init; } = 1;
+    public bool Success { get; init; }
+    public byte[]? Pe { get; init; }
+    public byte[]? Pdb { get; init; }
+    public Diagnostic[] Diagnostics { get; init; } = [];
+    public double DurationMs { get; init; }
+
+    public static BuildResult Succeeded(byte[] pe, byte[] pdb, double durationMs) => new()
+    {
+        Success = true,
+        Pe = pe,
+        Pdb = pdb,
+        DurationMs = durationMs,
+    };
+
+    public static BuildResult Failed(Diagnostic[] diagnostics, double durationMs) => new()
+    {
+        Success = false,
+        Diagnostics = diagnostics,
+        DurationMs = durationMs,
+    };
+}

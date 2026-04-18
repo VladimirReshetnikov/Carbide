@@ -1,0 +1,33 @@
+{
+  "name": "@carbide/cli",
+  "version": "0.0.0",
+  "description": "Command-line interface for Carbide: build / run / validate C# projects without a .NET SDK install.",
+  "type": "module",
+  "main": "./dist/bin/carbide.js",
+  "bin": {
+    "carbide": "./dist/bin/carbide.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:ts",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "csharp",
+    "dotnet",
+    "cli",
+    "compiler"
+  ],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@carbide/core": "file:../core"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.9.0"
+  }
+}

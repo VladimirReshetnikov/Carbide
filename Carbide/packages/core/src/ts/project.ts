@@ -1,6 +1,6 @@
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import type { Diagnostic, ReferenceHandle, RunResult } from "./types.js";
-import { parseDiagnostics, parseRunResult } from "./interop/schema.js";
+import type { BuildResult, Diagnostic, ReferenceHandle, RunResult } from "./types.js";
+import { parseBuildResult, parseDiagnostics, parseRunResult } from "./interop/schema.js";
 
 export class Project {
     /** @internal */
@@ -59,6 +59,16 @@ export class Project {
     async getDiagnostics(): Promise<Diagnostic[]> {
         const json = await this.interop.GetDiagnosticsAsync(this.id);
         return parseDiagnostics(json);
+    }
+
+    /**
+     * Compiles the project and returns the emitted PE (and portable-PDB) bytes without
+     * executing anything. On compile failure the `diagnostics` array carries the errors and
+     * `pe` / `pdb` are absent. Use {@link run} to both compile and execute.
+     */
+    async build(): Promise<BuildResult> {
+        const json = await this.interop.BuildAsync(this.id);
+        return parseBuildResult(json);
     }
 
     async run(): Promise<RunResult> {

@@ -4,6 +4,7 @@ export type {
     Diagnostic,
     DiagnosticSeverity,
     RunResult,
+    BuildResult,
     ProjectOptions,
     ReferenceHandle,
 } from "./types.js";

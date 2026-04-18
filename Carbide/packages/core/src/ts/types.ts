@@ -24,6 +24,20 @@ export interface RunResult {
     diagnostics: Diagnostic[];
 }
 
+/**
+ * Outcome of {@link Project.build}. On success, `pe` holds the compiled assembly's bytes and
+ * `pdb` holds the portable-PDB bytes (unless debug info was disabled). On failure, both are
+ * absent and `diagnostics` carries the reason.
+ */
+export interface BuildResult {
+    schemaVersion: number;
+    success: boolean;
+    pe?: Uint8Array;
+    pdb?: Uint8Array;
+    diagnostics: Diagnostic[];
+    durationMs: number;
+}
+
 export interface ProjectOptions {
     targetFramework?: "net8.0" | "net10.0";
     languageVersion?: string;

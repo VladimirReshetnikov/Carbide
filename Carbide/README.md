@@ -2,7 +2,7 @@
 
 A C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process. Targeted at environments that cannot install the .NET SDK.
 
-**Status:** M3 — Reference DLL injection + ref-pack (Shape S3). On top of M1/M2's multi-document compile-and-run, a session now exposes `addReference(bytes, name)` / `removeReference(handle)` and projects expose `addReference(handle)`. When `@carbide/refs-net10.0` is installed alongside, Carbide's compile-time metadata set comes from the untrimmed `Microsoft.NETCore.App.Ref` ref-pack rather than the runtime's own (possibly trimmed) BCL, so Roslyn always sees the documented public API surface. NuGet-level resolution is still deferred to M6. See `docs/carbide-M3-detailed-plan__*.md` and `docs/drift/`.
+**Status:** M4 — PE emission & CLI. On top of M1–M3, `Project.build()` returns the emitted PE + portable-PDB bytes separately from `run()`, and the new `@carbide/cli` sibling package ships a `carbide build` / `run` / `validate` command trio. A Carbide-built DLL is a valid reference for a subsequent Carbide build — both via the in-process API and on disk through the CLI. `.csproj` parsing is still deferred to M5, NuGet to M6. See `docs/carbide-M4-detailed-plan__*.md` and `docs/drift/`.
 
 ## Layout
 
@@ -11,6 +11,7 @@ A C# compile-and-run framework that ships as a single npm package, embeds the .N
   - `src/` — `Carbide.Core.csproj` (the Blazor WASM C# project), plus TypeScript sources under `src/ts/`.
   - `test/` — host-side smoke tests and user-DLL fixtures under `test/fixtures/`.
 - `packages/refs-net10.0/` — the `@carbide/refs-net10.0` ref-pack (extracted from `Microsoft.NETCore.App.Ref` at install time; provides the untrimmed compile-time API surface).
+- `packages/cli/` — the `@carbide/cli` npm package (the `carbide` command; thin wrapper around `@carbide/core`).
 - `Directory.Build.props` / `Directory.Build.targets` — shared MSBuild settings for the C# project.
 
 ## Build
@@ -69,7 +70,20 @@ const result = await project.run();    // "Thing<42>\n"
 - `project.addReference(handle)` — attach a session-registered reference to a specific project.
 - `project.addSource(path, code)` / `updateSource(path, code)` / `removeSource(path)` — multi-document source management.
 - `project.getDiagnostics()` — Roslyn diagnostics with `path`, `spanStart/End`, `lineStart/End` populated.
+- `project.build()` — compile and return `{ success, pe, pdb, diagnostics, durationMs }` without executing.
 - `project.run()` — compile + execute; returns `{ success, stdOut, stdErr, exitCode, diagnostics, … }`.
+
+### CLI
+
+```bash
+# Build a library → DLL on disk.
+npx carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
+
+# Reference it from another source and run.
+npx carbide run --source Program.cs --ref out/lib/MyLib.dll --format human
+```
+
+See [`packages/cli/README.md`](packages/cli/README.md) for the full `build` / `run` / `validate` reference.
 
 ## Origin
 

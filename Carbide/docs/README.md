@@ -21,6 +21,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - `packages/core/` — `@carbide/core`, the runtime/session/project surface.
 - `packages/refs-net10.0/` — `@carbide/refs-net10.0`, the .NET 10 reference pack (`Microsoft.NETCore.App.Ref` → extracted `ref/net10.0/*.dll`). Opt-in sibling; when installed, Carbide's compile-time API surface is stable against runtime trim decisions.
+- `packages/cli/` — `@carbide/cli`, the `carbide` binary wrapping `@carbide/core` with `build` / `run` / `validate` subcommands.
 
 ## Operations
 

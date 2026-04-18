@@ -147,6 +147,9 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     public Task<Diagnostic[]> GetDiagnosticsAsync(string projectId)
         => GetProject(projectId).GetDiagnosticsAsync();
 
+    public Task<BuildResult> BuildAsync(string projectId)
+        => GetProject(projectId).BuildAsync();
+
     public Task<RunResult> RunAsync(string projectId)
         => GetProject(projectId).RunAsync();
 

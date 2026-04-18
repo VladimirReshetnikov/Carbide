@@ -12,9 +12,11 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Text;
 using Carbide.Core.Hosting;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.Extensions.Logging;
 
@@ -66,7 +68,7 @@ internal sealed class ProjectCompiler
         Solution = Solution.AddDocument(
             _implicitUsingsId,
             ImplicitUsingsDocumentPath,
-            SourceText.From(ImplicitUsingsSource),
+            SourceText.From(ImplicitUsingsSource, Encoding.UTF8),
             filePath: ImplicitUsingsDocumentPath);
 
         Solution = Solution.AddMetadataReferences(_projectId, MetadataReferenceCache.MetadataReferences);
@@ -105,7 +107,9 @@ internal sealed class ProjectCompiler
         }
 
         var id = DocumentId.CreateNewId(_projectId, path);
-        Solution = Solution.AddDocument(id, path, SourceText.From(code), filePath: path);
+        // Encoding is required so portable-PDB emission in BuildAsync can record source
+        // offsets. Without it, Roslyn surfaces CS8055 at emit time.
+        Solution = Solution.AddDocument(id, path, SourceText.From(code, Encoding.UTF8), filePath: path);
         _documentsByPath[path] = id;
         Workspace.TryApplyChanges(Solution);
         _logger.LogTrace("AddSource('{Path}') -> now {Count} user document(s).", path, _documentsByPath.Count);
@@ -121,7 +125,7 @@ internal sealed class ProjectCompiler
                 "Note: paths are compared byte-for-byte, so casing and slash direction matter.");
         }
 
-        Solution = Solution.WithDocumentText(id, SourceText.From(code));
+        Solution = Solution.WithDocumentText(id, SourceText.From(code, Encoding.UTF8));
         Workspace.TryApplyChanges(Solution);
         _logger.LogTrace("UpdateSource('{Path}').", path);
     }
@@ -222,28 +226,92 @@ internal sealed class ProjectCompiler
         return compilation.GetDiagnostics().ToCarbideDiagnosticArray();
     }
 
-    public async Task<RunResult> RunAsync()
+    /// <summary>
+    /// Emits the compilation as PE + portable-PDB bytes. Returns a <see cref="BuildResult"/>
+    /// that is ready to hand to JS callers through <c>CompilationInterop.BuildAsync</c>.
+    ///
+    /// <para>Emits with <see cref="OutputKind.DynamicallyLinkedLibrary"/> so a project
+    /// without a <c>Main</c> method still compiles — the common "build a library" case.
+    /// If a Main is present, Roslyn still records its metadata in the DLL, so a subsequent
+    /// reflective invocation remains possible. Use <see cref="RunAsync"/> when you want
+    /// strict "must have an entry point" behaviour.</para>
+    /// </summary>
+    public async Task<BuildResult> BuildAsync()
     {
         var sw = Stopwatch.StartNew();
+        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.DynamicallyLinkedLibrary).ConfigureAwait(false);
+        if (compilation is null)
+        {
+            sw.Stop();
+            return BuildResult.Failed(preEmitDiagnostics, sw.Elapsed.TotalMilliseconds);
+        }
+
+        var (pe, pdb, emitDiagnostics) = EmitPeAndPdb(compilation);
+        sw.Stop();
+        return pe is null
+            ? BuildResult.Failed(emitDiagnostics, sw.Elapsed.TotalMilliseconds)
+            : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds);
+    }
+
+    /// <summary>
+    /// Fetches the compilation with the requested output kind, bails with diagnostics when
+    /// pre-emit errors exist, and otherwise returns the compilation for emission or
+    /// execution. Centralises the "get compilation + filter for errors" dance that both
+    /// <see cref="BuildAsync"/> and <see cref="RunAsync"/> perform, and lets each call
+    /// control whether CS5001 "no suitable Main" is an error or not.
+    /// </summary>
+    private async Task<(Compilation? Compilation, Diagnostic[] Diagnostics)> TryGetErrorFreeCompilationAsync(OutputKind outputKind)
+    {
         var project = Solution.GetProject(_projectId)
             ?? throw new InvalidOperationException("Project missing from solution.");
         var compilation = await project.GetCompilationAsync().ConfigureAwait(false)
             ?? throw new InvalidOperationException("Roslyn returned no compilation.");
 
-        var compileDiagnostics = compilation.GetDiagnostics();
-        if (compileDiagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        if (compilation.Options is CSharpCompilationOptions csOptions && csOptions.OutputKind != outputKind)
         {
-            return RunResult.CompileFailure(compileDiagnostics.ToCarbideDiagnosticArray(), sw.Elapsed.TotalMilliseconds);
+            compilation = compilation.WithOptions(csOptions.WithOutputKind(outputKind));
         }
 
+        var diagnostics = compilation.GetDiagnostics();
+        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
+        {
+            return (null, diagnostics.ToCarbideDiagnosticArray());
+        }
+        return (compilation, Array.Empty<Diagnostic>());
+    }
+
+    /// <summary>
+    /// Emits PE + portable-PDB from an already-validated compilation. On emit failure, PE is
+    /// null and the emit diagnostics come back instead.
+    /// </summary>
+    private static (byte[]? Pe, byte[]? Pdb, Diagnostic[] Diagnostics) EmitPeAndPdb(Compilation compilation)
+    {
         using var peStream = new MemoryStream();
-        var emit = compilation.Emit(peStream);
+        using var pdbStream = new MemoryStream();
+        var options = new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb);
+        var emit = compilation.Emit(peStream, pdbStream, options: options);
         if (!emit.Success)
         {
-            return RunResult.CompileFailure(emit.Diagnostics.ToCarbideDiagnosticArray(), sw.Elapsed.TotalMilliseconds);
+            return (null, null, emit.Diagnostics.ToCarbideDiagnosticArray());
+        }
+        return (peStream.ToArray(), pdbStream.ToArray(), Array.Empty<Diagnostic>());
+    }
+
+    public async Task<RunResult> RunAsync()
+    {
+        var sw = Stopwatch.StartNew();
+        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.ConsoleApplication).ConfigureAwait(false);
+        if (compilation is null)
+        {
+            return RunResult.CompileFailure(preEmitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
 
-        var peBytes = peStream.ToArray();
+        var (peBytes, _, emitDiagnostics) = EmitPeAndPdb(compilation);
+        if (peBytes is null)
+        {
+            return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
+        }
+
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
 
