@@ -49,6 +49,9 @@ export interface CarbideInteropExports {
     AddSource(projectId: string, path: string, code: string): void;
     UpdateSource(projectId: string, path: string, code: string): void;
     RemoveSource(projectId: string, path: string): void;
+    AddReference(sessionId: string, base64Bytes: string, name: string | null): string;
+    RemoveReference(sessionId: string, referenceId: string): boolean;
+    AttachReference(projectId: string, referenceId: string): void;
     GetDiagnosticsAsync(projectId: string): Promise<string>;
     RunAsync(projectId: string): Promise<string>;
 }

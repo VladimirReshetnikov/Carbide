@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { access } from "node:fs/promises";
-import type { HostAdapter } from "../adapter.js";
+import { access, readFile } from "node:fs/promises";
+import type { HostAdapter, ReferencePackDescriptor } from "../adapter.js";
 import { type AssetServerHandle, startAssetServer } from "./asset-server.js";
 
 export type NodeAdapterAssetDelivery = "file" | "http";
@@ -66,12 +66,87 @@ export class NodeHostAdapter implements HostAdapter {
         return fileDirUrl(dir);
     }
 
+    /**
+     * Locates `@carbide/refs-net10.0` (or a later TFM-sibling) via require.resolve and
+     * starts an asset server for its `ref/net10.0/` directory. Returns null when no
+     * ref-pack package is installed — Carbide then falls back to the runtime-DLL path.
+     *
+     * Uses its own asset server rather than serving the ref-pack from the primary framework
+     * directory so packages can live anywhere under node_modules without additional wiring.
+     */
+    async resolveReferencePack(): Promise<ReferencePackDescriptor | null> {
+        const info = await locateRefPack();
+        if (!info) {
+            return null;
+        }
+        let manifest: { dlls?: Array<{ name: string }> };
+        try {
+            const text = await readFile(info.manifestPath, "utf8");
+            manifest = JSON.parse(text);
+        } catch {
+            // Manifest is missing or malformed. Fall back as if the ref-pack wasn't installed.
+            return null;
+        }
+        const dllNames = (manifest.dlls ?? []).map((d) => d.name).filter((n): n is string => !!n);
+        if (dllNames.length === 0) {
+            return null;
+        }
+        if (!this.refPackServer) {
+            this.refPackServer = await startAssetServer(info.refDir);
+        }
+        return {
+            baseUrl: this.refPackServer.baseUrl,
+            dllNames,
+        };
+    }
+
+    private refPackServer: AssetServerHandle | null = null;
+
     async dispose(): Promise<void> {
         if (this.serverHandle) {
             await this.serverHandle.close();
             this.serverHandle = null;
         }
+        if (this.refPackServer) {
+            await this.refPackServer.close();
+            this.refPackServer = null;
+        }
     }
+}
+
+async function locateRefPack(): Promise<{
+    packageDir: string;
+    refDir: string;
+    manifestPath: string;
+} | null> {
+    // Try the installed-package path first (common case for consumers).
+    try {
+        const require = createRequire(import.meta.url);
+        const manifestPath = require.resolve("@carbide/refs-net10.0/ref-manifest.json");
+        const packageDir = path.dirname(manifestPath);
+        const refDir = path.join(packageDir, "ref", "net10.0");
+        if (await dirExists(refDir)) {
+            return { packageDir, refDir, manifestPath };
+        }
+    } catch {
+        // Not installed via node_modules; try the monorepo sibling path.
+    }
+
+    // Monorepo fallback: `packages/refs-net10.0/` sits next to `packages/core/`.
+    const thisDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+        path.resolve(thisDir, "../../../..", "refs-net10.0"),
+        path.resolve(thisDir, "../../../../..", "refs-net10.0"),
+        path.resolve(thisDir, "../../../../..", "packages", "refs-net10.0"),
+    ];
+    for (const candidate of candidates) {
+        const refDir = path.join(candidate, "ref", "net10.0");
+        const manifestPath = path.join(candidate, "ref-manifest.json");
+        if (await dirExists(refDir)) {
+            return { packageDir: candidate, refDir, manifestPath };
+        }
+    }
+    return null;
 }
 
 function fileDirUrl(dir: string): string {

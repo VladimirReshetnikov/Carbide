@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>MyHelper</AssemblyName>
+    <RootNamespace>MyHelper</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Carbide's user-reference tests read this DLL's bytes and feed them to
+         session.addReference. netstandard2.0 keeps the reference surface stable across
+         .NET 8/10 Carbide targets. Parent Directory.Build.props is inherited, so we
+         explicitly opt back out of trimming (incompatible with netstandard2.0) and
+         the strict analysis settings. -->
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <AnalysisLevel>none</AnalysisLevel>
+    <AnalysisMode>none</AnalysisMode>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

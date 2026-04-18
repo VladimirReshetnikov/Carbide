@@ -22,6 +22,27 @@ export interface HostAdapter {
      */
     resolveDotnetModuleUrl?(): Promise<string>;
 
+    /**
+     * Describes where to fetch `@carbide/refs-net10.0` (or a sibling ref-pack). When present,
+     * Carbide boots with ref-pack DLL URLs merged into the runtime InitAsync call. When
+     * absent (or null), Carbide falls back to the runtime-DLL path as the compile-time
+     * API surface.
+     *
+     * The adapter is expected to resolve the manifest locally (e.g. via `readFile` in Node)
+     * and return `dllNames` directly; this avoids cross-scheme `fetch()` issues that occur
+     * when ref-pack assets live on disk but are eventually delivered over HTTP.
+     *
+     * Returning `null` is a first-class outcome (not an error).
+     */
+    resolveReferencePack?(): Promise<ReferencePackDescriptor | null>;
+
     /** Release any resources acquired by the adapter (HTTP server sockets, buffered captures). */
     dispose(): Promise<void>;
+}
+
+export interface ReferencePackDescriptor {
+    /** URL (with trailing slash) from which each DLL name joins to a fetchable URL. */
+    readonly baseUrl: string;
+    /** DLL file names; the boot joins each against `baseUrl` to form the full URL. */
+    readonly dllNames: readonly string[];
 }

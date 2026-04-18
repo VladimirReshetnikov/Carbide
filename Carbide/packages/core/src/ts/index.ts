@@ -5,10 +5,11 @@ export type {
     DiagnosticSeverity,
     RunResult,
     ProjectOptions,
+    ReferenceHandle,
 } from "./types.js";
 export { CARBIDE_VERSION } from "./version.js";
 export { BrowserHostAdapter, type BrowserAdapterOptions } from "./host/browser/browser-adapter.js";
-export type { HostAdapter } from "./host/adapter.js";
+export type { HostAdapter, ReferencePackDescriptor } from "./host/adapter.js";
 export { CarbideSchemaError, SCHEMA_VERSION } from "./interop/schema.js";
 
 /** @deprecated transitional M0 helper; replaced by CarbideSession.initializeAsync. */

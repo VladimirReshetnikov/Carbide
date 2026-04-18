@@ -1,0 +1,29 @@
+{
+  "name": "@carbide/refs-net10.0",
+  "version": "0.0.0",
+  "description": "Pre-extracted .NET 10 reference assemblies for Carbide's compile-time API surface. Derived from Microsoft.NETCore.App.Ref; see THIRD_PARTY_NOTICES.md.",
+  "type": "module",
+  "main": "./ref-manifest.json",
+  "exports": {
+    ".": "./ref-manifest.json",
+    "./ref-manifest.json": "./ref-manifest.json"
+  },
+  "files": [
+    "ref-manifest.json",
+    "ref/net10.0/*.dll",
+    "THIRD_PARTY_NOTICES.md",
+    "scripts/build.mjs"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "postinstall": "node scripts/build.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "csharp",
+    "dotnet",
+    "reference-assemblies",
+    "net10.0"
+  ],
+  "license": "Apache-2.0"
+}

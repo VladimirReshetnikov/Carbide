@@ -57,11 +57,34 @@ export async function bootRuntime(options: BootOptions): Promise<BootResult> {
 
     const exportsRoot = (await runtime.getAssemblyExports(mainAssemblyName)) as Record<string, unknown>;
     const interop = locateInterop(exportsRoot);
-    const assemblyUrls = resolveAssemblyUrls(config, baseUrl);
+
+    const refPackUrls = options.hostAdapter.resolveReferencePack
+        ? resolveRefPackUrls(await options.hostAdapter.resolveReferencePack())
+        : [];
+    // When a ref-pack is available, use *only* its DLLs for the compile-time metadata set.
+    // Mixing ref-pack (untrimmed reference assemblies) with the runtime (trimmed
+    // implementation assemblies) yields duplicate type definitions and CS0518 "Predefined
+    // type not defined" errors because Roslyn can't decide which copy to bind against.
+    // Without a ref-pack, fall back to the M1/M2 runtime-DLL path.
+    const assemblyUrls = refPackUrls.length > 0
+        ? refPackUrls
+        : resolveAssemblyUrls(config, baseUrl);
     await interop.InitAsync(assemblyUrls);
 
     return { interop, runtime, config };
 }
+
+/**
+ * Joins each dll name against the ref-pack's base URL. Returns an empty array when the
+ * adapter reports no ref-pack (Carbide falls back to the runtime-DLL path).
+ */
+function resolveRefPackUrls(
+    pack: import("../host/adapter.js").ReferencePackDescriptor | null,
+): string[] {
+    if (!pack) return [];
+    return pack.dllNames.map((name) => new URL(name, pack.baseUrl).toString());
+}
+
 
 function locateInterop(root: Record<string, unknown>): CarbideInteropExports {
     // .NET's JSExport namespace surface mirrors the C# namespace tree:

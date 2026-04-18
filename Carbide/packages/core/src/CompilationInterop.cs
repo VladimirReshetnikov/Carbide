@@ -55,6 +55,23 @@ public static partial class CompilationInterop
     public static void RemoveSource(string projectId, string path)
         => Host.Dispatch(s => s.RemoveSource(projectId, path));
 
+    // --- M3: reference registry surface -------------------------------------------------
+
+    [JSExport]
+    public static string AddReference(string sessionId, string base64Bytes, string? name)
+    {
+        var bytes = Convert.FromBase64String(base64Bytes);
+        return Host.Dispatch(s => s.AddReference(sessionId, bytes, name));
+    }
+
+    [JSExport]
+    public static bool RemoveReference(string sessionId, string referenceId)
+        => Host.Dispatch(s => s.RemoveReference(sessionId, referenceId));
+
+    [JSExport]
+    public static void AttachReference(string projectId, string referenceId)
+        => Host.Dispatch(s => s.AttachReference(projectId, referenceId));
+
     [JSExport]
     public static async Task<string> GetDiagnosticsAsync(string projectId)
     {

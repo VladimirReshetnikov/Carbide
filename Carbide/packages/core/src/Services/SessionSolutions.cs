@@ -74,13 +74,9 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
 
     public string CreateProject(string sessionId, DocumentOptions? options = null, string? assemblyName = null)
     {
-        if (!_sessions.TryGetValue(sessionId, out var state))
-        {
-            throw new InvalidOperationException($"Unknown session id '{sessionId}'.");
-        }
-
+        var state = GetSession(sessionId);
         var projectId = Guid.NewGuid().ToString("N");
-        var compiler = new ProjectCompiler(assemblyName, options);
+        var compiler = new ProjectCompiler(state.ReferenceRegistry, assemblyName, options);
         _projects[projectId] = new ProjectEntry(sessionId, compiler);
         state.ProjectIds.Add(projectId);
         return projectId;
@@ -94,6 +90,59 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
 
     public void RemoveSource(string projectId, string path)
         => GetProject(projectId).RemoveSource(path);
+
+    // --- M3: reference registry surface -------------------------------------------------
+
+    /// <summary>Registers PE bytes in the session's registry and returns the new id.</summary>
+    public string AddReference(string sessionId, byte[] bytes, string? name)
+    {
+        var state = GetSession(sessionId);
+        return state.ReferenceRegistry.Add(bytes, name);
+    }
+
+    /// <summary>
+    /// Removes a reference from the session registry. For every project in the session that
+    /// has this id attached, rebuilds the metadata-refs list so stale references don't linger.
+    /// No-op if the id was never registered.
+    /// </summary>
+    public bool RemoveReference(string sessionId, string referenceId)
+    {
+        var state = GetSession(sessionId);
+        if (!state.ReferenceRegistry.Remove(referenceId))
+        {
+            return false;
+        }
+        foreach (var projectId in state.ProjectIds)
+        {
+            if (_projects.TryGetValue(projectId, out var entry))
+            {
+                entry.Compiler.DetachReference(referenceId);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Attaches a session-registered reference to a project.</summary>
+    public void AttachReference(string projectId, string referenceId)
+    {
+        if (!_projects.TryGetValue(projectId, out var entry))
+        {
+            throw new InvalidOperationException($"Unknown project id '{projectId}'.");
+        }
+        if (!_sessions.TryGetValue(entry.SessionId, out var state))
+        {
+            throw new InvalidOperationException(
+                $"Project '{projectId}' is attached to session '{entry.SessionId}', which no longer exists.");
+        }
+        if (!state.ReferenceRegistry.Contains(referenceId))
+        {
+            throw new InvalidOperationException(
+                $"Reference '{referenceId}' is not registered in session '{entry.SessionId}'.");
+        }
+        entry.Compiler.AttachReference(referenceId);
+    }
+
+    // --- build/run ----------------------------------------------------------------------
 
     public Task<Diagnostic[]> GetDiagnosticsAsync(string projectId)
         => GetProject(projectId).GetDiagnosticsAsync();
@@ -110,9 +159,19 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
         return entry.Compiler;
     }
 
+    private SessionState GetSession(string sessionId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var state))
+        {
+            throw new InvalidOperationException($"Unknown session id '{sessionId}'.");
+        }
+        return state;
+    }
+
     private sealed class SessionState
     {
         public HashSet<string> ProjectIds { get; } = new(StringComparer.Ordinal);
+        public ReferenceRegistry ReferenceRegistry { get; } = new();
     }
 
     private sealed record ProjectEntry(string SessionId, ProjectCompiler Compiler);

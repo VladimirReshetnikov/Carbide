@@ -16,6 +16,11 @@ This directory holds the design material for **Carbide** — a working codename 
 - [M2 — detailed plan (multi-document)](carbide-M2-detailed-plan__2026-04-18__00-58-47-753934.md) — sub-milestones, public-API additions (`updateSource`, `removeSource`), diagnostic-attribution rules, fixture seed, and M2 non-goals.
 - [M3 — detailed plan (reference DLL injection + ref-pack)](carbide-M3-detailed-plan__2026-04-18__05-18-02-170097.md) — sub-milestones, `ReferenceRegistry`, `session.addReference` / `project.addReference`, `@carbide/refs-net10.0` package, best-effort trim restoration, and M3 non-goals.
 
+## Packages in this repository
+
+- `packages/core/` — `@carbide/core`, the runtime/session/project surface.
+- `packages/refs-net10.0/` — `@carbide/refs-net10.0`, the .NET 10 reference pack (`Microsoft.NETCore.App.Ref` → extracted `ref/net10.0/*.dll`). Opt-in sibling; when installed, Carbide's compile-time API surface is stable against runtime trim decisions.
+
 ## Operations
 
 - [Drift tracking](drift/README.md) — periodic upstream-drift reports; also lists documented runtime differences vs. a local .NET CLI.

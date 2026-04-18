@@ -1,10 +1,14 @@
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import type { Diagnostic, RunResult } from "./types.js";
+import type { Diagnostic, ReferenceHandle, RunResult } from "./types.js";
 import { parseDiagnostics, parseRunResult } from "./interop/schema.js";
 
 export class Project {
     /** @internal */
-    constructor(private readonly interop: CarbideInteropExports, public readonly id: string) {}
+    constructor(
+        private readonly interop: CarbideInteropExports,
+        public readonly id: string,
+        /** @internal */ readonly sessionId: string,
+    ) {}
 
     /**
      * Adds a new source file to the project. Throws if a document at this exact path already
@@ -29,6 +33,27 @@ export class Project {
      */
     removeSource(path: string): void {
         this.interop.RemoveSource(this.id, path);
+    }
+
+    /**
+     * Attaches a session-registered reference to this project. Subsequent compilations see
+     * the reference's metadata. Idempotent. The handle must belong to the same session that
+     * created this project.
+     */
+    addReference(handle: ReferenceHandle): void {
+        if (handle.sessionId !== this.sessionId) {
+            throw new Error(
+                `Reference handle '${handle.id}' belongs to session '${handle.sessionId}', ` +
+                    `not this project's session '${this.sessionId}'. ` +
+                    "References are session-scoped; cross-session attach is not allowed.",
+            );
+        }
+        if (handle.disposed) {
+            throw new Error(
+                `Reference handle '${handle.id}' has been disposed (removeReference or session shutdown).`,
+            );
+        }
+        this.interop.AttachReference(this.id, handle.id);
     }
 
     async getDiagnostics(): Promise<Diagnostic[]> {

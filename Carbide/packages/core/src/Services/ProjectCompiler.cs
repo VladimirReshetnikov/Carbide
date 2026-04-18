@@ -23,6 +23,7 @@ namespace Carbide.Core.Services;
 internal sealed class ProjectCompiler
 {
     private readonly ILogger<ProjectCompiler> _logger = Host.Services.GetService<ILogger<ProjectCompiler>>();
+    private readonly ReferenceRegistry _referenceRegistry;
     private readonly ProjectId _projectId;
     private readonly string _assemblyName;
 
@@ -47,8 +48,9 @@ internal sealed class ProjectCompiler
     /// <summary>Default path used when callers don't supply one (kept for M1 compatibility).</summary>
     public const string DefaultDocumentPath = "Program.cs";
 
-    public ProjectCompiler(string? assemblyName = null, DocumentOptions? options = null)
+    public ProjectCompiler(ReferenceRegistry referenceRegistry, string? assemblyName = null, DocumentOptions? options = null)
     {
+        _referenceRegistry = referenceRegistry ?? throw new ArgumentNullException(nameof(referenceRegistry));
         options ??= DocumentOptions.Default;
         _assemblyName = assemblyName ?? "Carbide.Project";
 
@@ -80,6 +82,11 @@ internal sealed class ProjectCompiler
     // Path → DocumentId for user-added documents only. The implicit-usings document is
     // intentionally not in this map so it can't leak into AddSource/UpdateSource/RemoveSource.
     private readonly Dictionary<string, DocumentId> _documentsByPath = new(StringComparer.Ordinal);
+
+    // Set of attached reference ids (session-scoped). Looked up through _referenceRegistry at
+    // rebuild time — if the registry removes a ref while it's still attached here, the next
+    // rebuild silently skips the orphan (architecture §3.1).
+    private readonly HashSet<string> _attachedReferenceIds = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The set of user-visible document paths currently in the project, in insertion order.
@@ -117,6 +124,58 @@ internal sealed class ProjectCompiler
         Solution = Solution.WithDocumentText(id, SourceText.From(code));
         Workspace.TryApplyChanges(Solution);
         _logger.LogTrace("UpdateSource('{Path}').", path);
+    }
+
+    /// <summary>
+    /// Attaches a session-registered reference to this project. Idempotent — attaching the
+    /// same id twice is a no-op.
+    /// </summary>
+    public void AttachReference(string referenceId)
+    {
+        if (string.IsNullOrEmpty(referenceId))
+        {
+            throw new ArgumentException("Reference id must be non-empty.", nameof(referenceId));
+        }
+        if (!_referenceRegistry.Contains(referenceId))
+        {
+            throw new InvalidOperationException(
+                $"Unknown reference id '{referenceId}'. Register bytes via AddReference first.");
+        }
+        if (_attachedReferenceIds.Add(referenceId))
+        {
+            RebuildMetadataReferences();
+            _logger.LogTrace("AttachReference('{Id}') -> now {Count} attached.", referenceId, _attachedReferenceIds.Count);
+        }
+    }
+
+    /// <summary>
+    /// Detaches a reference from this project. No-op if not attached. Called by SessionSolutions
+    /// when a reference is removed from the session registry, so every affected project's
+    /// solution drops the stale reference on the spot.
+    /// </summary>
+    public void DetachReference(string referenceId)
+    {
+        if (_attachedReferenceIds.Remove(referenceId))
+        {
+            RebuildMetadataReferences();
+            _logger.LogTrace("DetachReference('{Id}') -> now {Count} attached.", referenceId, _attachedReferenceIds.Count);
+        }
+    }
+
+    private void RebuildMetadataReferences()
+    {
+        // Compile-time references = built-in BCL cache ∪ currently-attached user references.
+        // Orphaned ids (attached but removed from the registry) are silently skipped.
+        var refs = new List<MetadataReference>(MetadataReferenceCache.MetadataReferences);
+        foreach (var id in _attachedReferenceIds)
+        {
+            if (_referenceRegistry.TryGet(id, out var reference))
+            {
+                refs.Add(reference);
+            }
+        }
+        Solution = Solution.WithProjectMetadataReferences(_projectId, refs);
+        Workspace.TryApplyChanges(Solution);
     }
 
     public void RemoveSource(string path)
@@ -188,7 +247,56 @@ internal sealed class ProjectCompiler
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
 
-        var assembly = LoadAssembly(peBytes);
+        // Pre-load every attached reference so the runtime can resolve them by identity when
+        // the user's PE references their types. Key the loaded assemblies by simple name so
+        // the AssemblyResolve handler below can answer requests that arrive during JIT.
+        var loadedReferences = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+        foreach (var refId in _attachedReferenceIds)
+        {
+            if (!_referenceRegistry.TryGetBytes(refId, out var refBytes))
+            {
+                continue;
+            }
+            try
+            {
+                var refAssembly = LoadAssembly(refBytes);
+                var simpleName = refAssembly.GetName().Name;
+                if (!string.IsNullOrEmpty(simpleName))
+                {
+                    loadedReferences[simpleName] = refAssembly;
+                }
+            }
+            catch (Exception ex) when (ex is FileLoadException or BadImageFormatException)
+            {
+                _logger.LogWarning(
+                    "Attached reference '{Id}' could not be loaded into the AppDomain: {Message}",
+                    refId, ex.Message);
+            }
+        }
+
+        // Mono-WASM's default AssemblyLoadContext does not always find assemblies loaded via
+        // Assembly.Load(byte[]) when resolving references from a later Assembly.Load(byte[]).
+        // An AssemblyResolve handler fills the gap by answering by simple name.
+        ResolveEventHandler resolveHandler = (sender, args) =>
+        {
+            var simpleName = new AssemblyName(args.Name).Name;
+            return simpleName is not null && loadedReferences.TryGetValue(simpleName, out var found)
+                ? found
+                : null;
+        };
+        AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
+
+        Assembly assembly;
+        try
+        {
+            assembly = LoadAssembly(peBytes);
+        }
+        finally
+        {
+            // Keep the handler alive for the duration of the user's run so lazy references
+            // (types resolved at method-JIT time) can still find the assemblies. Removal
+            // happens in the outer finally after the user's entry point has returned.
+        }
         var reflectedEntry = assembly.EntryPoint
             ?? throw new InvalidOperationException(
                 $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
@@ -250,6 +358,7 @@ internal sealed class ProjectCompiler
         {
             Console.SetOut(oldOut);
             Console.SetError(oldError);
+            AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
         }
 
         sw.Stop();

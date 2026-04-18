@@ -32,3 +32,17 @@ export interface ProjectOptions {
     assemblyName?: string;
     rootNamespace?: string;
 }
+
+/**
+ * Opaque handle for a reference registered on a session via {@link CarbideSession.addReference}.
+ * The session owns the reference's lifetime; removing it via
+ * {@link CarbideSession.removeReference} or shutting the session down invalidates the handle.
+ * Attaching an invalidated handle throws.
+ */
+export interface ReferenceHandle {
+    readonly id: string;
+    readonly name?: string;
+    readonly sessionId: string;
+    /** True once the session has disposed the reference (or the session itself). */
+    readonly disposed: boolean;
+}
