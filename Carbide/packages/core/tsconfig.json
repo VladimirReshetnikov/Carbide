@@ -11,6 +11,7 @@
     "outDir": "./dist",
     "rootDir": "./src/ts",
     "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "resolveJsonModule": true,
     "skipLibCheck": true
   },

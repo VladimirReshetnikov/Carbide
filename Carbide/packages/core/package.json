@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./interop/schema": {
+      "types": "./dist/interop/schema.d.ts",
+      "default": "./dist/interop/schema.js"
     }
   },
   "files": [
@@ -19,7 +27,10 @@
     "build:dotnet": "dotnet publish -c Release src/Carbide.Core.csproj",
     "build:ts": "tsc -p tsconfig.json",
     "build": "npm run build:dotnet && npm run build:ts",
-    "test": "node --test test/smoke.node.test.mjs",
+    "test": "node --test test/smoke.node.test.mjs test/node/*.test.mjs",
+    "test:smoke": "node --test test/smoke.node.test.mjs",
+    "test:node": "node --test test/node/*.test.mjs",
+    "test:browser": "playwright test",
     "pack:core": "npm pack"
   },
   "keywords": [
@@ -33,6 +44,8 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "@types/node": "^22.9.0",
+    "@playwright/test": "^1.50.0"
   }
 }

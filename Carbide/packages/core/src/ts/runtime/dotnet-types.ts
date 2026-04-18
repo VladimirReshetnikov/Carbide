@@ -1,0 +1,52 @@
+/**
+ * Minimal shape of the `dotnet` export produced by `dotnet publish` in .NET 10 Mono-WASM.
+ *
+ * Not every builder method is modelled — only the ones Carbide actually calls. This keeps
+ * our surface traceable; any new method we consume must be added here deliberately.
+ */
+
+export interface MonoConfig {
+    mainAssemblyName?: string;
+    debugLevel?: number;
+    diagnosticTracing?: boolean;
+    disableIntegrityCheck?: boolean;
+    resources?: {
+        coreAssembly?: Array<{ name: string; virtualPath?: string }>;
+        assembly?: Array<{ name: string; virtualPath?: string }>;
+        satelliteResources?: Record<string, Array<{ name: string; virtualPath?: string }>>;
+        jsModuleNative?: Array<{ name: string }>;
+        jsModuleRuntime?: Array<{ name: string }>;
+        wasmNative?: Array<{ name: string }>;
+    };
+}
+
+export interface RuntimeAPI {
+    getAssemblyExports(assemblyName: string): Promise<AssemblyExports>;
+    getConfig(): MonoConfig;
+}
+
+export interface AssemblyExports {
+    [namespaceSegment: string]: unknown;
+}
+
+export interface DotnetHostBuilder {
+    withConfig(config: Partial<MonoConfig>): DotnetHostBuilder;
+    withDiagnosticTracing(enabled: boolean): DotnetHostBuilder;
+    withDebugging(level: number): DotnetHostBuilder;
+    create(): Promise<RuntimeAPI>;
+}
+
+export interface DotnetModule {
+    dotnet: DotnetHostBuilder;
+    exit?(code: number, reason?: unknown): void;
+}
+
+export interface CarbideInteropExports {
+    InitAsync(assemblies: string[]): Promise<void>;
+    CreateSession(optionsJson: string): string;
+    DisposeSession(sessionId: string): void;
+    CreateProject(sessionId: string, optionsJson: string): string;
+    AddSource(projectId: string, path: string, code: string): void;
+    GetDiagnosticsAsync(projectId: string): Promise<string>;
+    RunAsync(projectId: string): Promise<string>;
+}
