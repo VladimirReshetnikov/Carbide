@@ -17,6 +17,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [M3 — detailed plan (reference DLL injection + ref-pack)](carbide-M3-detailed-plan__2026-04-18__05-18-02-170097.md) — sub-milestones, `ReferenceRegistry`, `session.addReference` / `project.addReference`, `@carbide/refs-net10.0` package, best-effort trim restoration, and M3 non-goals.
 - [M4 — detailed plan (PE emission & CLI)](carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md) — sub-milestones, `project.build()` returning `{pe, pdb}`, `@carbide/cli` package with `build` / `run` / `validate` commands, round-trip acceptance, and M4 non-goals.
 - [M5 — detailed plan (project-file input)](carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md) — sub-milestones, `@carbide/msbuild-lite` port of `cs_kit.msbuild_lite`, `carbide build --project Foo.csproj`, extended `ProjectOptions`, deterministic builds for byte-identical PE, parity fixtures, and M5 non-goals.
+- [M6 — detailed plan (NuGet resolver)](carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md) — sub-milestones, `@carbide/nuget` (flat-container + registration clients, nuspec/zip reader, version-range evaluator, TFM-compat matrix, nearest-wins resolver), 10-package allow-list, safety refusals, `carbide.lock.json` for offline replay, and M6 non-goals.
 
 ## Feature proposals
 
