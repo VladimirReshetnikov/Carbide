@@ -1,10 +1,11 @@
 // `carbide build` — compiles sources into PE + PDB bytes and writes them to --out.
 
 import path from "node:path";
-import { CarbideSession } from "@carbide/core";
+import { CarbideSession, type Project } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
 import { deriveAssemblyName, readReferenceBytes, readSource, writeFileEnsuringDir } from "../io.js";
 import { parseFormat, renderDiagnostic, writeJson } from "../format.js";
+import { runCsprojPipeline } from "../project-file.js";
 
 export const BUILD_ARG_SPEC = {
     strings: [
@@ -14,6 +15,7 @@ export const BUILD_ARG_SPEC = {
         "assembly-name",
         "target-framework",
         "format",
+        "project",
     ],
     booleans: ["no-debug", "help"],
 } as const;
@@ -25,30 +27,65 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
     }
 
     const sources = stringList(args, "source");
-    if (sources.length === 0) {
-        process.stderr.write("carbide build: at least one --source is required.\n");
+    const projectPath = lastString(args, "project");
+
+    if (!projectPath && sources.length === 0) {
+        process.stderr.write("carbide build: provide either --project <path>.csproj or at least one --source.\n");
+        return 3;
+    }
+    if (
+        projectPath &&
+        (sources.length > 0 || lastString(args, "assembly-name") || lastString(args, "target-framework"))
+    ) {
+        process.stderr.write(
+            "carbide build: --project is mutually exclusive with --source / --assembly-name / --target-framework (M5 D59).\n",
+        );
         return 3;
     }
 
     const refs = stringList(args, "ref");
     const outDir = lastString(args, "out");
     const format = parseFormat(lastString(args, "format"));
-    const assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
     const skipDebug = args.flags.has("no-debug");
 
     const session = await CarbideSession.initializeAsync();
     try {
-        const project = session.createProject({ assemblyName });
+        let project: Project;
+        let assemblyName: string;
+        let csprojWarnings: Array<{ code: string; message: string; severity: string }> = [];
 
-        for (const refPath of refs) {
-            const { name, bytes } = await readReferenceBytes(refPath);
-            const handle = session.addReference(bytes, name);
-            project.addReference(handle);
-        }
+        if (projectPath) {
+            const pipeline = await runCsprojPipeline(session, projectPath, refs);
+            project = pipeline.project;
+            const modelAsmName = pipeline.model.properties.assemblyName as string | undefined;
+            assemblyName =
+                modelAsmName && modelAsmName.length > 0
+                    ? modelAsmName
+                    : path.basename(pipeline.model.projectPath, path.extname(pipeline.model.projectPath));
+            csprojWarnings = pipeline.model.warnings.map((w) => ({
+                code: w.code,
+                message: w.message,
+                severity: w.severity,
+            }));
+            if (format === "human") {
+                for (const w of pipeline.model.warnings) {
+                    process.stderr.write(`carbide: ${w.severity} ${w.code}: ${w.message}\n`);
+                }
+            }
+        } else {
+            assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
+            project = session.createProject({ assemblyName });
 
-        for (const sourceSpec of sources) {
-            const { path: docPath, code } = await readSource(sourceSpec);
-            project.addSource(docPath, code);
+            for (const refPath of refs) {
+                const { name, bytes } = await readReferenceBytes(refPath);
+                const handle = session.addReference(bytes, name);
+                project.addReference(handle);
+            }
+
+            for (const sourceSpec of sources) {
+                const { path: docPath, code } = await readSource(sourceSpec);
+                project.addSource(docPath, code);
+            }
         }
 
         const result = await project.build();
@@ -63,6 +100,7 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
                     success: false,
                     assemblyName,
                     diagnostics: result.diagnostics,
+                    warnings: csprojWarnings,
                     durationMs: result.durationMs,
                 });
             }
@@ -73,7 +111,6 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
         let pePath: string | undefined;
         let pdbPath: string | undefined;
         if (outDir === "-") {
-            // --out - => PE bytes to stdout (no PDB). See M4 plan D47.
             if (!result.pe) throw new Error("BuildResult missing pe on success.");
             process.stdout.write(Buffer.from(result.pe));
         } else if (outDir) {
@@ -98,6 +135,7 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
                 pdb: pdbPath ?? null,
                 durationMs: result.durationMs,
                 diagnostics: result.diagnostics,
+                warnings: csprojWarnings,
             });
         }
         return 0;
@@ -111,13 +149,18 @@ Usage: carbide build [options]
 
 Compile C# source files into a .dll (and portable .pdb) without executing them.
 
+Input modes (mutually exclusive):
+  --project <path>.csproj  Parse a .csproj (MSBuild subset) and build per its options.
+  --source <path>          Source file. Repeatable. '-' reads one source from stdin.
+
 Options:
-  --source <path>        Source file. Repeatable. '-' reads one source from stdin.
-  --ref <path>           Reference DLL. Repeatable.
+  --ref <path>           Reference DLL. Repeatable. Honoured in both input modes.
   --out <dir>            Output directory. Writes <assembly-name>.dll + .pdb.
                          Pass '-' to write PE bytes to stdout (no PDB).
   --assembly-name <n>    Assembly name. Default: basename of first source.
+                         Rejected when --project is used.
   --target-framework <t> Target framework (default: net10.0). Currently informational.
+                         Rejected when --project is used.
   --no-debug             Skip writing the .pdb.
   --format json|human    Output format (default: json).
   --help                 Print this message.

@@ -1,0 +1,16 @@
+{
+  "targetFrameworks": ["net10.0"],
+  "selectedTfm": "net10.0",
+  "properties": {
+    "configuration": "Debug",
+    "platform": "AnyCPU",
+    "assemblyName": "PackageDemo"
+  },
+  "packageReferences": [
+    { "id": "Newtonsoft.Json", "version": "13.0.3" },
+    { "id": "YamlDotNet", "version": "15.0.0" }
+  ],
+  "projectReferences": [],
+  "sourceFileBasenames": ["Program.cs"],
+  "warningCodes": ["MSBLITE013", "MSBLITE013"]
+}

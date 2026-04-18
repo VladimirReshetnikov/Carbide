@@ -40,11 +40,19 @@ export interface BuildResult {
 
 export interface ProjectOptions {
     targetFramework?: "net8.0" | "net10.0";
+    /** C# language version string (e.g. "latest", "preview", "12"). Passed through to Roslyn's CSharpParseOptions. */
     languageVersion?: string;
+    /** When true, enables the `Enable` NullableContextOptions globally. */
     nullable?: boolean;
+    /**
+     * When true (default), Carbide injects a hidden implicit-usings document so bare
+     * `Console.WriteLine` compiles. Set to false to match strict `<ImplicitUsings>disable</ImplicitUsings>`.
+     */
     implicitUsings?: boolean;
     assemblyName?: string;
     rootNamespace?: string;
+    /** Preprocessor symbols (for `#if DEBUG`, `#if MY_FEATURE`, etc.). Equivalent to `<DefineConstants>`. */
+    defineConstants?: string[];
 }
 
 /**

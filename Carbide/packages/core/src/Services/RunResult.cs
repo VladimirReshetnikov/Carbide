@@ -6,7 +6,9 @@ namespace Carbide.Core.Services;
 
 public sealed class RunResult
 {
-    public int SchemaVersion { get; init; } = 1;
+    // See interop/schema.ts: SCHEMA_VERSION is a single number spanning all Carbide JSON
+    // payloads. M5 bumped it to 2 when ProjectOptions gained defineConstants.
+    public int SchemaVersion { get; init; } = 2;
     public bool Success { get; init; }
     public int? ExitCode { get; init; }
     public string StdOut { get; init; } = string.Empty;

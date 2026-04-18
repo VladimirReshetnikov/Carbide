@@ -108,10 +108,12 @@ public static partial class CompilationInterop
 
     private static void ValidateSchemaVersion(int? schemaVersion, string name)
     {
-        if (schemaVersion is not null and not 1)
+        // M5 bumped the schema to 2; accept both 1 and 2 so pre-M5 clients that don't
+        // populate the new fields still work. Higher numbers are a definite mismatch.
+        if (schemaVersion is not null and not 1 and not 2)
         {
             throw new InvalidOperationException(
-                $"Unsupported {name} schemaVersion: expected 1, got {schemaVersion}.");
+                $"Unsupported {name} schemaVersion: expected 1 or 2, got {schemaVersion}.");
         }
     }
 
@@ -128,6 +130,10 @@ public static partial class CompilationInterop
         {
             parseOptions = parseOptions.WithLanguageVersion(langVersion);
         }
+        if (dto.DefineConstants is { Length: > 0 } defines)
+        {
+            parseOptions = parseOptions.WithPreprocessorSymbols(defines);
+        }
 
         var compilationOptions = DocumentOptions.DefaultCompilationOptions;
         if (dto.Nullable == true)
@@ -140,19 +146,23 @@ public static partial class CompilationInterop
         {
             CSharpCompilationOptions = compilationOptions,
             CSharpParseOptions = parseOptions,
+            ImplicitUsings = dto.ImplicitUsings ?? true,
+            AssemblyName = string.IsNullOrWhiteSpace(dto.AssemblyName) ? null : dto.AssemblyName,
+            RootNamespace = string.IsNullOrWhiteSpace(dto.RootNamespace) ? null : dto.RootNamespace,
         };
     }
 }
 
 internal sealed class ProjectOptionsDto
 {
-    public int? SchemaVersion { get; set; } = 1;
+    public int? SchemaVersion { get; set; } = 2;
     public string? TargetFramework { get; set; }
     public string? LanguageVersion { get; set; }
     public bool? Nullable { get; set; }
     public bool? ImplicitUsings { get; set; }
     public string? AssemblyName { get; set; }
     public string? RootNamespace { get; set; }
+    public string[]? DefineConstants { get; set; }
 }
 
 /// <summary>
@@ -162,7 +172,7 @@ internal sealed class ProjectOptionsDto
 /// </summary>
 internal sealed class BuildResultDto
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 2;
     public bool Success { get; set; }
     public string? PeBase64 { get; set; }
     public string? PdbBase64 { get; set; }

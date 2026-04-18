@@ -18,11 +18,20 @@ This directory holds the design material for **Carbide** — a working codename 
 - [M4 — detailed plan (PE emission & CLI)](carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md) — sub-milestones, `project.build()` returning `{pe, pdb}`, `@carbide/cli` package with `build` / `run` / `validate` commands, round-trip acceptance, and M4 non-goals.
 - [M5 — detailed plan (project-file input)](carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md) — sub-milestones, `@carbide/msbuild-lite` port of `cs_kit.msbuild_lite`, `carbide build --project Foo.csproj`, extended `ProjectOptions`, deterministic builds for byte-identical PE, parity fixtures, and M5 non-goals.
 
+## Feature proposals
+
+- [JS↔C# interop bridge proposal](carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__515d12a34be3.md) — design for an ES6-Proxy-based object-graph bridge over `[JSExport]` plus a compile-time surface manifest, targeting ClearScript-level ergonomics for user C# compiled in-sandbox. Introduces `@carbide/bridge` (TS) and `Carbide.Core.Bridge` (C#) as a peer of the existing control-plane `CompilationInterop`. Companion to the repository-level [JS↔C# WASM interop libraries survey](../../../docs/reports/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
+
+## Companion-project proposals
+
+- [`Carbide.UI` / `@carbide-ui/*` — Avalonia GUI integration proposal](carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__a5988020103c.md) — three approaches compared (merged runtime / cross-frame runner / offline CLI), commits to cross-frame runner + offline CLI as concurrent delivery, specifies package layout, `postMessage` protocol, XAML strategy, and UI-M0..UI-M8 milestones. Paired with the [feasibility report](../../../docs/reports/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__ebf5a870d7ad.md).
+
 ## Packages in this repository
 
 - `packages/core/` — `@carbide/core`, the runtime/session/project surface.
 - `packages/refs-net10.0/` — `@carbide/refs-net10.0`, the .NET 10 reference pack (`Microsoft.NETCore.App.Ref` → extracted `ref/net10.0/*.dll`). Opt-in sibling; when installed, Carbide's compile-time API surface is stable against runtime trim decisions.
 - `packages/cli/` — `@carbide/cli`, the `carbide` binary wrapping `@carbide/core` with `build` / `run` / `validate` subcommands.
+- `packages/msbuild-lite/` — `@carbide/msbuild-lite`, a bounded `.csproj` parser (semantic port of `cs_kit.msbuild_lite`). Consumed by the CLI's `--project` path.
 
 ## Operations
 

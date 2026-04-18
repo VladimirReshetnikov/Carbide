@@ -28,6 +28,7 @@ carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
 
 | Flag | Description |
 |---|---|
+| `--project <path>.csproj` | Read a `.csproj` and build per its options. Mutually exclusive with `--source` / `--assembly-name` / `--target-framework`. Since M5. |
 | `--source <path>` | Source file. Repeatable. `-` reads one source from stdin. |
 | `--ref <path>` | Reference DLL. Repeatable. Bytes are passed via `session.addReference`. |
 | `--out <dir>` | Output directory. Writes `<assembly-name>.dll` and `<assembly-name>.pdb`. Pass `-` to write PE bytes to stdout (no PDB). |
@@ -37,6 +38,8 @@ carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
 | `--format json\|human` | Output format. Default `json`. |
 
 Exit codes: `0` success, `1` compile errors, `2` I/O / unexpected error, `3` unsupported flag combination.
+
+Since M5, Carbide's Roslyn compiler runs with `Deterministic=true`, so two invocations with the same inputs produce byte-identical PE. A `carbide build --project Foo.csproj` produces the same bytes as `carbide build --source <files>` with the equivalent options flattened.
 
 ### `carbide run`
 
@@ -68,6 +71,17 @@ carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
 carbide run --source Program.cs --ref out/lib/MyLib.dll --format human
 # → Thing<42>
 ```
+
+## Project-file example (M5)
+
+```bash
+# Foo.csproj + sources on disk → compiled DLL.
+carbide build --project Foo.csproj --out out/
+carbide run --project Foo.csproj
+carbide validate --project Foo.csproj
+```
+
+See [`@carbide/msbuild-lite`](../msbuild-lite/README.md) for the supported `.csproj` subset. In particular, `PackageReference` and `ProjectReference` are *captured* — they surface as `MSBLITE013` and `MSBLITE014` warnings — but not resolved. Those land in M6 and M9 respectively.
 
 ## Exit-code summary
 

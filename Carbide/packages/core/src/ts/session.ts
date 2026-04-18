@@ -52,6 +52,7 @@ export class CarbideSession {
             implicitUsings: options.implicitUsings ?? null,
             assemblyName: options.assemblyName ?? null,
             rootNamespace: options.rootNamespace ?? null,
+            defineConstants: options.defineConstants ?? null,
         };
         const projectId = this.interop.CreateProject(this.sessionId, JSON.stringify(request));
         return new Project(this.interop, projectId, this.sessionId);

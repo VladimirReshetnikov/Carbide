@@ -2,7 +2,7 @@
 
 A C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process. Targeted at environments that cannot install the .NET SDK.
 
-**Status:** M4 — PE emission & CLI. On top of M1–M3, `Project.build()` returns the emitted PE + portable-PDB bytes separately from `run()`, and the new `@carbide/cli` sibling package ships a `carbide build` / `run` / `validate` command trio. A Carbide-built DLL is a valid reference for a subsequent Carbide build — both via the in-process API and on disk through the CLI. `.csproj` parsing is still deferred to M5, NuGet to M6. See `docs/carbide-M4-detailed-plan__*.md` and `docs/drift/`.
+**Status:** M5 — Project-file input (Shape S3-plus-csproj). On top of M1–M4, a new `@carbide/msbuild-lite` sibling parses a bounded subset of `.csproj` (TFM, Nullable, LangVersion, ImplicitUsings, DefineConstants, AssemblyName, RootNamespace, PackageReference/ProjectReference capture, Compile globs, simple Conditions), and the CLI gains `--project` on `build` / `run` / `validate`. Deterministic builds are now on by default, so `carbide build --project Foo.csproj --out A/` and `carbide build --source …` with equivalent flags produce byte-identical PE. NuGet resolution still lands in M6, sibling `<ProjectReference>` in M9. See `docs/carbide-M5-detailed-plan__*.md` and `docs/drift/`.
 
 ## Layout
 
@@ -12,6 +12,7 @@ A C# compile-and-run framework that ships as a single npm package, embeds the .N
   - `test/` — host-side smoke tests and user-DLL fixtures under `test/fixtures/`.
 - `packages/refs-net10.0/` — the `@carbide/refs-net10.0` ref-pack (extracted from `Microsoft.NETCore.App.Ref` at install time; provides the untrimmed compile-time API surface).
 - `packages/cli/` — the `@carbide/cli` npm package (the `carbide` command; thin wrapper around `@carbide/core`).
+- `packages/msbuild-lite/` — the `@carbide/msbuild-lite` npm package (bounded `.csproj` parser, semantic port of `cs_kit.msbuild_lite`).
 - `Directory.Build.props` / `Directory.Build.targets` — shared MSBuild settings for the C# project.
 
 ## Build
@@ -83,7 +84,15 @@ npx carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
 npx carbide run --source Program.cs --ref out/lib/MyLib.dll --format human
 ```
 
-See [`packages/cli/README.md`](packages/cli/README.md) for the full `build` / `run` / `validate` reference.
+Since M5, the CLI also accepts a `.csproj`:
+
+```bash
+npx carbide build --project Foo.csproj --out out/
+npx carbide run --project Foo.csproj
+npx carbide validate --project Foo.csproj
+```
+
+See [`packages/cli/README.md`](packages/cli/README.md) for the full `build` / `run` / `validate` reference, and [`packages/msbuild-lite/README.md`](packages/msbuild-lite/README.md) for the supported `.csproj` subset.
 
 ## Origin
 

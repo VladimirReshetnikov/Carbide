@@ -5,7 +5,9 @@
  * typed message rather than silently accepting malformed payloads. Bump SCHEMA_VERSION here
  * and on the C# side in lock-step.
  */
-export const SCHEMA_VERSION = 1 as const;
+// M5: bumped to 2 when ProjectOptions gained defineConstants. The C# side accepts both 1 and
+// 2; new TS clients always send 2.
+export const SCHEMA_VERSION = 2 as const;
 
 export interface ProjectOptionsRequest {
     schemaVersion: number;
@@ -15,6 +17,7 @@ export interface ProjectOptionsRequest {
     implicitUsings?: boolean | null;
     assemblyName?: string | null;
     rootNamespace?: string | null;
+    defineConstants?: string[] | null;
 }
 
 export class CarbideSchemaError extends Error {

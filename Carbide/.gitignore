@@ -17,3 +17,6 @@ packages/refs-net10.0/ref-manifest.json
 
 # @carbide/cli ships a CLI; tsc build output lands in packages/cli/dist/.
 packages/cli/dist/
+
+# @carbide/msbuild-lite's tsc output lands in packages/msbuild-lite/dist/.
+packages/msbuild-lite/dist/

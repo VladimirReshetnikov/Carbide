@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { CarbideSchemaError, SCHEMA_VERSION } from "../../dist/index.js";
 import { parseRunResult } from "../../dist/interop/schema.js";
 
-test("SCHEMA_VERSION is exported and pinned", () => {
+test("SCHEMA_VERSION is exported and pinned to the current wire version", () => {
     assert.equal(typeof SCHEMA_VERSION, "number");
-    assert.equal(SCHEMA_VERSION, 1);
+    // M5 bumped the wire schema from 1 to 2 when ProjectOptions gained defineConstants.
+    assert.equal(SCHEMA_VERSION, 2);
 });
 
 test("parseRunResult rejects a mismatched schemaVersion", () => {

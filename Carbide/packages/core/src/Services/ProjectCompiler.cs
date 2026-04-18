@@ -54,7 +54,9 @@ internal sealed class ProjectCompiler
     {
         _referenceRegistry = referenceRegistry ?? throw new ArgumentNullException(nameof(referenceRegistry));
         options ??= DocumentOptions.Default;
-        _assemblyName = assemblyName ?? "Carbide.Project";
+        // M5: DocumentOptions.AssemblyName takes precedence over the constructor default so
+        // .csproj-derived options override the caller's fallback.
+        _assemblyName = options.AssemblyName ?? assemblyName ?? "Carbide.Project";
 
         Workspace = new AdhocWorkspace();
         _projectId = ProjectId.CreateNewId();
@@ -62,14 +64,23 @@ internal sealed class ProjectCompiler
         Solution = Workspace.CurrentSolution
             .AddProject(_projectId, _assemblyName, _assemblyName, LanguageNames.CSharp);
 
-        // Hidden implicit-usings document so bare Console.WriteLine compiles. Reserved path:
-        // callers cannot Add / Update / Remove it.
-        _implicitUsingsId = DocumentId.CreateNewId(_projectId, ImplicitUsingsDocumentPath);
-        Solution = Solution.AddDocument(
-            _implicitUsingsId,
-            ImplicitUsingsDocumentPath,
-            SourceText.From(ImplicitUsingsSource, Encoding.UTF8),
-            filePath: ImplicitUsingsDocumentPath);
+        // Hidden implicit-usings document. When the caller opts out via ImplicitUsings=false
+        // (set by parseCsproj from <ImplicitUsings>disable</ImplicitUsings>), skip the
+        // document entirely so user code that expects strict namespace discipline isn't
+        // silently relaxed.
+        if (options.ImplicitUsings)
+        {
+            _implicitUsingsId = DocumentId.CreateNewId(_projectId, ImplicitUsingsDocumentPath);
+            Solution = Solution.AddDocument(
+                _implicitUsingsId,
+                ImplicitUsingsDocumentPath,
+                SourceText.From(ImplicitUsingsSource, Encoding.UTF8),
+                filePath: ImplicitUsingsDocumentPath);
+        }
+        else
+        {
+            _implicitUsingsId = null;
+        }
 
         Solution = Solution.AddMetadataReferences(_projectId, MetadataReferenceCache.MetadataReferences);
         Solution = Solution.WithProjectCompilationOptions(_projectId, options.CSharpCompilationOptions);
@@ -79,7 +90,7 @@ internal sealed class ProjectCompiler
     public AdhocWorkspace Workspace { get; }
     public Solution Solution { get; private set; }
 
-    private readonly DocumentId _implicitUsingsId;
+    private readonly DocumentId? _implicitUsingsId;
 
     // Path → DocumentId for user-added documents only. The implicit-usings document is
     // intentionally not in this map so it can't leak into AddSource/UpdateSource/RemoveSource.
@@ -230,16 +241,21 @@ internal sealed class ProjectCompiler
     /// Emits the compilation as PE + portable-PDB bytes. Returns a <see cref="BuildResult"/>
     /// that is ready to hand to JS callers through <c>CompilationInterop.BuildAsync</c>.
     ///
-    /// <para>Emits with <see cref="OutputKind.DynamicallyLinkedLibrary"/> so a project
-    /// without a <c>Main</c> method still compiles — the common "build a library" case.
-    /// If a Main is present, Roslyn still records its metadata in the DLL, so a subsequent
-    /// reflective invocation remains possible. Use <see cref="RunAsync"/> when you want
-    /// strict "must have an entry point" behaviour.</para>
+    /// <para>Auto-selects <see cref="OutputKind.ConsoleApplication"/> if any syntax tree has
+    /// top-level statements (C# 9+) or a suitable <c>Main</c>, otherwise
+    /// <see cref="OutputKind.DynamicallyLinkedLibrary"/>. This lets both library code
+    /// ("just build a DLL of these types") and top-level-statements apps build via the
+    /// same entry point without caller configuration (M5 bugfix for CS8805).</para>
     /// </summary>
     public async Task<BuildResult> BuildAsync()
     {
         var sw = Stopwatch.StartNew();
-        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.DynamicallyLinkedLibrary).ConfigureAwait(false);
+        var project = Solution.GetProject(_projectId)
+            ?? throw new InvalidOperationException("Project missing from solution.");
+        var initial = await project.GetCompilationAsync().ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Roslyn returned no compilation.");
+        var outputKind = InferOutputKind(initial);
+        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(outputKind).ConfigureAwait(false);
         if (compilation is null)
         {
             sw.Stop();
@@ -251,6 +267,22 @@ internal sealed class ProjectCompiler
         return pe is null
             ? BuildResult.Failed(emitDiagnostics, sw.Elapsed.TotalMilliseconds)
             : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds);
+    }
+
+    private static OutputKind InferOutputKind(Compilation compilation)
+    {
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var roslynRoot = tree.GetRoot();
+            foreach (var member in roslynRoot.ChildNodes())
+            {
+                if (member is Microsoft.CodeAnalysis.CSharp.Syntax.GlobalStatementSyntax)
+                {
+                    return OutputKind.ConsoleApplication;
+                }
+            }
+        }
+        return OutputKind.DynamicallyLinkedLibrary;
     }
 
     /// <summary>

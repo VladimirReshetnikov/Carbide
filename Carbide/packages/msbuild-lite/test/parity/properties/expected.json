@@ -1,0 +1,18 @@
+{
+  "targetFrameworks": ["net10.0"],
+  "selectedTfm": "net10.0",
+  "properties": {
+    "configuration": "Debug",
+    "platform": "AnyCPU",
+    "nullable": "enable",
+    "langVersion": "latest",
+    "implicitUsings": "enable",
+    "assemblyName": "PropertiesDemo",
+    "rootNamespace": "PropertiesDemo",
+    "defineConstants": ["DEBUG", "MY_FEATURE"]
+  },
+  "packageReferences": [],
+  "projectReferences": [],
+  "sourceFileBasenames": ["Program.cs"],
+  "warningCodes": []
+}
