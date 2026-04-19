@@ -139,6 +139,7 @@ See:
 - [`packages/msbuild-lite/README.md`](packages/msbuild-lite/README.md) for the supported `.csproj` subset
 - [`packages/nuget/README.md`](packages/nuget/README.md) for NuGet resolution policy, cache, and lock behavior
 - [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md) for the full project manual, tutorial, limitations, and troubleshooting
+- [Carbide Usability Report](docs/Carbide-Usability-Report.md) for additional hands-on scenarios, sharp edges, and improvement proposals
 
 ## Origin
 

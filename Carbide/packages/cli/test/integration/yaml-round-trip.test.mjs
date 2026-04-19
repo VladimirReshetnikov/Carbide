@@ -1,8 +1,8 @@
-// M6.13 end-to-end round-trip: a .csproj with a <PackageReference> to Newtonsoft.Json,
-// a .cs file that actually calls JsonConvert, and `carbide run --project` that produces
-// the expected output. Gated on CARBIDE_NUGET_LIVE=1 since it downloads from api.nuget.org.
+// End-to-end round-trip: a .csproj with a <PackageReference> to YamlDotNet and a small
+// program that exercises it. Gated on CARBIDE_NUGET_LIVE=1 since it downloads from
+// api.nuget.org.
 //
-// Run:   CARBIDE_NUGET_LIVE=1 node --test test/integration/nuget-round-trip.test.mjs
+// Run:   CARBIDE_NUGET_LIVE=1 node --test test/integration/yaml-round-trip.test.mjs
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -26,8 +26,8 @@ function runCarbide(args, options = {}) {
     return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
 }
 
-test("M6.13: end-to-end — csproj → Newtonsoft.Json → carbide run", { skip: !LIVE }, async (t) => {
-    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-m6-e2e-"));
+test("end-to-end — csproj → YamlDotNet → carbide run", { skip: !LIVE }, async (t) => {
+    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-yaml-e2e-"));
     t.after(() => {
         try { rmSync(workDir, { recursive: true, force: true }); } catch { /* best-effort */ }
     });
@@ -37,24 +37,26 @@ test("M6.13: end-to-end — csproj → Newtonsoft.Json → carbide run", { skip:
         `<Project>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <AssemblyName>JsonRoundTrip</AssemblyName>
+    <AssemblyName>YamlRoundTrip</AssemblyName>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3"/>
+    <PackageReference Include="YamlDotNet" Version="17.0.1"/>
   </ItemGroup>
 </Project>`,
     );
     writeFileSync(
         path.join(workDir, "Program.cs"),
-        `using Newtonsoft.Json;
+        `using YamlDotNet.Serialization;
 
-var payload = new { greeting = "hello", count = 3 };
-Console.Write(JsonConvert.SerializeObject(payload));
+var yaml = "x: 3\\ny: hello\\n";
+var deserializer = new DeserializerBuilder().Build();
+var obj = deserializer.Deserialize<Dictionary<string, object>>(yaml);
+Console.Write($"x={obj["x"]},y={obj["y"]}");
 `,
     );
 
-    // Pass 1: fresh resolve — downloads Newtonsoft.Json 13.0.3 nupkg, writes lock.
+    // Pass 1: fresh resolve — downloads package, writes lock.
     const run1 = runCarbide([
         "run", "--project", path.join(workDir, "Foo.csproj"),
         "--format", "json",
@@ -62,7 +64,7 @@ Console.Write(JsonConvert.SerializeObject(payload));
     assert.equal(run1.status, 0, `run1 failed: stdout=${run1.stdout} stderr=${run1.stderr}`);
     const summary1 = parseJsonTrailer(run1.stdout);
     assert.equal(summary1.success, true);
-    assert.equal(summary1.stdOut, `{"greeting":"hello","count":3}`);
+    assert.equal(summary1.stdOut, `x=3,y=hello`);
 
     // Lock should exist next to the csproj.
     const lockPath = path.join(workDir, "carbide.lock.json");
@@ -70,8 +72,8 @@ Console.Write(JsonConvert.SerializeObject(payload));
     const lock = JSON.parse(readFileSync(lockPath, "utf8"));
     assert.equal(lock.schemaVersion, 1);
     assert.equal(lock.packages.length, 1);
-    assert.equal(lock.packages[0].id, "Newtonsoft.Json");
-    assert.equal(lock.packages[0].version, "13.0.3");
+    assert.equal(lock.packages[0].id, "YamlDotNet");
+    assert.equal(lock.packages[0].version, "17.0.1");
     assert.equal(lock.packages[0].sha256.length, 64);
 
     // Pass 2: replay mode via --offline (lock exists → no network allowed).
@@ -86,29 +88,3 @@ Console.Write(JsonConvert.SerializeObject(payload));
     assert.equal(summary2.stdOut, summary1.stdOut);
 });
 
-test("M6.13: --allow-list-mode strict refuses an unlisted package", { skip: !LIVE }, async (t) => {
-    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-m6-reject-"));
-    t.after(() => {
-        try { rmSync(workDir, { recursive: true, force: true }); } catch { /* best-effort */ }
-    });
-
-    writeFileSync(
-        path.join(workDir, "Foo.csproj"),
-        `<Project>
-  <PropertyGroup><TargetFramework>net10.0</TargetFramework><AssemblyName>NotAllowed</AssemblyName></PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="8.0.0"/>
-  </ItemGroup>
-</Project>`,
-    );
-    writeFileSync(path.join(workDir, "Program.cs"), `Console.Write("unused");`);
-
-    const result = runCarbide([
-        "build", "--project", path.join(workDir, "Foo.csproj"),
-        "--out", path.join(workDir, "out"),
-        "--format", "json",
-    ]);
-    // Strict allow-list should reject and produce a non-zero exit.
-    assert.notEqual(result.status, 0, "expected non-zero exit for unlisted package in strict mode");
-    assert.match(result.stderr, /allow-list/i);
-});

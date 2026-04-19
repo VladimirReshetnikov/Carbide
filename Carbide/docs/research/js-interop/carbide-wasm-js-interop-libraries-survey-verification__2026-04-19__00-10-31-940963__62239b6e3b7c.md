@@ -31,7 +31,7 @@ What changed in this verification is mostly tightening:
 
 | Claim from the source survey | Verdict | Verification note |
 |---|---|---|
-| Carbide currently exposes a thin string / base64 `[JSExport]` boundary over `getAssemblyExports(...)`. | Verified | Confirmed in [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../src/Carbide/packages/core/src/CompilationInterop.cs), [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../src/Carbide/packages/core/src/ts/runtime/boot.ts), [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts), and [`src/Carbide/packages/core/src/ts/session.ts`](../../src/Carbide/packages/core/src/ts/session.ts). |
+| Carbide currently exposes a thin string / base64 `[JSExport]` boundary over `getAssemblyExports(...)`. | Verified | Confirmed in [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs), [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../../packages/core/src/ts/runtime/boot.ts), [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../../packages/core/src/ts/runtime/dotnet-types.ts), and [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts). |
 | Carbide already stands on the right primitive foundation: Mono/WebAssembly Browser Tools + native `[JSExport]`. | Verified | Carbide's current architecture is exactly this. Nothing in the independent research suggests replacing the primitive layer. |
 | `Microsoft.JSInterop` and native `[JSImport]` / `[JSExport]` are distinct interop stacks. | Verified | Official docs and `aspnetcore` discussion #53866 support the separation. |
 | `DotNetObjectReference` does not work with `[JSImport]`. | Verified | Explicitly stated by `aspnetcore` collaborator Javier Calvarro Nelson in discussion #53866. |
@@ -45,11 +45,11 @@ What changed in this verification is mostly tightening:
 
 The local Carbide references in the source survey were mostly accurate, and the current implementation is indeed thin and explicit.
 
-- [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../src/Carbide/packages/core/src/Carbide.Core.csproj) uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm`.
-- [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../src/Carbide/packages/core/src/ts/runtime/boot.ts) dynamically imports `dotnet.js`, creates the runtime, reads `mainAssemblyName`, gets assembly exports, and calls `interop.InitAsync(...)`.
-- [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../src/Carbide/packages/core/src/CompilationInterop.cs) exports the current control plane as static `[JSExport]` methods. The public boundary is JSON strings and base64 strings, not live object graphs.
-- [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts) types the exported surface as string-returning / `Promise<string>` functions.
-- [`src/Carbide/packages/core/src/ts/session.ts`](../../src/Carbide/packages/core/src/ts/session.ts) serializes session creation payloads as JSON and binary references as base64.
+- [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj) uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm`.
+- [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../../packages/core/src/ts/runtime/boot.ts) dynamically imports `dotnet.js`, creates the runtime, reads `mainAssemblyName`, gets assembly exports, and calls `interop.InitAsync(...)`.
+- [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs) exports the current control plane as static `[JSExport]` methods. The public boundary is JSON strings and base64 strings, not live object graphs.
+- [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../../packages/core/src/ts/runtime/dotnet-types.ts) types the exported surface as string-returning / `Promise<string>` functions.
+- [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts) serializes session creation payloads as JSON and binary references as base64.
 
 One correction matters:
 
@@ -68,9 +68,9 @@ Official Microsoft docs still describe the native `[JSImport]` / `[JSExport]` mo
 
 The runtime sources vendored in this repository support the survey's "primitive-plus-handles" characterization:
 
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs) documents `JSMarshalerType.Object` as mapping to a "ManagedObject proxy on JavaScript side".
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs) shows that arbitrary managed-object fallback is GCHandle-based and rejects several shapes in dynamic `object` marshalling.
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs) confirms that `JSException.StackTrace` augments the managed stack with the JS `stack` string when available.
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs) documents `JSMarshalerType.Object` as mapping to a "ManagedObject proxy on JavaScript side".
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs) shows that arbitrary managed-object fallback is GCHandle-based and rejects several shapes in dynamic `object` marshalling.
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs) confirms that `JSException.StackTrace` augments the managed stack with the JS `stack` string when available.
 
 The source survey's broad conclusion is therefore correct: raw native interop is explicit, low-level, and good at primitives, tasks, functions, and handles.
 
@@ -175,7 +175,7 @@ The source survey's classification of the comparison set is broadly correct.
 
 If the original survey is kept as a design document, I would update these points:
 
-- Replace the stale local path `src/Carbide/packages/core/src/ts/runtime/index.ts` with [`boot.ts`](../../src/Carbide/packages/core/src/ts/runtime/boot.ts) and [`dotnet-types.ts`](../../src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts).
+- Replace the stale local path `src/Carbide/packages/core/src/ts/runtime/index.ts` with [`boot.ts`](../../../packages/core/src/ts/runtime/boot.ts) and [`dotnet-types.ts`](../../../packages/core/src/ts/runtime/dotnet-types.ts).
 - Soften any absolute wording around `JSType.Any` / managed-object opacity to: "I found no documented ClearScript-like member projection over this path."
 - Pin Bootsharp claims to release-tagged docs or release metadata where possible, because the live docs site currently mixes `v0.7.0` labeling with at least one `0.8.0` behavior note.
 - Correct the ClearScript generic-method example syntax.
@@ -195,14 +195,14 @@ If Carbide wants a higher-level user-code bridge for developers writing code aga
 
 Local source files reviewed:
 
-- [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../src/Carbide/packages/core/src/Carbide.Core.csproj)
-- [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../src/Carbide/packages/core/src/CompilationInterop.cs)
-- [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../src/Carbide/packages/core/src/ts/runtime/boot.ts)
-- [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts)
-- [`src/Carbide/packages/core/src/ts/session.ts`](../../src/Carbide/packages/core/src/ts/session.ts)
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs)
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs)
-- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs`](../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs)
+- [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj)
+- [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs)
+- [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../../packages/core/src/ts/runtime/boot.ts)
+- [`src/Carbide/packages/core/src/ts/runtime/dotnet-types.ts`](../../../packages/core/src/ts/runtime/dotnet-types.ts)
+- [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts)
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSMarshalerType.cs)
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/Marshaling/JSMarshalerArgument.Object.cs)
+- [`lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs`](../../../../../lib/dotnet/runtime/src/libraries/System.Runtime.InteropServices.JavaScript/src/System/Runtime/InteropServices/JavaScript/JSException.cs)
 
 Primary external sources reviewed:
 

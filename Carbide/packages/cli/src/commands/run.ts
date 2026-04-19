@@ -1,5 +1,6 @@
 // `carbide run` — compiles sources and executes the program. Streams the program's
-// stdout/stderr through the outer process. Program arguments after `--` go to Main(string[]).
+// stdout/stderr through the outer process. Note: program arguments after `--` are parsed
+// by the CLI arg parser but are not forwarded into the runtime yet.
 
 import path from "node:path";
 import { CarbideSession, type Project } from "@carbide/core";
@@ -43,6 +44,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
     try {
         let project: Project;
         let assemblyName: string;
+        let csprojWarnings: Array<{ code: string; message: string; severity: string }> = [];
 
         if (projectPath) {
             const nugetOptions = extractNugetOptions(args, "run");
@@ -53,6 +55,11 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 modelAsmName && modelAsmName.length > 0
                     ? modelAsmName
                     : path.basename(pipeline.model.projectPath, path.extname(pipeline.model.projectPath));
+            csprojWarnings = pipeline.warnings.map((w) => ({
+                code: w.code,
+                message: w.message,
+                severity: w.severity,
+            }));
             if (format === "human") {
                 for (const w of pipeline.warnings) {
                     process.stderr.write(`carbide: ${w.severity} ${w.code}: ${w.message}\n`);
@@ -90,6 +97,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                         success: false,
                         assemblyName,
                         diagnostics: result.diagnostics,
+                        warnings: csprojWarnings,
                         durationMs: result.durationMs,
                     });
                 }
@@ -104,6 +112,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                     stdErr: result.stdErr,
                     uncaughtException: result.uncaughtException ?? null,
                     exitCode: result.exitCode ?? 1,
+                    warnings: csprojWarnings,
                     durationMs: result.durationMs,
                 });
             } else {
@@ -122,6 +131,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 stdOut: result.stdOut,
                 stdErr: result.stdErr,
                 exitCode: result.exitCode ?? 0,
+                warnings: csprojWarnings,
                 durationMs: result.durationMs,
             });
         }
@@ -145,6 +155,9 @@ Options:
   --assembly-name <n>      Assembly name. Rejected when --project is used.
   --format json|human      Output format (default: json).
   --help                   Print this message.
+
+Notes:
+  - Program arguments after -- are parsed but are not forwarded into the runtime yet.
 
 NuGet flags (only relevant with --project):
   --offline                Forbid network. Require cached bytes or a matching lock.

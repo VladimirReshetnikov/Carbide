@@ -5,7 +5,7 @@
 
 Status: verification / independent-research report.
 Audience: repository owner and future Carbide contributors.
-Scope: verifies the claims and recommendation in [the original feasibility report](carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__ebf5a870d7ad.md) against the current repository `HEAD`, current upstream Avalonia sources, current XamlPlayground sources, current NuGet package layouts, and local publish measurements.
+Scope: verifies the claims and recommendation in [the original feasibility report](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md) against the current repository `HEAD`, current upstream Avalonia sources, current XamlPlayground sources, current NuGet package layouts, and local publish measurements.
 
 ## Summary
 
@@ -13,7 +13,7 @@ The original report gets the big picture right: integrating Carbide with Avaloni
 
 However, several important details are wrong, overstated, or now stale:
 
-- The report's Carbide status snapshot is historical. It was written against repository `HEAD` `0b929aad1eef7e0307cede8e6fb6b4dd1468b1d3`; current `HEAD` is `d2f6eb2b29127011a7f7d713607bdfb4861c2b5f`, and current [`src/Carbide/README.md`](../../src/Carbide/README.md) says M1-M6 functionality is present, not "M4 shipped, M5 in progress."
+- The report's Carbide status snapshot is historical. It was written against repository `HEAD` `0b929aad1eef7e0307cede8e6fb6b4dd1468b1d3`; current `HEAD` is `d2f6eb2b29127011a7f7d713607bdfb4861c2b5f`, and current [`src/Carbide/README.md`](../../../README.md) says M1-M6 functionality is present, not "M4 shipped, M5 in progress."
 - `Avalonia.Browser` is not the right place to extract a compile-time ref-pack from. In Avalonia 12.0.1 the package has no `ref/*/*.dll` entries at all. The main `Avalonia` package supplies the `ref/net10.0/*.dll` surface.
 - The size estimates in the original report are not supported by present measurements. A minimal Release `net10.0-browser` Avalonia app published locally produced 17.07 MiB of original `_framework` assets and 4.69 MiB of Brotli-compressed `_framework` assets. Current Carbide Release publish produced 61.05 MiB of original `_framework` assets. A naive additive lower bound is therefore about 78.12 MiB original, not 140-200 MiB.
 - The original recommendation to prefer Sketch B over Sketch A is only partly supported after those corrections. Keeping GUI support out of `@carbide/core` still makes sense. Preferring the iframe shape specifically is now a product/isolation choice, not something the measured size data forces.
@@ -36,7 +36,7 @@ The goal here is not to restate the original report. The goal is to independentl
 
 | Claim from the original report | Verdict | Notes |
 |---|---|---|
-| Carbide and Avalonia.Browser sit on the same .NET browser-WASM substrate and are therefore architecturally compatible. | Confirmed | Carbide uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm` in [`Carbide.Core.csproj`](../../src/Carbide/packages/core/src/Carbide.Core.csproj). Current Avalonia browser templates also use `Microsoft.NET.Sdk.WebAssembly`, and current `Avalonia.Browser` targets `net10.0` and `net10.0-browser1.0`. |
+| Carbide and Avalonia.Browser sit on the same .NET browser-WASM substrate and are therefore architecturally compatible. | Confirmed | Carbide uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm` in [`Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj). Current Avalonia browser templates also use `Microsoft.NET.Sdk.WebAssembly`, and current `Avalonia.Browser` targets `net10.0` and `net10.0-browser1.0`. |
 | XamlPlayground is a live precedent for in-browser Roslyn + Avalonia + dynamic assembly loading. | Confirmed | `XamlPlayground.Browser.csproj` targets `net10.0-browser`, references `Avalonia.Browser`, and roots Avalonia/XAML loader assemblies. `CompilerService.cs` loads metadata from already-loaded assemblies and loads emitted assemblies into a collectible `AssemblyLoadContext`. |
 | XamlPlayground also demonstrates runtime XAML loading, which sidesteps build-time `.axaml` compilation. | Confirmed | `MainViewModel.cs` in XamlPlayground calls `AvaloniaRuntimeXamlLoader.Load(stream, scriptAssembly, rootInstance)` and `AvaloniaRuntimeXamlLoader.Parse<Control?>(xaml, null)`. |
 | Avalonia browser apps mount into a caller-provided HTML element such as `out`. | Confirmed | Current Avalonia templates call `.StartBrowserAppAsync("out")`; `BrowserAppBuilder.StartBrowserAppAsync` creates `new AvaloniaView(mainDivId)`; `AvaloniaView` resolves the DOM element by id. |
@@ -96,7 +96,7 @@ So the measured numbers do **not** prove that a merged package would be 78 MiB. 
 
 Because the original report is pinned to repository `HEAD` `0b929aad1eef7e0307cede8e6fb6b4dd1468b1d3`, several of its "today" statements are no longer current-state statements:
 
-- current [`src/Carbide/README.md`](../../src/Carbide/README.md) reports M1-M6 functionality, not just M4 shipped / M5 in flight;
+- current [`src/Carbide/README.md`](../../../README.md) reports M1-M6 functionality, not just M4 shipped / M5 in flight;
 - current TS and C# surfaces still match many of the report's identified integration seams, but the milestone framing in the report should now be read as historical context;
 - any future reader should treat that report as a good feasibility snapshot, not as the current Carbide status document.
 
@@ -141,14 +141,14 @@ The original report's 1-3 week delivery estimates should be treated as planning 
 
 ### Repository-local
 
-- Original report: [carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__ebf5a870d7ad.md](carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__ebf5a870d7ad.md)
-- Current Carbide README: [`src/Carbide/README.md`](../../src/Carbide/README.md)
-- Carbide core project file: [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../src/Carbide/packages/core/src/Carbide.Core.csproj)
-- Carbide interop surface: [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../src/Carbide/packages/core/src/CompilationInterop.cs)
-- Carbide runtime/compiler implementation: [`src/Carbide/packages/core/src/Services/ProjectCompiler.cs`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)
-- Carbide reference registry: [`src/Carbide/packages/core/src/Services/ReferenceRegistry.cs`](../../src/Carbide/packages/core/src/Services/ReferenceRegistry.cs)
-- Carbide TS session surface: [`src/Carbide/packages/core/src/ts/session.ts`](../../src/Carbide/packages/core/src/ts/session.ts)
-- Carbide Node asset server: [`src/Carbide/packages/core/src/ts/host/node/asset-server.ts`](../../src/Carbide/packages/core/src/ts/host/node/asset-server.ts)
+- Original report: [carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md)
+- Current Carbide README: [`src/Carbide/README.md`](../../../README.md)
+- Carbide core project file: [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj)
+- Carbide interop surface: [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs)
+- Carbide runtime/compiler implementation: [`src/Carbide/packages/core/src/Services/ProjectCompiler.cs`](../../../packages/core/src/Services/ProjectCompiler.cs)
+- Carbide reference registry: [`src/Carbide/packages/core/src/Services/ReferenceRegistry.cs`](../../../packages/core/src/Services/ReferenceRegistry.cs)
+- Carbide TS session surface: [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts)
+- Carbide Node asset server: [`src/Carbide/packages/core/src/ts/host/node/asset-server.ts`](../../../packages/core/src/ts/host/node/asset-server.ts)
 
 ### External
 
