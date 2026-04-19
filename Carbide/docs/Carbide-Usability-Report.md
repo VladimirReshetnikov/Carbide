@@ -4,7 +4,8 @@
 - Audience: Users evaluating Carbide for real tooling; maintainers prioritizing follow-up work
 - Scope: `src/Carbide` as implemented today (M1–M6 shipped; M9 planned)
 - Created (UTC): 2026-04-19T00:50:13Z
-- Repository HEAD: bec44f9bfc7cc2ed581066ddd2339487f6f8c685
+- Updated (UTC): 2026-04-19T02:45:13Z
+- Repository HEAD: 096c844391b86ce357ba8979065680b6587cff82
 - Related code:
   - `../packages/core/src/Services/ProjectCompiler.cs` (compile/emit/run + output capture)
   - `../packages/cli/src/bin/carbide.ts` (CLI entry point + logging redirection)
