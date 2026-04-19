@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseJsonTrailer } from "../_helpers.mjs";
 
 const LIVE = process.env.CARBIDE_NUGET_LIVE === "1";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -70,7 +71,7 @@ public sealed class Order
         "run", "--project", path.join(workDir, "Pipeline.csproj"), "--format", "json",
     ]);
     assert.equal(run1.status, 0, `first run failed: stdout=${run1.stdout} stderr=${run1.stderr}`);
-    const summary1 = JSON.parse(run1.stdout.trim());
+    const summary1 = parseJsonTrailer(run1.stdout);
     assert.equal(summary1.success, true);
     assert.equal(summary1.stdOut, '[{"customer":"alice","total":12.4},{"customer":"bob","total":8.1}]');
 
@@ -85,7 +86,7 @@ public sealed class Order
         "run", "--project", path.join(workDir, "Pipeline.csproj"), "--offline", "--format", "json",
     ]);
     assert.equal(run2.status, 0, `offline run failed: stdout=${run2.stdout} stderr=${run2.stderr}`);
-    const summary2 = JSON.parse(run2.stdout.trim());
+    const summary2 = parseJsonTrailer(run2.stdout);
     assert.equal(summary2.success, true);
     assert.equal(summary2.stdOut, summary1.stdOut);
 });

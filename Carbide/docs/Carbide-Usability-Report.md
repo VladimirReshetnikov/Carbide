@@ -31,7 +31,7 @@ Where it currently gets rough in real-life usage:
 - C# runtime logging is very chatty by default (trace/info noise on every invocation).
 - `<ProjectReference>` is captured/warned but not built (expected; M9).
 
-I added more CLI tests to cover these scenarios, plus new live NuGet end-to-end tests for YamlDotNet and a transitive Serilog graph.
+This report’s scenario coverage is backed by new CLI tests (offline + live NuGet), and by an expanded `@carbide/core` golden corpus with business-style multi-file fixtures (analytics, pricing, fulfillment, ticket triage, ledger reconciliation, invoicing, release-note formatting, feature flags, and log processing).
 
 ## Scenarios exercised
 
@@ -111,6 +111,37 @@ Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
 
 Limitations: the raw bytes still exist; this is not a full sandboxed “structured output” solution.
 
+## Additional scenario coverage (merged)
+
+In parallel to the CLI-focused scenarios above, the test suite was expanded with larger “real-ish” programs.
+
+### `@carbide/core` golden corpus (offline, deterministic)
+
+Added 11 multi-file fixtures under `../packages/core/test/node/corpus/`:
+
+- `ecommerce-analytics` — order analytics (grouping/aggregation; deterministic tie-breaking).
+- `log-pipeline` — structured log parsing + percentile analytics.
+- `pricing-engine` — domain model + pluggable discount rules.
+- `order-fulfillment` — shipping quote calculation (money + policy switches).
+- `log-analyzer` — regex-based operational log parsing + aggregation.
+- `feature-flags` — JSON ingestion (`System.Text.Json`) + deterministic rollout evaluation.
+- `ticket-triage` — SLA-like policy ranking + grouping by queue and rank.
+- `ledger-reconciliation` — CSV parsing + daily net/running balance projection.
+- `log-analytics` — HTTP-ish log pipeline + service/route summaries (p95 + averages).
+- `invoicing` — invoice math with discounts/tax, rounding, and taxable-base normalization.
+- `release-notes` — deterministic markdown rendering with per-area grouping and kind-priority ordering.
+
+### `@carbide/cli` domain scenario (offline)
+
+- `../packages/cli/test/real-world-scenarios.test.mjs` — a multi-file helpdesk/support triage workflow driven through `.csproj` (includes `DefineConstants` and deterministic text output), plus a `validate --project` check for the current ProjectReference warning behavior.
+
+### `@carbide/cli` live integration scenarios (NuGet + lock replay)
+
+Added live tests under `../packages/cli/test/integration/` (gated by `CARBIDE_NUGET_LIVE=1`) that complement the existing `nuget-round-trip`, `yaml-round-trip`, and `serilog-round-trip` coverage:
+
+- `real-world-scenarios.test.mjs` — `CsvHelper` ETL-ish pipeline; `YamlDotNet + Scriban` configuration rendering.
+- `real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline (multi-package lock + offline replay).
+
 ## Practical usability notes
 
 ### JSON output contract (today)
@@ -149,6 +180,15 @@ The allow-list and safety refusals are a usability win when Carbide is used as a
 **Problem:** `build` and `validate` already returned `warnings` in JSON, but `run` did not, which hides important warnings like `MSBLITE014` (ProjectReference captured-only).
 
 **Fix landed:** `carbide run --format json` now includes a `warnings` array when `--project` is used.
+
+### P0: Project-graph orchestration (`<ProjectReference>`) is still missing
+
+**Problem:** `<ProjectReference>` is currently captured but not built (warning-only); that blocks end-to-end usage of most real solutions.
+
+**Proposal:**
+
+- Prioritize M9 (project-graph orchestration) as the main compatibility unlock.
+- Add a `carbide audit --project` (or similar) that emits a project graph + the “manual bridge” steps (`carbide build` siblings + `--ref` plumbing) until M9 lands.
 
 ### P1: Program argv/stdin not forwarded
 
@@ -193,27 +233,65 @@ This isn’t wrong, but it’s a footgun for “scratch directories”.
 - In CLI project mode, optionally support `--source` overrides *in addition to* `--project` (currently rejected), or provide an opt-in flag that disables default discovery and requires explicit Compile items.
 - Improve the error message / troubleshooting guidance for CS8802 in project mode.
 
-## Test additions
+## Test and fixture additions
 
-New tests added under `@carbide/cli`:
+### `@carbide/core` (corpus fixtures)
 
-- `../packages/cli/test/advanced-usage.test.mjs`
-  - stdin sources
-  - argv separator current behavior
-  - JSON trailer parsing robustness
-  - ImplicitUsings=disable behavior
-  - Compile globs Include/Remove behavior
-  - ProjectReference warning surfacing
-- `../packages/cli/test/integration/yaml-round-trip.test.mjs` (live, `CARBIDE_NUGET_LIVE=1`)
-- `../packages/cli/test/integration/serilog-round-trip.test.mjs` (live, `CARBIDE_NUGET_LIVE=1`)
+New fixture directories under `../packages/core/test/node/corpus/`:
 
-How to run:
+- `ecommerce-analytics`
+- `log-pipeline`
+- `pricing-engine`
+- `order-fulfillment`
+- `log-analyzer`
+- `feature-flags`
+- `ticket-triage`
+- `ledger-reconciliation`
+- `log-analytics`
+- `invoicing`
+- `release-notes`
+
+### `@carbide/cli` (offline)
+
+- `../packages/cli/test/advanced-usage.test.mjs` — stdin sources, argv separator current behavior, JSON trailer parsing robustness, ImplicitUsings=disable, Compile Include/Remove globs, ProjectReference warnings.
+- `../packages/cli/test/real-world-scenarios.test.mjs` — a more “business-shaped” helpdesk triage scenario via `.csproj` + deterministic output.
+
+### `@carbide/cli` (live NuGet)
+
+All gated by `CARBIDE_NUGET_LIVE=1`:
+
+- `../packages/cli/test/integration/nuget-round-trip.test.mjs` — `Newtonsoft.Json` + offline replay.
+- `../packages/cli/test/integration/yaml-round-trip.test.mjs` — `YamlDotNet` + offline replay.
+- `../packages/cli/test/integration/serilog-round-trip.test.mjs` — transitive graph (`Serilog.Sinks.Console` → `Serilog`) + offline replay.
+- `../packages/cli/test/integration/real-world-scenarios.test.mjs` — `CsvHelper` pipeline; `YamlDotNet + Scriban` rendering.
+- `../packages/cli/test/integration/real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline.
+
+## How to run
 
 ```bash
-cd src/Carbide/packages/cli
+# Core corpus (requires dotnet publish assets for the WASM runtime).
+cd src/Carbide/packages/core
+npm install
+npm run build
+npm test
+
+# CLI tests (requires the core package to be built).
+cd ../cli
+npm install
+npm run build
 npm test
 
 # Live NuGet end-to-end tests:
 CARBIDE_NUGET_LIVE=1 npm run test:live
 ```
 
+## Traceability (merged PR notes)
+
+This report and the additional scenario coverage were merged from parallel Codex branches / PR notes:
+
+- PR #4536 (“Add realistic Carbide scenario coverage and usability assessment”): added `ecommerce-analytics`, `log-pipeline`, `pricing-engine`; added `real-world-scenarios.test.mjs` live integration tests (`CsvHelper`, `YamlDotNet+Scriban`); authored a draft usability report.
+- PR #4537 (“Add real-world Carbide scenario tests and usability report”): added `log-analytics`, `invoicing`, `release-notes`; added a `.csproj`-driven CLI scenario test; authored a draft usability report.
+- PR #4538 (“Carbide: expand real-world scenario coverage and add usability assessment”): added `ticket-triage`, `ledger-reconciliation`; added a mixed `Newtonsoft.Json+YamlDotNet` live integration test; authored a draft usability report.
+- PR #4539 (“Expand Carbide test corpus with realistic fixtures and add usability report”): added `order-fulfillment`, `log-analyzer`, `feature-flags`; updated corpus test commentary; authored a draft usability report.
+
+Most of the original PR testing notes reported “dotnet missing in cloud containers” as the blocker for running `@carbide/core` end-to-end; local Windows validation should run the full suite.

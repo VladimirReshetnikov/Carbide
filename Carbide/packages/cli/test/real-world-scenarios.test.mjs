@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseJsonTrailer } from "./_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, "..", "dist", "bin", "carbide.js");
@@ -110,7 +111,7 @@ Console.Write(Report.Render(tickets));
     ]);
     assert.equal(run.status, 0, `run failed: stdout=${run.stdout} stderr=${run.stderr}`);
 
-    const payload = JSON.parse(run.stdout.trim());
+    const payload = parseJsonTrailer(run.stdout);
     assert.equal(payload.success, true);
     assert.equal(
         payload.stdOut,
@@ -122,31 +123,47 @@ Console.Write(Report.Render(tickets));
     );
 });
 
-test("project with ProjectReference currently reports MSBLITE014 warning (known limitation)", async (t) => {
+test("validate --project reports MSBLITE014 for ProjectReference (known limitation)", async (t) => {
     const workDir = mkdtempSync(path.join(tmpdir(), "carbide-project-ref-warning-"));
     t.after(() => rmSync(workDir, { recursive: true, force: true }));
 
+    const sharedDir = path.join(workDir, "Shared");
+    const appDir = path.join(workDir, "App");
+    mkdirSync(sharedDir);
+    mkdirSync(appDir);
+
     writeFileSync(
-        path.join(workDir, "App.csproj"),
+        path.join(sharedDir, "Shared.csproj"),
+        `<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Shared</AssemblyName>
+  </PropertyGroup>
+</Project>`,
+    );
+    writeFileSync(path.join(sharedDir, "Thing.cs"), `namespace Shared; public static class Thing { public static int X() => 7; }\n`);
+
+    writeFileSync(
+        path.join(appDir, "App.csproj"),
         `<Project>
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>App</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Shared/Shared.csproj" />
+    <ProjectReference Include="..\\\\Shared\\\\Shared.csproj" />
   </ItemGroup>
 </Project>`,
     );
-    writeFileSync(path.join(workDir, "Program.cs"), `Console.WriteLine("ok");`);
+    writeFileSync(path.join(appDir, "Program.cs"), `Console.WriteLine("ok");`);
 
     const validate = runCarbide([
-        "validate", "--project", path.join(workDir, "App.csproj"),
+        "validate", "--project", path.join(appDir, "App.csproj"),
         "--format", "json",
     ]);
     assert.equal(validate.status, 0, validate.stderr);
 
-    const payload = JSON.parse(validate.stdout.trim());
+    const payload = parseJsonTrailer(validate.stdout);
     assert.equal(payload.success, true);
     const warnings = payload.warnings ?? [];
     assert.ok(warnings.some((w) => w.code === "MSBLITE014"), `expected MSBLITE014 in warnings: ${JSON.stringify(warnings)}`);

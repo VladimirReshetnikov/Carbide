@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseJsonTrailer } from "../_helpers.mjs";
 
 const LIVE = process.env.CARBIDE_NUGET_LIVE === "1";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -63,7 +64,7 @@ public sealed record Sale(string Region, int Amount);
 
     const run1 = runCarbide(["run", "--project", path.join(workDir, "Retail.csproj"), "--format", "json"]);
     assert.equal(run1.status, 0, `run1 failed: stdout=${run1.stdout} stderr=${run1.stderr}`);
-    const summary1 = JSON.parse(run1.stdout.trim());
+    const summary1 = parseJsonTrailer(run1.stdout);
     assert.equal(summary1.success, true);
     assert.equal(summary1.stdOut, "Top=West;Total=200");
 
@@ -79,7 +80,7 @@ public sealed record Sale(string Region, int Amount);
         "--format", "json",
     ]);
     assert.equal(run2.status, 0, `run2 failed: stdout=${run2.stdout} stderr=${run2.stderr}`);
-    const summary2 = JSON.parse(run2.stdout.trim());
+    const summary2 = parseJsonTrailer(run2.stdout);
     assert.equal(summary2.success, true);
     assert.equal(summary2.stdOut, summary1.stdOut);
 });
@@ -121,7 +122,7 @@ Console.Write(rendered);
 
     const run = runCarbide(["run", "--project", path.join(workDir, "Config.csproj"), "--format", "json"]);
     assert.equal(run.status, 0, `run failed: stdout=${run.stdout} stderr=${run.stderr}`);
-    const summary = JSON.parse(run.stdout.trim());
+    const summary = parseJsonTrailer(run.stdout);
     assert.equal(summary.success, true);
     assert.equal(summary.stdOut, "svc=Payments;region=us-west;retries=3");
 });
