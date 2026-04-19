@@ -1,8 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Updated (UTC): 2026-04-19T00:00:35Z
-Repository HEAD: d2f6eb2b29127011a7f7d713607bdfb4861c2b5f
+Updated (UTC): 2026-04-19T00:50:13Z
+Repository HEAD: bec44f9bfc7cc2ed581066ddd2339487f6f8c685
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -17,6 +17,7 @@ Repository HEAD: d2f6eb2b29127011a7f7d713607bdfb4861c2b5f
   - [Carbide README](../README.md)
   - [Carbide docs index](README.md)
   - [@carbide/core README](../packages/core/README.md)
+  - [Carbide usability report](Carbide-Usability-Report.md)
   - [Carbide vision](carbide-vision__2026-04-17__16-16-47-000000.md)
   - [Carbide architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
   - [Drift tracking and documented runtime differences](drift/README.md)
@@ -269,6 +270,7 @@ This is why repeated runs in one session do not provide AppDomain-style isolatio
 - `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, property functions, and broad MSBuild evaluation are not implemented.
 - Webcil mode is off.
 - The public runtime path does not expose program-stdin or program-argv yet.
+- Output capture is `Console.SetOut`-based. Writes that bypass it (notably `Console.OpenStandardOutput`) can surface as raw bytes on stdout and may prefix the CLI's JSON output; consumers should treat the last non-empty stdout line as the JSON trailer.
 - CLI invocations are cold-start oriented; there is no background daemon or pooled runtime process.
 
 ### Runtime differences from a local `dotnet` CLI

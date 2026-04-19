@@ -19,5 +19,8 @@ export function renderDiagnostic(d: Diagnostic): string {
 }
 
 export function writeJson(payload: unknown): void {
-    process.stdout.write(JSON.stringify(payload) + "\n");
+    // Keep the JSON payload parseable even if the user program writes to stdout in ways
+    // Carbide cannot currently capture (e.g. Console.OpenStandardOutput). Consumers should
+    // treat the *last* non-empty stdout line as the JSON trailer.
+    process.stdout.write("\n" + JSON.stringify(payload) + "\n");
 }

@@ -43,7 +43,11 @@ Since M5, Carbide's Roslyn compiler runs with `Deterministic=true`, so two invoc
 
 ### `carbide run`
 
-Compile and execute the program. The program's stdout/stderr stream through to the outer process under `--format human`; under `--format json` (default) they are captured into a JSON trailer on stdout.
+Compile and execute the program. The program's stdout/stderr stream through to the outer process under `--format human`.
+
+Under `--format json` (default) stdout/stderr are captured into a JSON trailer on stdout. Consumers should parse the **last non-empty stdout line** as JSON: user code can bypass Carbide's current capture by writing directly to stdout via `Console.OpenStandardOutput()` (or similar), which may prefix raw bytes before the trailer.
+
+The CLI parser accepts `-- <program args>...`, but program arguments are not forwarded into the runtime yet (the user program currently sees an empty `string[] args`).
 
 ```bash
 carbide run --source Program.cs --ref out/lib/MyLib.dll --format human

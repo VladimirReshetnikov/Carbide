@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseJsonTrailer } from "./_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, "..", "dist", "bin", "carbide.js");
@@ -52,7 +53,7 @@ test("carbide build --project reads .csproj and emits the expected DLL", async (
         "--format", "json",
     ]);
     assert.equal(build.status, 0, `build failed: ${build.stderr}`);
-    const summary = JSON.parse(build.stdout.trim());
+    const summary = parseJsonTrailer(build.stdout);
     assert.equal(summary.success, true);
     assert.equal(summary.assemblyName, "FooLib");
     assert.ok(existsSync(path.join(outDir, "FooLib.dll")));
@@ -145,7 +146,7 @@ test("carbide validate --project exits 0 for a clean project", async (t) => {
 
     const v = runCarbide(["validate", "--project", path.join(workDir, "Foo.csproj"), "--format", "json"]);
     assert.equal(v.status, 0, v.stderr);
-    const payload = JSON.parse(v.stdout.trim());
+    const payload = parseJsonTrailer(v.stdout);
     assert.equal(payload.success, true);
 });
 
@@ -190,7 +191,7 @@ test("M6: PackageReference in .csproj suppresses MSBLITE013 and replays empty lo
         "--format", "json",
     ]);
     assert.equal(build.status, 0, build.stderr);
-    const payload = JSON.parse(build.stdout.trim());
+    const payload = parseJsonTrailer(build.stdout);
     assert.equal(payload.success, true);
     // M6 suppresses MSBLITE013 when resolution runs.
     const msblite013 = (payload.warnings ?? []).filter((w) => w.code === "MSBLITE013");

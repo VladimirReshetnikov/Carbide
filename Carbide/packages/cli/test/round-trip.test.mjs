@@ -7,6 +7,7 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { parseJsonTrailer } from "./_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, "..", "dist", "bin", "carbide.js");
@@ -40,7 +41,7 @@ test("carbide build emits a DLL that carbide run can reference", async (t) => {
         "--format", "json",
     ]);
     assert.equal(build.status, 0, `build failed: stdout=${build.stdout} stderr=${build.stderr}`);
-    const buildSummary = JSON.parse(build.stdout.trim());
+    const buildSummary = parseJsonTrailer(build.stdout);
     assert.equal(buildSummary.success, true);
     assert.equal(buildSummary.assemblyName, "MyLib");
     assert.ok(buildSummary.pe && buildSummary.pe.endsWith("MyLib.dll"));
@@ -80,7 +81,7 @@ test("carbide validate exits 0 for clean source, non-zero for broken source", as
 
     const ok = runCarbide(["validate", "--source", clean, "--format", "json"]);
     assert.equal(ok.status, 0, `validate clean: ${ok.stderr}`);
-    const payload = JSON.parse(ok.stdout.trim());
+    const payload = parseJsonTrailer(ok.stdout);
     assert.equal(payload.success, true);
 
     const broken = path.join(workDir, "Broken.cs");
@@ -88,7 +89,7 @@ test("carbide validate exits 0 for clean source, non-zero for broken source", as
 
     const bad = runCarbide(["validate", "--source", broken, "--format", "json"]);
     assert.equal(bad.status, 1, `validate broken should exit 1`);
-    const badPayload = JSON.parse(bad.stdout.trim());
+    const badPayload = parseJsonTrailer(bad.stdout);
     assert.equal(badPayload.success, false);
     assert.ok(badPayload.diagnostics.some((d) => d.severity === "error"));
 });
