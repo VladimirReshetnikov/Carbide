@@ -30,6 +30,10 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [JS↔C# interop bridge proposal](carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__515d12a34be3.md) — design for an ES6-Proxy-based object-graph bridge over `[JSExport]` plus a compile-time surface manifest, targeting ClearScript-level ergonomics for user C# compiled in-sandbox. Introduces `@carbide/bridge` (TS) and `Carbide.Core.Bridge` (C#) as a peer of the existing control-plane `CompilationInterop`. Companion to the repository-level [JS↔C# WASM interop libraries survey](../../../docs/reports/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
 
+## Reports
+
+- [Carbide real-world usability report](carbide-real-world-usability-report__2026-04-19__00-36-49-000000__bec44f9bfc7c.md) — scenario-driven evaluation of Carbide against more realistic multi-file business/application flows, including usability findings, current shortcomings, and prioritized improvement proposals.
+
 ## Companion-project proposals
 
 - [`Carbide.UI` / `@carbide-ui/*` — Avalonia GUI integration proposal](carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__a5988020103c.md) — three approaches compared (merged runtime / cross-frame runner / offline CLI), commits to cross-frame runner + offline CLI as concurrent delivery, specifies package layout, `postMessage` protocol, XAML strategy, and UI-M0..UI-M8 milestones. Paired with the [feasibility report](../../../docs/reports/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__ebf5a870d7ad.md).

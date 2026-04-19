@@ -1,0 +1,3 @@
+{
+  "stdOut": "## CLI\n- [Security] Refuse analyzer-bearing packages in strict allow-list mode.\n- [Breaking] Drop implicit default for --assembly-name when multiple projects are passed.\n- [Fix] Improve JSON diagnostics span accuracy for generated files.\n\n## Compiler\n- [Feature] Add carbde.lock.json replay mode for project runs.\n- [Fix] Respect deterministic source path mapping in pdb output."
+}
