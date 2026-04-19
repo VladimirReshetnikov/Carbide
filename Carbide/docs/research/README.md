@@ -17,3 +17,7 @@ This directory holds Carbide-specific research, feasibility reports, and indepen
 
 - [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis of a browser-hosted Avalonia GUI story next to Carbide.
 - [Verification: `carbide-avalonia-browser-gui-integration`](avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and correction pass over the feasibility report.
+
+### PowerShell subset
+
+- [Feasibility: forking a useful PowerShell subset from `lib/pwsh` to run under Carbide on Node.js](pwsh/carbide-pwsh-subset-feasibility__2026-04-19__10-30-00-000000__a7c3d4e9f1b2.md) — scope, dependency analysis, risk assessment, and tiered effort estimate for an in-process PowerShell evaluator built on top of Carbide M9 + M11.
