@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-19T02:45:13Z
-Repository HEAD: 096c844391b86ce357ba8979065680b6587cff82
+Updated (UTC): 2026-04-19T03:04:29Z
+Repository HEAD: 02320374747f2b62dd77906f429ecb51f2db805e
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 

@@ -4,8 +4,8 @@
 - Audience: Users evaluating Carbide for real tooling; maintainers prioritizing follow-up work
 - Scope: `src/Carbide` as implemented today (M1–M6 shipped; M9 planned)
 - Created (UTC): 2026-04-19T00:50:13Z
-- Updated (UTC): 2026-04-19T02:45:13Z
-- Repository HEAD: 096c844391b86ce357ba8979065680b6587cff82
+- Updated (UTC): 2026-04-19T03:04:29Z
+- Repository HEAD: 02320374747f2b62dd77906f429ecb51f2db805e
 - Related code:
   - `../../packages/core/src/Services/ProjectCompiler.cs` (compile/emit/run + output capture)
   - `../../packages/cli/src/bin/carbide.ts` (CLI entry point + logging redirection)
@@ -50,7 +50,7 @@ Shape: `carbide run --source -` with the source passed via stdin.
 
 Result: works and is very convenient for agents and code generators.
 
-Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
+Test coverage: `../../packages/cli/test/advanced-usage.test.mjs`.
 
 ### 3) Program arguments (`-- ...`) and stdin forwarding
 
@@ -60,7 +60,7 @@ Result: args are currently *not* forwarded. The program receives an empty array.
 
 This is expected per current-state docs, but surprising given the CLI accepts `--`.
 
-Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
+Test coverage: `../../packages/cli/test/advanced-usage.test.mjs`.
 
 ### 4) `.csproj` with strict `<ImplicitUsings>disable</ImplicitUsings>`
 
@@ -68,7 +68,7 @@ Shape: a single-file `.csproj` that disables implicit usings, then compiles a so
 
 Result: behaves as expected; disabling implicit usings restores strict semantics.
 
-Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
+Test coverage: `../../packages/cli/test/advanced-usage.test.mjs`.
 
 ### 5) `.csproj` source-set control via `<Compile Include="..."/>` + `<Compile Remove="..."/>`
 
@@ -76,7 +76,7 @@ Shape: a project with `EnableDefaultCompileItems=false`, `Include="src/**/*.cs"`
 
 Result: works; globs and removes control the effective source set as intended.
 
-Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
+Test coverage: `../../packages/cli/test/advanced-usage.test.mjs`.
 
 ### 6) `.csproj` + allow-listed NuGet (live resolve + offline lock replay)
 
@@ -84,13 +84,13 @@ Shape A: `YamlDotNet` pinned version; parse YAML and print a deterministic strin
 
 Result: live resolve downloads, lock is written, and `--offline` replay works.
 
-Test coverage: `../packages/cli/test/integration/yaml-round-trip.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`).
+Test coverage: `../../packages/cli/test/integration/yaml-round-trip.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`).
 
 Shape B: `Serilog.Sinks.Console` (transitive dependency on `Serilog`); confirm transitive graph resolves and offline replay works.
 
 Result: lock contains both packages; replay works. Console output from libraries is discussed below (see output capture limitations).
 
-Test coverage: `../packages/cli/test/integration/serilog-round-trip.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`).
+Test coverage: `../../packages/cli/test/integration/serilog-round-trip.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`).
 
 ### 7) Output capture vs. stdout handle writes (major sharp edge)
 
@@ -108,7 +108,7 @@ Mitigation landed in this change:
 - CLI now emits the JSON payload as a “trailer” and ensures it starts on a new line.
 - CLI tests parse the last non-empty stdout line as JSON.
 
-Test coverage: `../packages/cli/test/advanced-usage.test.mjs`.
+Test coverage: `../../packages/cli/test/advanced-usage.test.mjs`.
 
 Limitations: the raw bytes still exist; this is not a full sandboxed “structured output” solution.
 
@@ -118,7 +118,7 @@ In parallel to the CLI-focused scenarios above, the test suite was expanded with
 
 ### `@carbide/core` golden corpus (offline, deterministic)
 
-Added 11 multi-file fixtures under `../packages/core/test/node/corpus/`:
+Added 11 multi-file fixtures under `../../packages/core/test/node/corpus/`:
 
 - `ecommerce-analytics` — order analytics (grouping/aggregation; deterministic tie-breaking).
 - `log-pipeline` — structured log parsing + percentile analytics.
@@ -134,11 +134,11 @@ Added 11 multi-file fixtures under `../packages/core/test/node/corpus/`:
 
 ### `@carbide/cli` domain scenario (offline)
 
-- `../packages/cli/test/real-world-scenarios.test.mjs` — a multi-file helpdesk/support triage workflow driven through `.csproj` (includes `DefineConstants` and deterministic text output), plus a `validate --project` check for the current ProjectReference warning behavior.
+- `../../packages/cli/test/real-world-scenarios.test.mjs` — a multi-file helpdesk/support triage workflow driven through `.csproj` (includes `DefineConstants` and deterministic text output), plus a `validate --project` check for the current ProjectReference warning behavior.
 
 ### `@carbide/cli` live integration scenarios (NuGet + lock replay)
 
-Added live tests under `../packages/cli/test/integration/` (gated by `CARBIDE_NUGET_LIVE=1`) that complement the existing `nuget-round-trip`, `yaml-round-trip`, and `serilog-round-trip` coverage:
+Added live tests under `../../packages/cli/test/integration/` (gated by `CARBIDE_NUGET_LIVE=1`) that complement the existing `nuget-round-trip`, `yaml-round-trip`, and `serilog-round-trip` coverage:
 
 - `real-world-scenarios.test.mjs` — `CsvHelper` ETL-ish pipeline; `YamlDotNet + Handlebars.Net` configuration rendering (Scriban currently triggers a safety refusal due to `build/*.props`).
 - `real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline (multi-package lock + offline replay).
@@ -238,7 +238,7 @@ This isn’t wrong, but it’s a footgun for “scratch directories”.
 
 ### `@carbide/core` (corpus fixtures)
 
-New fixture directories under `../packages/core/test/node/corpus/`:
+New fixture directories under `../../packages/core/test/node/corpus/`:
 
 - `ecommerce-analytics`
 - `log-pipeline`
@@ -254,18 +254,18 @@ New fixture directories under `../packages/core/test/node/corpus/`:
 
 ### `@carbide/cli` (offline)
 
-- `../packages/cli/test/advanced-usage.test.mjs` — stdin sources, argv separator current behavior, JSON trailer parsing robustness, ImplicitUsings=disable, Compile Include/Remove globs, ProjectReference warnings.
-- `../packages/cli/test/real-world-scenarios.test.mjs` — a more “business-shaped” helpdesk triage scenario via `.csproj` + deterministic output.
+- `../../packages/cli/test/advanced-usage.test.mjs` — stdin sources, argv separator current behavior, JSON trailer parsing robustness, ImplicitUsings=disable, Compile Include/Remove globs, ProjectReference warnings.
+- `../../packages/cli/test/real-world-scenarios.test.mjs` — a more “business-shaped” helpdesk triage scenario via `.csproj` + deterministic output.
 
 ### `@carbide/cli` (live NuGet)
 
 All gated by `CARBIDE_NUGET_LIVE=1`:
 
-- `../packages/cli/test/integration/nuget-round-trip.test.mjs` — `Newtonsoft.Json` + offline replay.
-- `../packages/cli/test/integration/yaml-round-trip.test.mjs` — `YamlDotNet` + offline replay.
-- `../packages/cli/test/integration/serilog-round-trip.test.mjs` — transitive graph (`Serilog.Sinks.Console` → `Serilog`) + offline replay.
-- `../packages/cli/test/integration/real-world-scenarios.test.mjs` — `CsvHelper` pipeline; `YamlDotNet + Handlebars.Net` rendering (Scriban currently triggers a safety refusal due to `build/*.props`).
-- `../packages/cli/test/integration/real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline.
+- `../../packages/cli/test/integration/nuget-round-trip.test.mjs` — `Newtonsoft.Json` + offline replay.
+- `../../packages/cli/test/integration/yaml-round-trip.test.mjs` — `YamlDotNet` + offline replay.
+- `../../packages/cli/test/integration/serilog-round-trip.test.mjs` — transitive graph (`Serilog.Sinks.Console` → `Serilog`) + offline replay.
+- `../../packages/cli/test/integration/real-world-scenarios.test.mjs` — `CsvHelper` pipeline; `YamlDotNet + Handlebars.Net` rendering (Scriban currently triggers a safety refusal due to `build/*.props`).
+- `../../packages/cli/test/integration/real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline.
 
 ## How to run
 
@@ -289,9 +289,11 @@ CARBIDE_NUGET_LIVE=1 npm run test:live
 
 This report and the additional scenario coverage were merged from parallel Codex branches / PR notes:
 
-- PR #4536 (“Add realistic Carbide scenario coverage and usability assessment”): added `ecommerce-analytics`, `log-pipeline`, `pricing-engine`; added `real-world-scenarios.test.mjs` live integration tests (`CsvHelper`, `YamlDotNet+Scriban` in the original draft; final merged version uses `YamlDotNet+Handlebars.Net` due to Scriban safety refusal); authored a draft usability report.
-- PR #4537 (“Add real-world Carbide scenario tests and usability report”): added `log-analytics`, `invoicing`, `release-notes`; added a `.csproj`-driven CLI scenario test; authored a draft usability report.
-- PR #4538 (“Carbide: expand real-world scenario coverage and add usability assessment”): added `ticket-triage`, `ledger-reconciliation`; added a mixed `Newtonsoft.Json+YamlDotNet` live integration test; authored a draft usability report.
+- PR #4536 (“Add realistic Carbide scenario coverage and usability assessment”): added `ecommerce-analytics`, `log-pipeline`, `pricing-engine`; added `packages/cli/test/integration/real-world-scenarios.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`) with a CsvHelper pipeline and a `YamlDotNet+Scriban` composition in the original draft (final merged version uses `YamlDotNet+Handlebars.Net` due to Scriban safety refusal); authored a draft usability report.
+- PR #4537 (“Add real-world Carbide scenario tests and usability report”): added `log-analytics`, `invoicing`, `release-notes`; added `packages/cli/test/real-world-scenarios.test.mjs` to exercise a `.csproj`-driven multi-file project and current `<ProjectReference>` warning behavior; authored a draft usability report.
+- PR #4538 (“Carbide: expand real-world scenario coverage and add usability assessment”): added `ticket-triage`, `ledger-reconciliation`; added `packages/cli/test/integration/real-world-data-pipeline.test.mjs` (gated by `CARBIDE_NUGET_LIVE=1`) to cover a mixed `Newtonsoft.Json+YamlDotNet` pipeline with lockfile write and `--offline` replay; authored a draft usability report.
 - PR #4539 (“Expand Carbide test corpus with realistic fixtures and add usability report”): added `order-fulfillment`, `log-analyzer`, `feature-flags`; updated corpus test commentary; authored a draft usability report.
+
+The original per-PR draft usability reports are retained under [archived docs](../archived/README.md) (`real-world-usability-report-drafts/`).
 
 Most of the original PR testing notes reported “dotnet missing in cloud containers” as the blocker for running `@carbide/core` end-to-end; local Windows validation should run the full suite.
