@@ -9,7 +9,7 @@ Audience: repository owner and future contributors. The design here is expected 
 
 Scope: the *what* and the *how* of an Avalonia-in-browser GUI story that sits next to Carbide. The *whether* is the open call this proposal exists to support — §13 lists the explicit decisions an owner needs to make before implementation starts.
 
-Paired with the feasibility survey [`src/Carbide/docs/research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md`](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md). The feasibility report establishes that the integration is **technically possible** (via the [`AvaloniaUI/XamlPlayground`](https://github.com/AvaloniaUI/XamlPlayground) precedent and the shared `Microsoft.NET.Sdk.WebAssembly` foundation). This proposal establishes *which specific shape* the integration should take and how it should be delivered.
+Paired with the feasibility survey [`src/Carbide/docs/research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md`](../research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md). The feasibility report establishes that the integration is **technically possible** (via the [`AvaloniaUI/XamlPlayground`](https://github.com/AvaloniaUI/XamlPlayground) precedent and the shared `Microsoft.NET.Sdk.WebAssembly` foundation). This proposal establishes *which specific shape* the integration should take and how it should be delivered.
 
 ## 1. Elevator pitch
 
@@ -44,7 +44,7 @@ Two deliverables, one reference pack, one runtime bundle. No new surface inside 
 
 ## 2. Relationship to Carbide's vision
 
-Carbide's [vision document](carbide-vision__2026-04-17__16-16-47-000000.md) §6 explicitly lists two non-goals that touch this proposal:
+Carbide's [vision document](../carbide-vision__2026-04-17__16-16-47-000000.md) §6 explicitly lists two non-goals that touch this proposal:
 
 > **N.2 Not a .NET platform replacement.** Carbide does not ship ASP.NET Core, Blazor, EF Core, WPF, WinForms, MAUI, Avalonia, or any desktop/server framework. […]
 >
@@ -544,7 +544,7 @@ Implementation: a small host-adapter extension that, given a package name, reads
 
 ### 10.2 Collectible `AssemblyLoadContext` in `ProjectCompiler.RunAsync`
 
-Current code in [`ProjectCompiler.cs:371`](../packages/core/src/Services/ProjectCompiler.cs) does `Assembly.Load(byte[])`, which lands in the default (non-collectible) `AssemblyLoadContext`. Change it to:
+Current code in [`ProjectCompiler.cs:371`](../../packages/core/src/Services/ProjectCompiler.cs) does `Assembly.Load(byte[])`, which lands in the default (non-collectible) `AssemblyLoadContext`. Change it to:
 
 ```csharp
 var context = new AssemblyLoadContext(
@@ -707,7 +707,7 @@ Items 2–4 are short decisions. Item 1 is the material one.
 
 ## 15. Alignment with adjacent work
 
-- **`cs-agent-tools`** ([`src/cs-agent-tools/`](../../cs-agent-tools/)). The agent-facing Python surface can gain `cs-kit build-avalonia` and `cs-kit preview-avalonia` commands that wrap the CLI and (eventually) the launcher. No changes proposed in this document; `cs-agent-tools` is a downstream consumer.
+- **`cs-agent-tools`** ([`src/cs-agent-tools/`](../../../cs-agent-tools/)). The agent-facing Python surface can gain `cs-kit build-avalonia` and `cs-kit preview-avalonia` commands that wrap the CLI and (eventually) the launcher. No changes proposed in this document; `cs-agent-tools` is a downstream consumer.
 - **Carbide M5 (`msbuild-lite`)**. `carbide build --target avalonia-browser --project MyApp.csproj` uses M5's `.csproj` parser directly. UI-M5 depends on M5 for the project-file path; users without a `.csproj` can still use `--source`.
 - **Carbide M6 (`@carbide/nuget`)**. If implemented before UI-M3, the launcher can feed NuGet-resolved additional references alongside the Avalonia ref-pack. Non-blocking.
 - **Carbide M12 (source generators)**. Enables UI-M7 (compile-time `.axaml`). Non-blocking for UI-M1 through UI-M6.

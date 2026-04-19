@@ -16,7 +16,7 @@ Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode,
 
 ## Layout
 
-- [`docs/`](docs/README.md) — vision, architecture, milestone plans, drift notes, and the current-state guide.
+- [`docs/`](docs/README.md) — vision, planning docs, proposals, project-local reports, research, drift notes, and the current-state guide.
 - `packages/core/` — the `@carbide/core` npm package root.
   - `src/` — `Carbide.Core.csproj` (the Blazor WASM C# project), plus TypeScript sources under `src/ts/`.
   - `test/` — host-side smoke tests and user-DLL fixtures under `test/fixtures/`.
@@ -139,7 +139,7 @@ See:
 - [`packages/msbuild-lite/README.md`](packages/msbuild-lite/README.md) for the supported `.csproj` subset
 - [`packages/nuget/README.md`](packages/nuget/README.md) for NuGet resolution policy, cache, and lock behavior
 - [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md) for the full project manual, tutorial, limitations, and troubleshooting
-- [Carbide Usability Report](docs/Carbide-Usability-Report.md) for additional hands-on scenarios, sharp edges, and improvement proposals
+- [Carbide Usability Report](docs/reports/Carbide-Usability-Report.md) for additional hands-on scenarios, sharp edges, and improvement proposals
 
 ## Origin
 

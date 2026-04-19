@@ -1,8 +1,8 @@
 # Carbide — research reports
 
 - Created (UTC): 2026-04-19T00:47:03Z
-- Updated (UTC): 2026-04-19T00:47:03Z
-- Repository HEAD: d2f6eb2b29127011a7f7d713607bdfb4861c2b5f
+- Updated (UTC): 2026-04-19T01:46:55Z
+- Repository HEAD: 826d84ca3a3a21c1b146dfaa851c962738631f75
 
 This directory holds Carbide-specific research, feasibility reports, and independent verification reports that directly inform the project-local design documents in [`src/Carbide/docs/`](../README.md).
 
@@ -15,5 +15,5 @@ This directory holds Carbide-specific research, feasibility reports, and indepen
 
 ### Avalonia UI integration
 
-- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md) — feasibility analysis of a browser-hosted Avalonia GUI story next to Carbide.
-- [Verification: `carbide-avalonia-browser-gui-integration`](avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__6821d1cc24d2.md) — independent verification and correction pass over the feasibility report.
+- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis of a browser-hosted Avalonia GUI story next to Carbide.
+- [Verification: `carbide-avalonia-browser-gui-integration`](avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and correction pass over the feasibility report.

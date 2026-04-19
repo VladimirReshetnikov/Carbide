@@ -5,7 +5,7 @@
 
 Status: verification / independent-research report.
 Audience: repository owner and future Carbide contributors.
-Scope: verifies the claims and recommendation in [the original feasibility report](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md) against the current repository `HEAD`, current upstream Avalonia sources, current XamlPlayground sources, current NuGet package layouts, and local publish measurements.
+Scope: verifies the claims and recommendation in [the original feasibility report](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) against the current repository `HEAD`, current upstream Avalonia sources, current XamlPlayground sources, current NuGet package layouts, and local publish measurements.
 
 ## Summary
 
@@ -141,7 +141,7 @@ The original report's 1-3 week delivery estimates should be treated as planning 
 
 ### Repository-local
 
-- Original report: [carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md)
+- Original report: [carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md](./carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md)
 - Current Carbide README: [`src/Carbide/README.md`](../../../README.md)
 - Carbide core project file: [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj)
 - Carbide interop surface: [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs)

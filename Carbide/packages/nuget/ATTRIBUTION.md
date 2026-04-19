@@ -19,7 +19,7 @@ description.
 
 ## Design derivation
 
-Per-file derivation from `src/Carbide/docs/carbide-M6-detailed-plan__*.md`:
+Per-file derivation from `src/Carbide/docs/planning/milestones/carbide-M6-detailed-plan__*.md`:
 
 | File                         | Plan section                                       |
 |------------------------------|----------------------------------------------------|

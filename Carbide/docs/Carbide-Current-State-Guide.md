@@ -1,8 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Updated (UTC): 2026-04-19T00:50:13Z
-Repository HEAD: bec44f9bfc7cc2ed581066ddd2339487f6f8c685
+Updated (UTC): 2026-04-19T01:36:09Z
+Repository HEAD: 826d84ca3a3a21c1b146dfaa851c962738631f75
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -17,9 +17,9 @@ Repository HEAD: bec44f9bfc7cc2ed581066ddd2339487f6f8c685
   - [Carbide README](../README.md)
   - [Carbide docs index](README.md)
   - [@carbide/core README](../packages/core/README.md)
-  - [Carbide usability report](Carbide-Usability-Report.md)
+  - [Carbide usability report](reports/Carbide-Usability-Report.md)
   - [Carbide vision](carbide-vision__2026-04-17__16-16-47-000000.md)
-  - [Carbide architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
+  - [Carbide architecture and implementation plan](planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
   - [Drift tracking and documented runtime differences](drift/README.md)
 
 ## Summary

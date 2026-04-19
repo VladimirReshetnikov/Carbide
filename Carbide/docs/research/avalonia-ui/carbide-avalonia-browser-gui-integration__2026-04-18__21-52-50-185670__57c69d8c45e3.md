@@ -42,7 +42,7 @@ The strategic risk (separately from the technical one) is **size-budget pressure
 
 Carbide is the repository's in-house "C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process." (Quoted from [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../carbide-vision__2026-04-17__16-16-47-000000.md).) Status at the report's commit: **M4 shipped, M5 in progress**.
 
-Layered runtime topology (from [`carbide-architecture-and-implementation-plan`](../../carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) §1):
+Layered runtime topology (from [`carbide-architecture-and-implementation-plan`](../../planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) §1):
 
 - L9 Consumer → L8 `@carbide/core` TS surface → L7 Host adapter (browser or Node) → L6 .NET-WASM boot → L5 `Carbide.Core` (C#, compiled to WASM) → L4 Roslyn. Ref-pack, NuGet, msbuild-lite sit alongside.
 
@@ -504,9 +504,9 @@ Must: `build.success === true`; the iframe renders the Avalonia UI; a second `la
 ### Repository-local
 
 - Carbide vision: [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../carbide-vision__2026-04-17__16-16-47-000000.md)
-- Carbide architecture: [`src/Carbide/docs/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md`](../../carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
-- Carbide M4 plan: [`src/Carbide/docs/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md`](../../carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md)
-- Carbide M5 plan: [`src/Carbide/docs/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md`](../../carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md)
+- Carbide architecture: [`src/Carbide/docs/planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md`](../../planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
+- Carbide M4 plan: [`src/Carbide/docs/planning/milestones/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md`](../../planning/milestones/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md)
+- Carbide M5 plan: [`src/Carbide/docs/planning/milestones/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md`](../../planning/milestones/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md)
 - Feasibility predecessor: [`docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md`](../../../../../docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md)
 - Carbide sources (illustrative): [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj), [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs), [`src/Carbide/packages/core/src/Services/ProjectCompiler.cs`](../../../packages/core/src/Services/ProjectCompiler.cs), [`src/Carbide/packages/core/src/Services/ReferenceRegistry.cs`](../../../packages/core/src/Services/ReferenceRegistry.cs), [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts), [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../../packages/core/src/ts/runtime/boot.ts).
 
