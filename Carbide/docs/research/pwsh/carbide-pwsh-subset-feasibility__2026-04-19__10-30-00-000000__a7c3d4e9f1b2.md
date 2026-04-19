@@ -1,11 +1,14 @@
 # Feasibility: forking a useful PowerShell subset from `lib/pwsh` to run under Carbide on Node.js
 
 - Created (UTC): 2026-04-19T10:30:00Z
-- Repository HEAD: 20659c7b082ed4b14c79fa6be5b741d8b63ff6dc
+- Revised (UTC): 2026-04-19T21:00:00Z
+- Repository HEAD: b27148c824028d42a26852cdff6db1bd0cebfcb3
 
 Status: feasibility report. Cross-reads PowerShell 7's source tree in `lib/pwsh` (upstream `PowerShell/PowerShell` snapshot) against Carbide's current state (M9 + M11 + U1–U3 shipped). Output targets a **decision** about whether a limited but useful PowerShell-on-Carbide story is worth pursuing, and if so, what the minimum viable scope looks like and what Carbide-side changes would unblock it.
 
 Audience: repository owner Vladimir; future Carbide contributors. Written to be actionable without further background research.
+
+> **Revised after independent review** (2026-04-19T21:00Z). An independent feasibility report — [`powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md`](../powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — landed after this one and disagreed on several important points. I've folded the corrections into the text inline (marked with ⚠) and added §14 "Revisions after independent review" with the substantive deltas. The high-level verdict survives the review; the effort estimate, host-architecture assumption, and several factual counts did not. Read §14 first if you've already read v1.
 
 ## 1. Request
 
@@ -38,7 +41,11 @@ Three scope words pinned before the analysis:
 | Real filesystem access (`Set-Location`, `Get-ChildItem` over `C:\`) | — | — | — | ✘ — Mono-WASM can't mount the host FS; a VFS bridge is the only workable path | — |
 | JIT compilation of hot script paths | — | — | — | — | ✘ — Mono-WASM doesn't allow Reflection.Emit IL at the AOT layer; PowerShell's LightCompiler/interpreter is the substitute |
 
-**Bottom line:** a useful PowerShell-on-Carbide story is **feasible**, takes **1–3 months of focused work** to reach a genuinely useful state (Tier 2 below), and costs Carbide **three concrete additions** (§7). The critical enabler — PowerShell's engine having a built-in interpreter (`LightCompiler`) that doesn't need IL emission — is already in the `lib/pwsh` tree. Most of the difficulty is *not* the engine; it's slicing away the non-portable cmdlet libraries and building a Carbide-shaped host.
+**Bottom line:** a useful PowerShell-on-Carbide story is **feasible**, and costs Carbide **three concrete additions** (§7). The critical enabler — PowerShell's engine having a built-in interpreter (`LightCompiler`) that doesn't need IL emission — is already in the `lib/pwsh` tree. Most of the difficulty is *not* the engine; it's slicing away the non-portable cmdlet libraries and building a Carbide-shaped host.
+
+⚠ **Effort estimate revised (§14.6):** v1 of this report claimed "1–3 months" to reach Tier 2. The independent review's "medium-to-large subproject, not a spike" framing is better-calibrated. Realistic effort is **4–6 months of focused work** once the understated Expression.Compile surface (23 sites, not 8), the persistent-session host requirement, the threading-model collapse, and the out-of-SMA cmdlet surface are properly accounted for. The feasibility verdict does not change; the timeline does.
+
+⚠ **Two distinct feasibility questions (§14.1):** "runtime-hosting feasibility" (can Carbide's Mono-WASM run a prebuilt subset DLL?) and "source-build feasibility" (can Carbide itself build the fork?) have different answers. The runtime story is easier and lands first; the source-build story is a follow-up, not a day-one requirement. The first Carbide contact should be a **prebuilt managed DLL loaded via `carbide run --ref pwsh-lite.dll`**, not a `carbide build --project SMA.csproj` chain.
 
 ## 3. The shape of `lib/pwsh`
 
@@ -136,9 +143,13 @@ int threshold = (compileInterpretChoice == CompileInterpretChoice.NeverCompile) 
 var deleg = new LightCompiler(threshold).CompileTop(lambda).CreateDelegate();
 ```
 
-For Carbide's fork, we force `CompileInterpretChoice.NeverCompile` at the two decision sites and audit the handful of direct `Expression.Compile()` calls in the codebase (8 sites total — see `grep` in §3.1 research). Most of them are for DLR binders that cache per-call-site; those CAN use Expression.Compile in Blazor/Mono-WASM's **interpreter** mode, which Carbide runs. The ones that can't be satisfied get patched to wrap in a LightLambda instead.
+For Carbide's fork, we force `CompileInterpretChoice.NeverCompile` at the decision sites and audit the direct `Expression.Compile()` calls in the codebase. Most of them are for DLR binders that cache per-call-site; those CAN use Expression.Compile in Blazor/Mono-WASM's **interpreter** mode, which Carbide runs. The ones that can't be satisfied get patched to wrap in a LightLambda instead.
 
-**This is the key insight:** PowerShell was designed to run on constrained runtimes. The Carbide fork doesn't have to invent an interpreter; it inherits one that already exists in the upstream tree.
+⚠ **Compile-site count corrected (§14.2):** v1 of this report said "8 sites total." Actual count is **23 `.Compile()` call sites across 13 files** in SMA — `grep -rln "\.Compile()" --include="*.cs" System.Management.Automation/` returns `CommandProcessor.cs, CoreAdapter.cs, interpreter/LightDelegateCreator.cs, interpreter/LightLambda.cs, interpreter/LightLambdaClosureVisitor.cs, interpreter/LoopCompiler.cs, lang/scriptblock.cs, LanguagePrimitives.cs, parser/Compiler.cs, parser/ConstantValues.cs, ReflectionParameterBinder.cs, runtime/Binding/Binders.cs, runtime/MutableTuple.cs`. The interpreter-internal ones (LightDelegateCreator, LightLambda, LoopCompiler, LightLambdaClosureVisitor) are *inside* the Light-compiler's own fallback path and are unavoidable; they call `Expression.Compile` when the interpreter's hotness counter trips. For the subset fork we force the counter never to trip (threshold = int.MaxValue + NeverCompile everywhere).
+
+⚠ **Additional IL-emission sites (§14.2):** my v1 missed `engine/CoreAdapter.cs:2355` which uses `DynamicMethod` (not just Expression.Compile) for member-access fast-paths, and `engine/EventManager.cs:651` which uses `AssemblyBuilder.DefineDynamicAssembly`. `DynamicMethod` and `AssemblyBuilder` **do not work** in Mono-WASM's interpreter mode (they throw `PlatformNotSupportedException`, not just miss-compile). Both need either source patches (replace with reflection-based slow paths) or hard exclusion (EventManager supports `Register-ObjectEvent`, which is safely a Tier 3+ feature).
+
+**This is the key insight (still true after review):** PowerShell was designed to run on constrained runtimes — iOS/Xamarin AOT specifically. The Carbide fork doesn't have to invent an interpreter; it inherits one that already exists in the upstream tree. But the boundary between "interpreter-only" and "IL-emitting fast paths" runs through more files than I originally counted.
 
 ## 5. A tiered useful subset
 
@@ -162,7 +173,9 @@ What's needed:
 - Force `NeverCompile` at all Compiler.cs decision sites.
 - Trim the csproj to: `Newtonsoft.Json`, `System.Text.Encoding.CodePages`, nothing else.
 
-Scope exclusions: no cmdlets beyond intrinsics (`Write-Output`, `Out-String`, `Where-Object`, `ForEach-Object`, `Select-Object` — most are handled by the engine directly via aliases to built-in pipeline steps, not by `Microsoft.PowerShell.Commands.Utility`).
+Scope exclusions: no cmdlets beyond intrinsics.
+
+⚠ **Correction (§14.3):** v1 of this report claimed `Write-Output`, `Out-String`, `Where-Object`, `ForEach-Object`, `Select-Object` are all "handled by the engine directly." That was wrong on every count except two. Only `ForEach-Object` and `Where-Object` live in SMA proper (`engine/InternalCommands.cs`). `Select-Object`, `Write-Output`, `Out-String`, `Sort-Object`, `Group-Object`, `Measure-Object`, `ConvertTo-Json`, `ConvertFrom-Json`, `Write-Host`, and the rest of the user-facing surface live in `Microsoft.PowerShell.Commands.Utility`. **Tier 1 therefore gets pipelines, but a Tier 1 demo without the utility assembly has a very thin cmdlet surface — essentially just `ForEach-Object` and `Where-Object`.** The Tier 2 story still stands; Tier 1 has to include a bit of `Microsoft.PowerShell.Commands.Utility` (or a trimmed substitute) to demo anything beyond pure expression evaluation.
 
 ### 5.2 Tier 2 — "useful scripting shell" (1–3 months)
 
@@ -473,3 +486,152 @@ grep -rn "DllImport\|LibraryImport" --include="*.cs" engine/lang          # 0
 - [JS↔C# interop bridge proposal](../../proposals/carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__a2d2955163d1.md) — the substrate for Tier 3's Node-side bridges (fs, http).
 - PowerShell upstream: https://github.com/PowerShell/PowerShell (MIT-licensed; see `lib/pwsh/LICENSE.txt`).
 - DLR light-compiler origin: https://github.com/IronLanguages/dlr (Apache-2.0); pwsh's fork is in `lib/pwsh/src/System.Management.Automation/engine/interpreter/`.
+
+## 14. Revisions after independent review
+
+An independent report — [`powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md`](../powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — landed after v1 of this one. Where the two reports disagreed, I went back to the source tree and checked. This section lists every substantive revision.
+
+### 14.1 Two distinct feasibility questions — adopt the independent report's framing
+
+The independent report's most valuable contribution is splitting the question into two:
+
+1. **Runtime-hosting feasibility:** can Carbide's Node-hosted Mono-WASM *run* a prebuilt PowerShell-derived engine DLL?
+2. **Source-build feasibility:** can Carbide *build* the forked engine from source?
+
+v1 of my report conflated these. That was wrong. The two risks are separable, and the first-move strategy is different:
+
+- **Old plan (v1 §8):** build the fork *through Carbide* (M9 + M11 as the build harness). Carbide's tooling bears both risks simultaneously.
+- **Revised plan (§14.4):** build the fork with a normal `dotnet` SDK *outside* Carbide; ship the managed `.dll`s beside Carbide; Carbide's first contact is `session.addReference(bytes, name)` on the prebuilt assembly. Carbide's own build path (M9 / M11) only comes into play as a follow-up, once the runtime-hosting story is proven.
+
+This matters because every Carbide-side change v1 proposed (§7) is strictly *less necessary* when the fork builds externally. The allow-list expansion, the trimming fix, the ref-pack audit — all become problems only if and when we try to move the build inside Carbide. For a first demo, none of them matter.
+
+### 14.2 Compile-site count, DynamicMethod, and AssemblyBuilder — I undercounted
+
+v1 §4 said "~8 direct `Expression.Compile()` calls" based on a narrow grep. Correct figure, measured with `grep -rln "\.Compile()" --include="*.cs" System.Management.Automation`:
+
+- **23 `Expression.Compile()` call sites across 13 files.**
+- Of those, 4 files are inside the LightCompiler's own implementation (`interpreter/LightDelegateCreator.cs`, `interpreter/LightLambda.cs`, `interpreter/LightLambdaClosureVisitor.cs`, `interpreter/LoopCompiler.cs`) — these are the *fallback* paths the interpreter takes when its hotness counter trips and it decides to JIT-compile a lambda. Forcing the threshold to `int.MaxValue` keeps them dormant, but they remain in the compiled assembly and the trimmer has to know not to remove them.
+- The other 9 files (`CommandProcessor.cs`, `CoreAdapter.cs`, `lang/scriptblock.cs`, `LanguagePrimitives.cs`, `parser/Compiler.cs`, `parser/ConstantValues.cs`, `ReflectionParameterBinder.cs`, `runtime/Binding/Binders.cs`, `runtime/MutableTuple.cs`) each have independent Compile sites that need auditing.
+
+v1 also missed two **runtime-code-generation sites that are NOT just `Expression.Compile`** and therefore don't work even in Mono-WASM's interpreter mode:
+
+- `engine/CoreAdapter.cs:2355` — **`DynamicMethod`**. Used by the `DotNetAdapter` member-access fast path. Throws `PlatformNotSupportedException` in Mono-WASM.
+- `engine/EventManager.cs:651` — **`AssemblyBuilder.DefineDynamicAssembly(…AssemblyBuilderAccess.Run)`** followed by `_eventAssembly.DefineDynamicModule(…)`. Used by `Register-ObjectEvent` to synthesise event-subscription classes. Also throws `PlatformNotSupportedException`.
+
+The `EventManager` path is easy: exclude `Register-ObjectEvent` and `Unregister-Event` from the cmdlet surface (they're reasonably Tier 3+), and the path is not reached. The `CoreAdapter.DynamicMethod` path is harder — member access is on the hot path for *every* `.` dereference and property read in PowerShell. The realistic fix is to patch `CoreAdapter.cs` to select a reflection-based slow path when the `DynamicMethod` path is unreachable (a runtime probe or a build-time `#if` define), and accept the performance hit.
+
+### 14.3 Cmdlet-location claim was wrong
+
+v1 §5.1 claimed "`Write-Output`, `Out-String`, `Where-Object`, `ForEach-Object`, `Select-Object` — most are handled by the engine directly via aliases to built-in pipeline steps, not by `Microsoft.PowerShell.Commands.Utility`." That was wrong on three out of five cmdlets:
+
+| Cmdlet | Actual location |
+|---|---|
+| `ForEach-Object` | ✅ `engine/InternalCommands.cs` (SMA) |
+| `Where-Object` | ✅ `engine/InternalCommands.cs` (SMA) |
+| `Select-Object` | ⚠ `Microsoft.PowerShell.Commands.Utility/commands/utility/Select-Object.cs` |
+| `Write-Output` | ⚠ `Microsoft.PowerShell.Commands.Utility/commands/utility/Write-Object.cs` |
+| `Out-String` | ⚠ `Microsoft.PowerShell.Commands.Utility/commands/utility/FormatAndOutput/out-string/OutStringCommand.cs` |
+
+A Tier 1 demo without any of Microsoft.PowerShell.Commands.Utility gets `ForEach-Object` and `Where-Object`, but nothing else user-facing. Even a minimal "useful" demo pulls in at least `Select-Object`, `Write-Output`, `ConvertTo-Json`, `Sort-Object`. My Tier 1 / Tier 2 boundary was miscalibrated — what v1 called Tier 1 is really most of Tier 2.
+
+### 14.4 Host model — persistent session vs one-shot program
+
+v1 §8 framed the fork as a `Program.cs` with `Main(string[] args)` that runs one script per Carbide invocation. The independent report correctly notes this is the wrong shape:
+
+> "A PowerShell host wants a persistent runspace/session, repeated command submission into that same session, structured results rather than only final console text, eventually completion, cancellation, host callbacks, and provider-aware state."
+
+A PowerShell REPL is persistent-session by design: `$x = 1; $x + 1` in a single session returns `2`, not an error. The "compile-and-run-to-completion" Carbide control plane (U2's `project.run()`) doesn't naturally express that shape — each `carbide run` is a fresh session.
+
+Two ways forward:
+
+- **Batch mode (v1 implicitly assumed this):** one script per invocation, session lives for one `Invoke()` call, output collected at end. Good for Tier 1/2 CLI automation. Maps cleanly to Carbide's current control plane.
+- **Persistent session (REPL-shaped, what the independent report advocates):** one long-lived `Runspace` kept alive across many `Invoke(scriptText)` calls. Needs a JS-side handle that represents the session plus a `submit(script)` method that round-trips into C#. This is what the existing [JS↔C# interop bridge proposal](../../proposals/carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__a2d2955163d1.md) would enable; without the bridge, batch mode is what's reachable.
+
+For v1 of the feasibility prototype, batch mode is strictly sufficient and faster to ship. Persistent-session mode is the right Tier 3 target — but getting there depends on the interop bridge, not on the PowerShell fork itself. This report does not change its position that a useful subset is feasible, but the independent report is right that the **"useful" bar for many real-world automation scripts includes persistent session state**, and that calling that out as a scope choice up-front is honest. v1 underweighted this.
+
+### 14.5 Threading model — PSThreadOptions.UseCurrentThread is the only option
+
+The independent report is correct that PowerShell's `PSThreadOptions` (`UseNewThread`, `ReuseThread`, `UseCurrentThread`, `Default`) must collapse to `UseCurrentThread` only on Mono-WASM (single-threaded). v1 missed this.
+
+Concretely, the fork needs:
+
+- `RunspaceFactory.CreateRunspace(host, iss)` — OK, synchronous.
+- `runspace.Open()` — default is `ReuseThread`, which creates a worker thread. Must patch to `UseCurrentThread`.
+- `runspace.Invoke(…)` — OK, runs on the current thread under UseCurrentThread.
+- `powershell.BeginInvoke(…)` / `InvokeAsync(…)` — NOT safe; reject at the host wrapper.
+
+`engine/hostifaces/LocalPipeline.cs` creates `Thread` instances for `UseNewThread` and uses `AutoResetEvent` for `ReuseThread`. Both paths are dead code under UseCurrentThread, but Mono-WASM doesn't fail-compile on dead `Thread.Start`; it just throws at runtime if that path is reached. The fork's host wrapper should set `ThreadOptions = PSThreadOptions.UseCurrentThread` on every Runspace before opening.
+
+### 14.6 InitialSessionState.CreateDefault2() auto-loads FileSystem and Registry providers
+
+The independent report correctly points out (with source-file evidence at `engine/InitialSessionState.cs:5530` and `:5534`) that `CreateDefault2()` auto-installs `SessionStateProviderEntry("FileSystem", typeof(FileSystemProvider), …)` and `SessionStateProviderEntry("Registry", typeof(RegistryProvider), …)` on Windows. v1's entry-point sketch in §8.5 called `CreateDefault2()` and planned to `iss.Commands.Remove(…)` problematic cmdlets. That's the wrong strategy — the providers get loaded during `CreateDefault2()` itself, before we have a chance to trim them.
+
+The correct approach is to build an `InitialSessionState` explicitly:
+
+```csharp
+var iss = InitialSessionState.Create();  // empty, not CreateDefault2
+iss.Providers.Add(new SessionStateProviderEntry("Variable",    typeof(VariableProvider),    null));
+iss.Providers.Add(new SessionStateProviderEntry("Function",    typeof(FunctionProvider),    null));
+iss.Providers.Add(new SessionStateProviderEntry("Alias",       typeof(AliasProvider),       null));
+iss.Providers.Add(new SessionStateProviderEntry("Environment", typeof(EnvironmentProvider), null));
+// FileSystem deferred until Tier 2.5 + VFS spike.
+iss.Commands.Add(new SessionStateCmdletEntry("ForEach-Object", typeof(ForEachObjectCommand), null));
+iss.Commands.Add(new SessionStateCmdletEntry("Where-Object",   typeof(WhereObjectCommand),   null));
+// … curate, don't subtract.
+```
+
+Curating instead of subtracting avoids every unintended side effect of `CreateDefault2()`. The v1 §8.5 sketch is thereby wrong on construction, and I'm revising it.
+
+### 14.7 CommandDiscovery routes applications to NativeCommandProcessor
+
+Another v1 miss: `engine/CommandDiscovery.cs:474` routes `CommandTypes.Application` (i.e. any executable on PATH that isn't a cmdlet) to `NativeCommandProcessor`, which tries to spawn a process. In a Mono-WASM host there's no process-spawning. Any script that invokes an external tool (`git status`, `node --version`, etc.) currently throws somewhere deep in the process-launch path.
+
+For the fork, two options:
+
+- **Fail cleanly:** patch `CommandDiscovery` to skip the `CommandTypes.Application` branch and throw a `CommandNotFoundException` with a message that says "external processes are not supported in the Carbide host."
+- **Delegate to Node:** implement a host callback that Carbide's JS side fulfils via `child_process.spawn`. This is a Tier 3 feature and needs the interop bridge; v1's design sketch didn't mention it.
+
+For v1 through Tier 2, "fail cleanly" is the right answer.
+
+### 14.8 `net9.0` vs `net10.0` target-framework mismatch
+
+`lib/pwsh/PowerShell.Common.props` targets `net9.0`. Carbide's reference-pack is `@carbide/refs-net10.0`. v1 listed "version-lock drop" in §6.2 as a one-liner patch; the independent report correctly calls this out as a deliberate, visible change users of the fork will notice. The fork's `csproj` must explicitly set `<TargetFramework>net10.0</TargetFramework>` and not import `PowerShell.Common.props`. This is straightforward in a fresh forked csproj; the v1 patch enumeration should have flagged it more prominently.
+
+### 14.9 Effort estimate — too optimistic
+
+v1 §10 said "~3 months of focused work" to reach a genuinely useful state. Given §14.2–§14.7 above, the realistic timeline is more like:
+
+| Phase | v1 estimate | Revised estimate |
+|---|---|---|
+| P0: parse + eval `2 + 2` outside Carbide (normal `dotnet`) | 1–2 weeks | **2–3 weeks** — Expression.Compile audit alone is a few days; `CoreAdapter.DynamicMethod` patch adds more. |
+| P1: same demo running inside Carbide (prebuilt DLL) | — | **1–2 weeks** — new phase the independent report surfaces; mostly loading plumbing. |
+| P2: Tier 2 usefulness (pipelines, utility cmdlets, basic providers, persistent session via the interop bridge) | 4–8 weeks | **2–3 months** — threading collapse, persistent-session host, in-SMA-vs-utility cmdlet cherry-pick, InitialSessionState curation, NativeCommand refusal. |
+| P3: VFS + network + completion + polish | 4–8 weeks | **2–3 months** — VFS bridge, `Invoke-RestMethod` on `fetch`, argument attributes, error-message alignment. |
+| Total to genuinely useful state | **~3 months** | **~5–7 months** |
+
+The independent report's "medium-to-large subproject, not a spike" framing is closer to correct than mine. I'm revising my total estimate upward and splitting P0 into two phases (outside-Carbide prototype + inside-Carbide hosting).
+
+### 14.10 Points where v1 holds up after review
+
+For completeness, these v1 claims were correct and the independent report doesn't contradict them:
+
+- The parser (`engine/parser/*`), interpreter (`engine/interpreter/*`), runtime (`engine/runtime/*`), lang (`engine/lang/*`), CommandCompletion, and debugger subsystems have no P/Invoke.
+- `LightCompiler` / `CompileInterpretChoice.NeverCompile` is the foundational enabler.
+- `Microsoft.PowerShell.Native`, `Microsoft.Management.Infrastructure`, `System.DirectoryServices`, `System.Management` must be excluded (native / OS-coupled).
+- `Newtonsoft.Json` 13.x is already on Carbide's allow-list.
+- Remoting (WinRM, SSH, named pipes), CIM/WMI, DSC, PSReadLine are properly out of scope.
+- PowerShell's MIT license permits forking with attribution.
+
+### 14.11 Updated recommendation
+
+The revised recommendation, reconciling both reports:
+
+1. **Build the fork outside Carbide first** (normal `dotnet` SDK). This is P0. Runtime-hosting and source-build risks are separated; we do runtime-hosting first. The independent report is right about this.
+2. **Load the prebuilt DLL via `carbide run --ref pwsh-lite.dll`** as P1. First "PowerShell on Carbide" demo. No Carbide-side changes required.
+3. **Curate the `InitialSessionState` explicitly** rather than calling `CreateDefault2()` and subtracting.
+4. **Force `PSThreadOptions.UseCurrentThread`** at the Runspace construction site.
+5. **Refuse `CommandTypes.Application`** cleanly in `CommandDiscovery` (patch or host-intercept).
+6. **Audit every `Expression.Compile()` / `DynamicMethod` / `AssemblyBuilder` site** (23 + 1 + 1, per §14.2). Force interpreter paths; hard-exclude where that's impossible.
+7. **Decide whether to move the source build inside Carbide only after P1 works.** This is §14.1's two-questions split, and the independent report is right that source-build-on-Carbide is a nice-to-have, not the gating deliverable.
+
+The high-level verdict from v1 survives: it's **feasible** and the bottleneck is engineering effort, not blocker risk. But v1's effort estimate was too optimistic and its host-architecture instinct (one-shot batch via `Main(args)`) was underspecified for real scripts. The independent report's more cautious "medium-to-large subproject" stance is the better calibration to adopt.
