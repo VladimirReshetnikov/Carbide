@@ -7,7 +7,9 @@
  */
 // M5: bumped to 2 when ProjectOptions gained defineConstants. The C# side accepts both 1 and
 // 2; new TS clients always send 2.
-export const SCHEMA_VERSION = 2 as const;
+// U2: bumped to 3 when RunAsync gained argv + stdin forwarding (`RunOptionsRequest`). The
+// C# side accepts 2 or 3; new TS clients always send 3.
+export const SCHEMA_VERSION = 3 as const;
 
 export interface ProjectOptionsRequest {
     schemaVersion: number;
@@ -18,6 +20,17 @@ export interface ProjectOptionsRequest {
     assemblyName?: string | null;
     rootNamespace?: string | null;
     defineConstants?: string[] | null;
+}
+
+/**
+ * U2 — optional knobs for {@link import("../project.js").Project.run}. When no args are
+ * provided, `run()` may pass an empty string to the interop to skip JSON parsing entirely
+ * (the C# side treats an empty string as defaults).
+ */
+export interface RunOptionsRequest {
+    schemaVersion: number;
+    args?: string[];
+    stdin?: string | null;
 }
 
 export class CarbideSchemaError extends Error {

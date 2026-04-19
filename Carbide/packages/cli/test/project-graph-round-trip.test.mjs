@@ -9,7 +9,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, existsSync, rmSync } from "node:
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { parseJsonTrailer } from "./_helpers.mjs";
+import { parseJsonTrailer, parseJsonBySentinel } from "./_helpers.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(HERE, "..", "dist", "bin", "carbide.js");
@@ -174,7 +174,10 @@ test("M9.2.5: ProjectReference cycle exits 1 with MSPROJ001", async (t) => {
 
     const build = runCarbide(["build", "--project", path.join(aDir, "A.csproj")]);
     assert.equal(build.status, 1, build.stderr);
-    assert.match(build.stderr, /MSPROJ001/);
+    // U1.3: graph errors flow through the structured `error` field in the JSON payload,
+    // not stderr (which stays calm under --format json).
+    const payload = parseJsonBySentinel(build.stdout);
+    assert.equal(payload.error.code, "MSPROJ001");
 });
 
 test("M9.2.6: syntax error in Lib.cs attributes diagnostic to Lib.csproj", async (t) => {
@@ -242,7 +245,8 @@ test("M9: assembly-name collision exits 3 with MSPROJ002", async (t) => {
 
     const build = runCarbide(["build", "--project", path.join(appDir, "App.csproj")]);
     assert.equal(build.status, 3, build.stderr);
-    assert.match(build.stderr, /MSPROJ002/);
+    const payload = parseJsonBySentinel(build.stdout);
+    assert.equal(payload.error.code, "MSPROJ002");
 });
 
 test("M9: --out - rejected for multi-project graphs (MSPROJ003)", async (t) => {

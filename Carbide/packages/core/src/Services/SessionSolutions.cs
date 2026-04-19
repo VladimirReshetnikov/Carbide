@@ -150,8 +150,8 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     public Task<BuildResult> BuildAsync(string projectId)
         => GetProject(projectId).BuildAsync();
 
-    public Task<RunResult> RunAsync(string projectId)
-        => GetProject(projectId).RunAsync();
+    public Task<RunResult> RunAsync(string projectId, string[]? args = null, string? stdin = null)
+        => GetProject(projectId).RunAsync(args ?? Array.Empty<string>(), stdin);
 
     private ProjectCompiler GetProject(string projectId)
     {

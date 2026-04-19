@@ -11,6 +11,7 @@ import {
     runProjectGraphPipeline,
     compileGraphInOrder,
     attributeDiagnostics,
+    attachCs8802Hint,
     handleProjectGraphError,
     type PipelineWarning,
 } from "../project-file.js";
@@ -19,6 +20,11 @@ import {
     NUGET_STRING_FLAGS,
     extractNugetOptions,
 } from "../nuget-options.js";
+import {
+    LOG_LEVEL_BOOLEAN_FLAGS,
+    LOG_LEVEL_STRING_FLAGS,
+    resolveLogLevel,
+} from "../logging.js";
 
 export const BUILD_ARG_SPEC = {
     strings: [
@@ -30,8 +36,10 @@ export const BUILD_ARG_SPEC = {
         "format",
         "project",
         ...NUGET_STRING_FLAGS,
+        ...LOG_LEVEL_STRING_FLAGS,
     ],
-    booleans: ["no-debug", "help", ...NUGET_BOOLEAN_FLAGS],
+    booleans: ["no-debug", "help", "scratch", ...NUGET_BOOLEAN_FLAGS, ...LOG_LEVEL_BOOLEAN_FLAGS],
+    aliases: { v: "verbose", q: "quiet" },
 } as const;
 
 export async function runBuild(args: ParsedArgs): Promise<number> {
@@ -42,18 +50,27 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
 
     const sources = stringList(args, "source");
     const projectPath = lastString(args, "project");
+    const scratch = args.flags.has("scratch");
 
     if (!projectPath && sources.length === 0) {
         process.stderr.write("carbide build: provide either --project <path>.csproj or at least one --source.\n");
         return 3;
     }
+    // U3.4 — `--scratch` permits `--project` + `--source` together; the extra sources are
+    // added to the root project on top of the csproj-derived set. Without `--scratch`,
+    // the M5 D59 mutex still applies.
     if (
         projectPath &&
+        !scratch &&
         (sources.length > 0 || lastString(args, "assembly-name") || lastString(args, "target-framework"))
     ) {
         process.stderr.write(
-            "carbide build: --project is mutually exclusive with --source / --assembly-name / --target-framework (M5 D59).\n",
+            "carbide build: --project is mutually exclusive with --source / --assembly-name / --target-framework (pass --scratch to combine).\n",
         );
+        return 3;
+    }
+    if (!projectPath && scratch) {
+        process.stderr.write("carbide build: --scratch requires --project (it augments a csproj with extra --source files).\n");
         return 3;
     }
 
@@ -61,8 +78,9 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
     const outDir = lastString(args, "out");
     const format = parseFormat(lastString(args, "format"));
     const skipDebug = args.flags.has("no-debug");
+    const logLevel = resolveLogLevel(args);
 
-    const session = await CarbideSession.initializeAsync();
+    const session = await CarbideSession.initializeAsync({ logLevel });
     try {
         if (projectPath) {
             return await runProjectModeBuild({
@@ -72,6 +90,7 @@ export async function runBuild(args: ParsedArgs): Promise<number> {
                 outDir,
                 format,
                 skipDebug,
+                extraRootSources: scratch ? sources : [],
                 nugetOptions: extractNugetOptions(args, "build"),
             });
         }
@@ -153,14 +172,17 @@ interface ProjectModeBuildContext {
     outDir: string | undefined;
     format: "json" | "human";
     skipDebug: boolean;
+    extraRootSources: readonly string[];
     nugetOptions: ReturnType<typeof extractNugetOptions>;
 }
 
 async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number> {
-    const { session, projectPath, refs, outDir, format, skipDebug, nugetOptions } = ctx;
+    const { session, projectPath, refs, outDir, format, skipDebug, extraRootSources, nugetOptions } = ctx;
     let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
     try {
-        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions);
+        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions, {
+            extraRootSources,
+        });
     } catch (err) {
         return handleProjectGraphError(err, format);
     }
@@ -190,7 +212,10 @@ async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number
 
     const outcomes = await compileGraphInOrder(session, multi);
 
-    const allAttributed = attributeDiagnostics(outcomes);
+    const allAttributed = attachCs8802Hint(
+        attributeDiagnostics(outcomes),
+        multi.root.csprojPath,
+    );
     const failed = outcomes.some((o) => (o.buildResult && !o.buildResult.success) || o.skipped);
     const root = multi.root;
 

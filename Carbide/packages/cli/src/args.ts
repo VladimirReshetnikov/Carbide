@@ -37,6 +37,12 @@ export interface ArgSpec {
     readonly booleans: readonly string[];
     /** Allow positional arguments before `--`. Default false. */
     readonly allowPositional?: boolean;
+    /**
+     * Short-flag aliases: `{ v: "verbose" }` means `-v` is accepted as a synonym for
+     * `--verbose`. Only single-letter keys are looked up via this map; multi-char short
+     * flags are rejected. The target must appear in `strings` or `booleans`.
+     */
+    readonly aliases?: Readonly<Record<string, string>>;
 }
 
 export function parseArgs(argv: readonly string[], spec: ArgSpec): ParsedArgs {
@@ -49,6 +55,7 @@ export function parseArgs(argv: readonly string[], spec: ArgSpec): ParsedArgs {
 
     let command: string | undefined;
     let hitDoubleDash = false;
+    const aliases = spec.aliases ?? {};
 
     for (let i = 0; i < argv.length; i++) {
         const token = argv[i];
@@ -59,6 +66,31 @@ export function parseArgs(argv: readonly string[], spec: ArgSpec): ParsedArgs {
         if (token === "--") {
             hitDoubleDash = true;
             continue;
+        }
+        // Short-flag alias support: `-v` resolves via `aliases["v"]` if present.
+        if (
+            token.length === 2 &&
+            token.startsWith("-") &&
+            token !== "-" &&
+            token !== "--" &&
+            aliases[token.slice(1)]
+        ) {
+            const target = aliases[token.slice(1)];
+            if (booleanOptions.has(target)) {
+                flags.add(target);
+                continue;
+            }
+            if (stringOptions.has(target)) {
+                if (i + 1 >= argv.length) {
+                    throw new ArgParseError(`-${token.slice(1)} (--${target}) requires a value.`);
+                }
+                const value = argv[++i];
+                const existing = named.get(target);
+                if (existing) existing.push(value);
+                else named.set(target, [value]);
+                continue;
+            }
+            throw new ArgParseError(`Short flag '-${token.slice(1)}' aliases unknown target '--${target}'.`);
         }
         if (!token.startsWith("--")) {
             if (command === undefined) {

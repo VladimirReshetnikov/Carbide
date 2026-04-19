@@ -6,9 +6,9 @@
 // forwarded into the runtime yet.
 
 import path from "node:path";
-import { CarbideSession, type Project } from "@carbide/core";
+import { CarbideSession, type Project, type RunOptions } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
-import { deriveAssemblyName, readReferenceBytes, readSource } from "../io.js";
+import { deriveAssemblyName, readReferenceBytes, readSource, readStdinSource } from "../io.js";
 import { parseFormat, renderDiagnostic, renderAttributedDiagnostic, writeJson } from "../format.js";
 import {
     runProjectGraphPipeline,
@@ -21,10 +21,25 @@ import {
     NUGET_STRING_FLAGS,
     extractNugetOptions,
 } from "../nuget-options.js";
+import {
+    LOG_LEVEL_BOOLEAN_FLAGS,
+    LOG_LEVEL_STRING_FLAGS,
+    resolveLogLevel,
+} from "../logging.js";
 
 export const RUN_ARG_SPEC = {
-    strings: ["source", "ref", "assembly-name", "format", "project", ...NUGET_STRING_FLAGS],
-    booleans: ["help", ...NUGET_BOOLEAN_FLAGS],
+    strings: [
+        "source",
+        "ref",
+        "assembly-name",
+        "format",
+        "project",
+        "stdin",
+        ...NUGET_STRING_FLAGS,
+        ...LOG_LEVEL_STRING_FLAGS,
+    ],
+    booleans: ["help", "scratch", ...NUGET_BOOLEAN_FLAGS, ...LOG_LEVEL_BOOLEAN_FLAGS],
+    aliases: { v: "verbose", q: "quiet" },
 } as const;
 
 export async function runRun(args: ParsedArgs): Promise<number> {
@@ -35,20 +50,38 @@ export async function runRun(args: ParsedArgs): Promise<number> {
 
     const sources = stringList(args, "source");
     const projectPath = lastString(args, "project");
+    const scratch = args.flags.has("scratch");
 
     if (!projectPath && sources.length === 0) {
         process.stderr.write("carbide run: provide either --project <path>.csproj or at least one --source.\n");
         return 3;
     }
-    if (projectPath && (sources.length > 0 || lastString(args, "assembly-name"))) {
-        process.stderr.write("carbide run: --project is mutually exclusive with --source / --assembly-name.\n");
+    if (projectPath && !scratch && (sources.length > 0 || lastString(args, "assembly-name"))) {
+        process.stderr.write(
+            "carbide run: --project is mutually exclusive with --source / --assembly-name (pass --scratch to combine).\n",
+        );
+        return 3;
+    }
+    if (!projectPath && scratch) {
+        process.stderr.write("carbide run: --scratch requires --project.\n");
         return 3;
     }
 
     const refs = stringList(args, "ref");
     const format = parseFormat(lastString(args, "format"));
+    const logLevel = resolveLogLevel(args);
 
-    const session = await CarbideSession.initializeAsync();
+    // U2: forward program arguments (after `--`) and stdin into the user program.
+    const programArgs = args.programArgs;
+    const stdinSpec = lastString(args, "stdin");
+    const stdinContent = await readStdinSource(stdinSpec);
+    const runOptions: RunOptions = { args: programArgs, stdin: stdinContent };
+    const invocation = {
+        args: [...programArgs],
+        stdinBytes: stdinContent !== null ? Buffer.byteLength(stdinContent, "utf8") : 0,
+    };
+
+    const session = await CarbideSession.initializeAsync({ logLevel });
     try {
         if (projectPath) {
             return await runProjectModeRun({
@@ -56,6 +89,9 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 projectPath,
                 refs,
                 format,
+                runOptions,
+                invocation,
+                extraRootSources: scratch ? sources : [],
                 nugetOptions: extractNugetOptions(args, "run"),
             });
         }
@@ -75,7 +111,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
             project.addSource(docPath, code);
         }
 
-        const result = await project.run();
+        const result = await project.run(runOptions);
 
         if (!result.success) {
             if (result.diagnostics.length > 0) {
@@ -90,6 +126,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                         diagnostics: result.diagnostics,
                         warnings: [],
                         durationMs: result.durationMs,
+                        invocation,
                     });
                 }
                 return 1;
@@ -105,6 +142,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                     exitCode: result.exitCode ?? 1,
                     warnings: [],
                     durationMs: result.durationMs,
+                    invocation,
                 });
             } else {
                 process.stdout.write(result.stdOut);
@@ -124,6 +162,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 exitCode: result.exitCode ?? 0,
                 warnings: [],
                 durationMs: result.durationMs,
+                invocation,
             });
         }
         return result.exitCode ?? 0;
@@ -137,14 +176,19 @@ interface ProjectModeRunContext {
     projectPath: string;
     refs: readonly string[];
     format: "json" | "human";
+    runOptions: RunOptions;
+    invocation: { args: string[]; stdinBytes: number };
+    extraRootSources: readonly string[];
     nugetOptions: ReturnType<typeof extractNugetOptions>;
 }
 
 async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
-    const { session, projectPath, refs, format, nugetOptions } = ctx;
+    const { session, projectPath, refs, format, nugetOptions, runOptions, invocation, extraRootSources } = ctx;
     let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
     try {
-        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions);
+        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions, {
+            extraRootSources,
+        });
     } catch (err) {
         return handleProjectGraphError(err, format);
     }
@@ -191,12 +235,13 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
                 diagnostics: attributed,
                 warnings: csprojWarnings,
                 durationMs: 0,
+                invocation,
             });
         }
         return 1;
     }
 
-    const result = await multi.root.project.run();
+    const result = await multi.root.project.run(runOptions);
 
     if (!result.success) {
         if (result.diagnostics.length > 0) {
@@ -211,6 +256,7 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
                     diagnostics: result.diagnostics,
                     warnings: csprojWarnings,
                     durationMs: result.durationMs,
+                    invocation,
                 });
             }
             return 1;
@@ -226,6 +272,7 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
                 exitCode: result.exitCode ?? 1,
                 warnings: csprojWarnings,
                 durationMs: result.durationMs,
+                invocation,
             });
         } else {
             process.stdout.write(result.stdOut);
@@ -245,6 +292,7 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
             exitCode: result.exitCode ?? 0,
             warnings: csprojWarnings,
             durationMs: result.durationMs,
+            invocation,
         });
     }
     return result.exitCode ?? 0;
@@ -263,11 +311,14 @@ Input modes (mutually exclusive):
 Options:
   --ref <path>             Reference DLL. Repeatable.
   --assembly-name <n>      Assembly name. Rejected when --project is used.
+  --stdin <path | ->       U2: feed the program's Console.In from a file or the CLI's
+                           own stdin (-). Default: Console.In is disconnected.
   --format json|human      Output format (default: json).
   --help                   Print this message.
 
 Notes:
-  - Program arguments after -- are parsed but are not forwarded into the runtime yet.
+  - U2: program arguments after -- are forwarded to the user program's
+    Main(string[] args) parameter.
 
 NuGet flags (only relevant with --project):
   --offline                Forbid network. Require cached bytes or a matching lock.

@@ -11,6 +11,12 @@ export interface BootOptions {
     hostAdapter: HostAdapter;
     debugLevel?: number;
     enableDiagnosticTracing?: boolean;
+    /**
+     * U1.2 — minimum log level for Carbide.Core's `ILogger<>` instances. Defaults to
+     * `"warning"` on the C# side. Pass `"information"` (or higher-verbosity levels) for
+     * the pre-U1 "chatty" behaviour.
+     */
+    logLevel?: "trace" | "debug" | "information" | "warning" | "error" | "none";
 }
 
 export interface BootResult {
@@ -69,6 +75,13 @@ export async function bootRuntime(options: BootOptions): Promise<BootResult> {
     const assemblyUrls = refPackUrls.length > 0
         ? refPackUrls
         : resolveAssemblyUrls(config, baseUrl);
+
+    // Set the log level *before* InitAsync — the first "Carbide initialising ..." info
+    // line fires inside InitAsync, so the min-level must already be in place.
+    if (options.logLevel) {
+        interop.SetLogLevel(options.logLevel);
+    }
+
     await interop.InitAsync(assemblyUrls);
 
     return { interop, runtime, config };

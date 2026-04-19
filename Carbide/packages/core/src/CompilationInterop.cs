@@ -21,6 +21,34 @@ public static partial class CompilationInterop
         return Host.Dispatch(s => s.InitializeReferencesAsync(assemblyUrls));
     }
 
+    /// <summary>
+    /// U1.2 — set the Carbide.Core logger's minimum level. Call before <see cref="InitAsync"/>
+    /// to suppress the initial "Carbide initialising…" info line. Accepts the standard
+    /// Microsoft.Extensions.Logging names (case-insensitive): trace, debug, information,
+    /// warning, error, critical, none. An unrecognised value leaves the level unchanged.
+    /// </summary>
+    [JSExport]
+    public static void SetLogLevel(string level)
+    {
+        if (string.IsNullOrWhiteSpace(level)) return;
+        var normalised = level.Trim().ToLowerInvariant();
+        LogLevel? parsed = normalised switch
+        {
+            "trace" => LogLevel.Trace,
+            "debug" => LogLevel.Debug,
+            "info" or "information" => LogLevel.Information,
+            "warn" or "warning" => LogLevel.Warning,
+            "error" or "quiet" => LogLevel.Error,
+            "critical" or "crit" => LogLevel.Critical,
+            "none" or "silent" => LogLevel.None,
+            _ => null,
+        };
+        if (parsed is not null)
+        {
+            Carbide.Core.Hosting.WebAssemblyConsoleLoggerConfig.MinLogLevel = parsed.Value;
+        }
+    }
+
     [JSExport]
     public static string CreateSession(string optionsJson)
     {
@@ -99,21 +127,42 @@ public static partial class CompilationInterop
         return JsonSerializer.Serialize(dto, CarbideJsonContext.Default.BuildResultDto);
     }
 
+    /// <summary>
+    /// U2 — runs the project. <paramref name="runOptionsJson"/> is a
+    /// <c>RunOptionsRequest</c>-shaped JSON string carrying optional program argv and
+    /// stdin. An empty / whitespace-only string means "defaults" (empty args, no stdin),
+    /// which skips JSON parsing entirely for the common "just run it" case.
+    /// </summary>
     [JSExport]
-    public static async Task<string> RunAsync(string projectId)
+    public static async Task<string> RunAsync(string projectId, string runOptionsJson)
     {
-        var result = await Host.Dispatch(s => s.RunAsync(projectId)).ConfigureAwait(false);
+        var (args, stdin) = ParseRunOptions(runOptionsJson);
+        var result = await Host.Dispatch(s => s.RunAsync(projectId, args, stdin)).ConfigureAwait(false);
         return JsonSerializer.Serialize(result, CarbideJsonContext.Default.RunResult);
+    }
+
+    private static (string[] Args, string? Stdin) ParseRunOptions(string? runOptionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(runOptionsJson))
+        {
+            return (Array.Empty<string>(), null);
+        }
+
+        var dto = JsonSerializer.Deserialize(runOptionsJson, CarbideJsonContext.Default.RunOptionsDto);
+        ValidateSchemaVersion(dto?.SchemaVersion, "RunOptions");
+        var args = dto?.Args ?? Array.Empty<string>();
+        var stdin = dto?.Stdin;
+        return (args, stdin);
     }
 
     private static void ValidateSchemaVersion(int? schemaVersion, string name)
     {
-        // M5 bumped the schema to 2; accept both 1 and 2 so pre-M5 clients that don't
-        // populate the new fields still work. Higher numbers are a definite mismatch.
-        if (schemaVersion is not null and not 1 and not 2)
+        // M5 bumped the schema to 2. U2 bumped to 3 when RunOptionsRequest landed. Accept
+        // 1 / 2 / 3 so pre-U2 clients keep working; higher numbers are a definite mismatch.
+        if (schemaVersion is not null and not 1 and not 2 and not 3)
         {
             throw new InvalidOperationException(
-                $"Unsupported {name} schemaVersion: expected 1 or 2, got {schemaVersion}.");
+                $"Unsupported {name} schemaVersion: expected 1, 2, or 3, got {schemaVersion}.");
         }
     }
 
@@ -172,12 +221,23 @@ internal sealed class ProjectOptionsDto
 /// </summary>
 internal sealed class BuildResultDto
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public bool Success { get; set; }
     public string? PeBase64 { get; set; }
     public string? PdbBase64 { get; set; }
     public Carbide.Core.Services.Diagnostic[] Diagnostics { get; set; } = [];
     public double DurationMs { get; set; }
+}
+
+/// <summary>
+/// U2 — wire shape of <c>RunOptionsRequest</c>. Parsed from the second argument of the
+/// <c>RunAsync</c> JSExport when the TS caller provides non-default argv or stdin.
+/// </summary>
+internal sealed class RunOptionsDto
+{
+    public int? SchemaVersion { get; set; } = 3;
+    public string[]? Args { get; set; }
+    public string? Stdin { get; set; }
 }
 
 [JsonSourceGenerationOptions(
@@ -191,6 +251,7 @@ internal sealed class BuildResultDto
 [JsonSerializable(typeof(RunResult))]
 [JsonSerializable(typeof(BuildResultDto))]
 [JsonSerializable(typeof(ProjectOptionsDto))]
+[JsonSerializable(typeof(RunOptionsDto))]
 internal sealed partial class CarbideJsonContext : JsonSerializerContext
 {
 }

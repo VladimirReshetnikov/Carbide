@@ -39,6 +39,18 @@ export async function readStdin(): Promise<string> {
 }
 
 /**
+ * U2 — resolve a `--stdin <path | ->` spec into an eagerly-buffered string. Returns null
+ * when `spec` is undefined (the default "no stdin" case). Matches the `--source -`
+ * convention: `-` means "read the CLI's process stdin to EOF," anything else is a
+ * filesystem path read as UTF-8.
+ */
+export async function readStdinSource(spec: string | undefined): Promise<string | null> {
+    if (spec === undefined) return null;
+    if (spec === "-") return readStdin();
+    return readFile(spec, "utf8");
+}
+
+/**
  * Derives an AssemblyName from CLI inputs. Uses --assembly-name when supplied, otherwise the
  * first source's basename without extension. Falls back to "CarbideApp".
  */

@@ -15,3 +15,6 @@ This directory groups the detailed implementation plans for individual Carbide m
 - [M5 — detailed plan (project-file input)](carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md)
 - [M6 — detailed plan (NuGet resolver)](carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md)
 - [M9 — detailed plan (Shape S5: project-to-project references)](carbide-M9-detailed-plan__2026-04-18__23-18-54-749142.md)
+- [U1 — detailed plan (CLI UX sharpening)](carbide-U1-detailed-plan__2026-04-19__06-00-00-000000.md)
+- [U2 — detailed plan (program I/O forwarding)](carbide-U2-detailed-plan__2026-04-19__07-00-00-000000.md)
+- [U3 — detailed plan (introspection + csproj polish)](carbide-U3-detailed-plan__2026-04-19__08-00-00-000000.md)

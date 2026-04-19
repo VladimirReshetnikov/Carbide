@@ -45,9 +45,9 @@ Since M5, Carbide's Roslyn compiler runs with `Deterministic=true`, so two invoc
 
 Compile and execute the program. The program's stdout/stderr stream through to the outer process under `--format human`.
 
-Under `--format json` (default) stdout/stderr are captured into a JSON trailer on stdout. Consumers should parse the **last non-empty stdout line** as JSON: user code can bypass Carbide's current capture by writing directly to stdout via `Console.OpenStandardOutput()` (or similar), which may prefix raw bytes before the trailer.
+Under `--format json` (default) stdout/stderr are captured into a JSON trailer on stdout. Consumers should parse the **last non-empty stdout line** as JSON (or, since U1, scan for the sentinel line `\x1E\x1Ecarbide-json\x1E\x1E` and read the next line): user code can bypass Carbide's current capture by writing directly to stdout via `Console.OpenStandardOutput()` (or similar), which may prefix raw bytes before the trailer.
 
-The CLI parser accepts `-- <program args>...`, but program arguments are not forwarded into the runtime yet (the user program currently sees an empty `string[] args`).
+Since U2, `-- <program args>...` forwards to the user program's `Main(string[] args)` parameter. Use `--stdin <path>` to feed a file as the program's `Console.In`, or `--stdin -` to pipe the CLI's own stdin. The JSON payload carries `invocation: { args, stdinBytes }` so consumers can pin the forwarded state.
 
 ```bash
 carbide run --source Program.cs --ref out/lib/MyLib.dll --format human
@@ -116,15 +116,86 @@ carbide run --project Foo.csproj --offline
 
 Use `--allow-list-mode advisory` or `--allow-list-mode off` if you need to experiment outside Carbide's default allow-list policy. See [`@carbide/nuget`](../nuget/README.md) for resolver details and warning codes.
 
+### `carbide audit` / `carbide tree` (since U3)
+
+Read-only inspection of a `--project`-driven build:
+
+```bash
+carbide audit --project App/App.csproj                 # structured JSON
+carbide audit --project App/App.csproj --format human  # compact per-project summary
+carbide tree --project App/App.csproj                  # ASCII tree of the graph + packages
+```
+
+Neither command compiles code or writes `carbide.lock.json` by default. Pass `--write-lock` on `audit` to opt in to writing locks during resolution.
+
+### `--scratch` flag (since U3)
+
+By default `--project` and `--source` are mutually exclusive. Passing `--scratch` permits combining them: the `--source` files are appended to the root project's source set on top of the csproj-derived files.
+
+```bash
+# Foo.csproj with <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+# + one ad-hoc Extra.cs on top
+carbide run --project Foo.csproj --source Extra.cs --scratch
+```
+
+Sub-projects' source sets come from their own csprojs and are unaffected.
+
 ## Exit-code summary
 
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | Compile errors reported under `diagnostics`. |
-| 2 | I/O or unexpected internal error. |
-| 3 | Unsupported or malformed CLI flag combination. |
+| 1 | Compile errors reported under `diagnostics`; `MSPROJ001` cycle; `MSPROJ004` missing ProjectReference. |
+| 2 | I/O or unexpected internal error; lock file read failure. |
+| 3 | Unsupported or malformed CLI flag combination; `MSPROJ002` AssemblyName collision; `MSPROJ003` `--out -` for multi-project graph. |
+| 4 | NuGet policy refusal (`MSNUGET021` allow-list; `MSNUGET015/016/017` safety). |
+| 5 | NuGet network / cache miss (`MSNUGET030` under `--offline`). |
 | *N* | For `carbide run`, the user program's own exit code. |
+
+## JSON output format (since U1)
+
+`--format json` (the default) writes a structured payload to stdout as a *trailer*, preceded by a sentinel line:
+
+```
+[... any bytes from the user program ...]
+\x1E\x1Ecarbide-json\x1E\x1E     ← sentinel (16 bytes, ASCII RECORD SEPARATOR doubled + magic string)
+{"schemaVersion":3,"success":true,"assemblyName":"Foo",…}
+```
+
+Consumers should scan stdout backwards for the sentinel line; the next line is the JSON payload. The legacy "parse the last non-empty stdout line" heuristic continues to work.
+
+Every payload carries `"schemaVersion": 3`. Success payloads include command-specific fields (`pe`, `pdb`, `durationMs`, `stdOut`, etc.). Failure payloads include a structured `error` field:
+
+```json
+{
+  "schemaVersion": 3,
+  "success": false,
+  "error": {
+    "code": "MSNUGET021",
+    "category": "allow-list-refusal",
+    "message": "Package 'Foo' is not in Carbide's allow-list …",
+    "details": { "package": { "id": "Foo" } }
+  },
+  "diagnostics": [],
+  "warnings": []
+}
+```
+
+Stable `error.category` values: `internal`, `schema-mismatch`, `flag-error`, `lock-read`, `allow-list-refusal`, `safety-refusal`, `offline-cache-miss`, `nuget-fetch-failed`, `project-graph-cycle`, `assembly-name-collision`, `project-reference-missing`.
+
+## Verbosity
+
+By default the CLI is silent on stderr unless something goes wrong. Turn up the volume when debugging:
+
+| Flag | Level | Notes |
+|---|---|---|
+| (none) | `warning` | Default. Silent on success. |
+| `--verbose` / `-v` | `information` | Pre-U1 default. Shows the `info: Carbide initialising…` lines. |
+| `--quiet` / `-q` | `error` | Suppresses warnings too. |
+| `--log-level <level>` | explicit | `trace` \| `debug` \| `info` \| `warning` \| `error` \| `quiet`. |
+| `CARBIDE_LOG_LEVEL=<level>` | env var | Same values as `--log-level`. Overridden by any CLI flag. |
+
+`--verbose` and `--quiet` are mutually exclusive.
 
 ## Performance note
 

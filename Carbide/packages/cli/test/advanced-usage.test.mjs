@@ -29,14 +29,16 @@ test("run --source - reads one source from stdin", () => {
     assert.equal(payload.stdOut, "stdin");
 });
 
-test("run parses '-- <program args>' but does not forward argv yet", () => {
+test("U2: run forwards '-- <program args>' to the user program's args", () => {
     const run = runCarbide(["run", "--source", "-", "--format", "json", "--", "one", "two"], {
         input: `Console.Write(args.Length);\n`,
     });
     assert.equal(run.status, 0, `run failed: ${run.stderr}`);
     const payload = parseJsonTrailer(run.stdout);
     assert.equal(payload.success, true);
-    assert.equal(payload.stdOut, "0");
+    assert.equal(payload.stdOut, "2");
+    // U2 also carries an invocation block so consumers can pin the forwarded state.
+    assert.deepEqual(payload.invocation, { args: ["one", "two"], stdinBytes: 0 });
 });
 
 test("json trailer stays parseable even if the user program writes to stdout via OpenStandardOutput", () => {

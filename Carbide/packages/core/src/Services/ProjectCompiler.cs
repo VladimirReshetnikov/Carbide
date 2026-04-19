@@ -337,7 +337,16 @@ internal sealed class ProjectCompiler
         return (peStream.ToArray(), pdbStream.ToArray(), Array.Empty<Diagnostic>());
     }
 
-    public async Task<RunResult> RunAsync()
+    public Task<RunResult> RunAsync() => RunAsync(Array.Empty<string>(), null);
+
+    /// <summary>
+    /// U2 — compile and run. <paramref name="args"/> is forwarded to the entry point's
+    /// <c>Main(string[])</c> parameter (bound by parameter count: 1 string[] = forward,
+    /// otherwise ignored). <paramref name="stdin"/> pre-seeds <see cref="Console.In"/> with
+    /// a <see cref="System.IO.StringReader"/> when non-null; <see cref="Console.In"/> is
+    /// restored in the finally block alongside stdout/stderr.
+    /// </summary>
+    public async Task<RunResult> RunAsync(string[] args, string? stdin)
     {
         var sw = Stopwatch.StartNew();
         var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.ConsoleApplication).ConfigureAwait(false);
@@ -413,6 +422,17 @@ internal sealed class ProjectCompiler
         using var stdErrCapture = new StringWriter();
         var oldOut = Console.Out;
         var oldError = Console.Error;
+        // U2: Mono-WASM marks Console.In / Console.SetIn with UnsupportedOSPlatform("browser")
+        // AND throws PlatformNotSupportedException at runtime when these APIs touch the
+        // real stdin handle. Setting the internal static field via reflection bypasses
+        // both the code-analysis warning and the runtime guard: once the field is non-null,
+        // the getter returns our TextReader without going through EnsureInitialized.
+        System.IO.TextReader? oldIn = null;
+        if (stdin is not null)
+        {
+            oldIn = GetConsoleInField();
+            SetConsoleInField(new System.IO.StringReader(stdin));
+        }
         Console.SetOut(stdOutCapture);
         Console.SetError(stdErrCapture);
 
@@ -422,9 +442,12 @@ internal sealed class ProjectCompiler
         try
         {
             var parameters = reflectedEntry.GetParameters();
+            // U2: bind by parameter count. `Main()` gets no args; `Main(string[] args)`
+            // (including Roslyn's synthesised top-level-statements wrapper) gets the
+            // forwarded array. Any other shape falls back to the empty-array behaviour.
             var invocationArgs = parameters.Length == 0
                 ? Array.Empty<object?>()
-                : new object?[] { Array.Empty<string>() };
+                : new object?[] { args };
 
             object? result;
             try
@@ -466,6 +489,12 @@ internal sealed class ProjectCompiler
         {
             Console.SetOut(oldOut);
             Console.SetError(oldError);
+            if (stdin is not null)
+            {
+                // Restore whatever was there before (including null — the default "never
+                // initialised" state on Mono-WASM).
+                SetConsoleInField(oldIn);
+            }
             AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
         }
 
@@ -483,4 +512,34 @@ internal sealed class ProjectCompiler
         "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code",
         Justification = "The in-memory emitted assembly is the user's program; reflection into it is expected and not subject to trimming.")]
     private static Assembly LoadAssembly(byte[] bytes) => Assembly.Load(bytes);
+
+    // U2 — reflection into Console's internal `s_in` (or `_in`) field. Bypasses both the
+    // `[UnsupportedOSPlatform("browser")]` code-analysis guard and the runtime-side
+    // PlatformNotSupportedException that Console.In / SetIn throw on Mono-WASM. The field
+    // name differs between .NET versions; we probe the two historic names and cache the
+    // resolved FieldInfo (once resolved, it's cheap). Returns null when the field is not
+    // found — in that case stdin forwarding silently becomes a no-op and the user program
+    // gets the default "empty" Console.In behaviour.
+    private static System.Reflection.FieldInfo? s_cachedConsoleInField;
+    private static System.Reflection.FieldInfo? ResolveConsoleInField()
+    {
+        if (s_cachedConsoleInField is not null) return s_cachedConsoleInField;
+        var t = typeof(Console);
+        var field = t.GetField("s_in", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+            ?? t.GetField("_in", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        s_cachedConsoleInField = field;
+        return field;
+    }
+
+    private static System.IO.TextReader? GetConsoleInField()
+    {
+        var field = ResolveConsoleInField();
+        return field?.GetValue(null) as System.IO.TextReader;
+    }
+
+    private static void SetConsoleInField(System.IO.TextReader? value)
+    {
+        var field = ResolveConsoleInField();
+        field?.SetValue(null, value);
+    }
 }

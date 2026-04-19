@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // Carbide CLI entry point. Dispatches to build / run / validate commands.
 
-import { ArgParseError, parseArgs } from "../args.js";
+import { parseArgs } from "../args.js";
 import { BUILD_ARG_SPEC, runBuild } from "../commands/build.js";
 import { RUN_ARG_SPEC, runRun } from "../commands/run.js";
 import { VALIDATE_ARG_SPEC, runValidate } from "../commands/validate.js";
+import { AUDIT_ARG_SPEC, runAudit } from "../commands/audit.js";
+import { TREE_ARG_SPEC, runTree } from "../commands/tree.js";
+import { handleCliFailure } from "../errors.js";
 
 // Carbide's C# logger emits info/debug/trace via `console.info` / `console.debug`, which
 // Node pipes to stdout. That would clobber the CLI's JSON output, so redirect them to
@@ -31,13 +34,45 @@ Commands:
   build       Compile sources into PE + PDB bytes (optionally written to disk).
   run         Compile sources and execute the program.
   validate    Run Roslyn diagnostics only (no emit, no execution).
+  audit       Print a structured read-only report of a --project graph + NuGet state.
+  tree        Render the --project graph as an ASCII tree.
 
 Options:
   --version   Print the CLI version and exit.
   --help      Print this message. Per-command help: carbide <command> --help.
+  --verbose   Enable info/trace logging (alias: -v).
+  --quiet     Suppress warnings to stderr (alias: -q).
+  --format    json (default) | human.
+
+Exit codes:
+  0  success
+  1  compile errors / ProjectReference cycle
+  2  I/O or internal error
+  3  unsupported flag combination / AssemblyName collision / stdout-pipe + multi-project
+  4  NuGet policy refusal (allow-list / safety)
+  5  NuGet network or cache miss
 
 See https://github.com/… for full documentation.
 `;
+
+/**
+ * Extract `--format` and `--verbose` hints before full arg parsing. Lets the top-level
+ * catch format error payloads correctly even when the error fires during `parseArgs`.
+ */
+function sniffEarlyFlags(argv: readonly string[]): { format: "json" | "human"; verbose: boolean } {
+    let format: "json" | "human" = "json";
+    let verbose = false;
+    for (let i = 0; i < argv.length; i++) {
+        const t = argv[i];
+        if (t === "--format" && i + 1 < argv.length) {
+            const v = argv[i + 1];
+            if (v === "human" || v === "json") format = v;
+        } else if (t === "--format=human") format = "human";
+        else if (t === "--format=json") format = "json";
+        else if (t === "--verbose" || t === "-v") verbose = true;
+    }
+    return { format, verbose };
+}
 
 async function main(argv: readonly string[]): Promise<number> {
     if (argv.length === 0 || argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
@@ -51,6 +86,7 @@ async function main(argv: readonly string[]): Promise<number> {
 
     const command = argv[0];
     const rest = argv.slice(1);
+    const early = sniffEarlyFlags(rest);
 
     try {
         switch (command) {
@@ -66,19 +102,20 @@ async function main(argv: readonly string[]): Promise<number> {
                 const args = parseArgs(rest, VALIDATE_ARG_SPEC);
                 return await runValidate(args);
             }
+            case "audit": {
+                const args = parseArgs(rest, AUDIT_ARG_SPEC);
+                return await runAudit(args);
+            }
+            case "tree": {
+                const args = parseArgs(rest, TREE_ARG_SPEC);
+                return await runTree(args);
+            }
             default:
                 process.stderr.write(`carbide: unknown command '${command}'. Run 'carbide --help'.\n`);
                 return 3;
         }
     } catch (err) {
-        if (err instanceof ArgParseError) {
-            process.stderr.write(`carbide: ${err.message}\n`);
-            return 3;
-        }
-        // Unexpected error — surface but don't throw past `main` so exit code is controlled.
-        const msg = err instanceof Error ? (err.stack ?? err.message) : String(err);
-        process.stderr.write(`carbide: unexpected error:\n${msg}\n`);
-        return 2;
+        return handleCliFailure(err, early.format, { verbose: early.verbose });
     }
 }
 

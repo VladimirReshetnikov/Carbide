@@ -10,6 +10,22 @@ using Microsoft.Extensions.Logging;
 
 namespace Carbide.Core.Hosting;
 
+/// <summary>
+/// U1.2 — process-wide min-level gate shared across every generic <see cref="WebAssemblyConsoleLogger{T}"/>
+/// instantiation. Lives on a non-generic type so one assignment affects all loggers
+/// (C# generics create a separate static slot per instantiation, which is not what we want).
+/// </summary>
+internal static class WebAssemblyConsoleLoggerConfig
+{
+    private static volatile int _minLogLevel = (int)LogLevel.Warning;
+
+    public static LogLevel MinLogLevel
+    {
+        get => (LogLevel)_minLogLevel;
+        set => _minLogLevel = (int)value;
+    }
+}
+
 internal sealed class WebAssemblyConsoleLogger<T>(string name) : ILogger<T>, ILogger
 {
     private const string LoglevelPadding = ": ";
@@ -28,7 +44,8 @@ internal sealed class WebAssemblyConsoleLogger<T>(string name) : ILogger<T>, ILo
 
     public bool IsEnabled(LogLevel logLevel)
     {
-        return logLevel != LogLevel.None;
+        if (logLevel == LogLevel.None) return false;
+        return logLevel >= WebAssemblyConsoleLoggerConfig.MinLogLevel;
     }
 
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)

@@ -68,3 +68,22 @@ export interface ReferenceHandle {
     /** True once the session has disposed the reference (or the session itself). */
     readonly disposed: boolean;
 }
+
+/**
+ * U2 — optional knobs for {@link Project.run}. When every field is default (or the caller
+ * omits the options entirely), the interop boundary is called without marshalling a JSON
+ * blob at all.
+ */
+export interface RunOptions {
+    /**
+     * Program arguments forwarded to the entry point's `Main(string[] args)`. Bound by
+     * parameter count — programs that take no args get nothing; programs with a different
+     * parameter shape are not supported.
+     */
+    args?: readonly string[];
+    /**
+     * Eagerly-buffered stdin for the user program. `null` / omitted leaves `Console.In`
+     * disconnected (same as pre-U2). Binary stdin is not supported; this is UTF-8 text.
+     */
+    stdin?: string | null;
+}

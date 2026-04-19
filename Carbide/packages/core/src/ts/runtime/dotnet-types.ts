@@ -43,6 +43,12 @@ export interface DotnetModule {
 
 export interface CarbideInteropExports {
     InitAsync(assemblies: string[]): Promise<void>;
+    /**
+     * U1.2 — sets the runtime logger's minimum level. Accepts Microsoft.Extensions.Logging
+     * names (trace, debug, information, warning, error, critical, none). Called before
+     * {@link InitAsync} to suppress the "Carbide initialising ..." info line.
+     */
+    SetLogLevel(level: string): void;
     CreateSession(optionsJson: string): string;
     DisposeSession(sessionId: string): void;
     CreateProject(sessionId: string, optionsJson: string): string;
@@ -54,5 +60,10 @@ export interface CarbideInteropExports {
     AttachReference(projectId: string, referenceId: string): void;
     GetDiagnosticsAsync(projectId: string): Promise<string>;
     BuildAsync(projectId: string): Promise<string>;
-    RunAsync(projectId: string): Promise<string>;
+    /**
+     * U2 — second parameter `runOptionsJson` is a {@link RunOptionsRequest}-shaped JSON
+     * string carrying argv and stdin. An empty string means "defaults" (no args, no
+     * stdin), which skips JSON parsing on the C# side.
+     */
+    RunAsync(projectId: string, runOptionsJson: string): Promise<string>;
 }

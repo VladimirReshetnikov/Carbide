@@ -11,6 +11,12 @@ export interface CarbideOptions {
     hostAdapter?: HostAdapter;
     debugLevel?: number;
     enableDiagnosticTracing?: boolean;
+    /**
+     * Minimum log level for Carbide.Core's internal loggers. Defaults to `"warning"` —
+     * typical invocations produce no stderr output. Pass `"information"` or higher for
+     * the pre-U1 "chatty" behaviour (useful when debugging Carbide itself).
+     */
+    logLevel?: "trace" | "debug" | "information" | "warning" | "error" | "none";
 }
 
 /** Mutable bag shared between session and its children so disposed-state propagates. */
@@ -37,6 +43,7 @@ export class CarbideSession {
             hostAdapter: adapter,
             debugLevel: options.debugLevel,
             enableDiagnosticTracing: options.enableDiagnosticTracing,
+            logLevel: options.logLevel,
         });
         const sessionId = interop.CreateSession(JSON.stringify({ schemaVersion: SCHEMA_VERSION }));
         return new CarbideSession(adapter, interop, sessionId);

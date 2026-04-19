@@ -38,94 +38,28 @@ import {
     type ProjectGraph,
     type ProjectNode,
 } from "./project-graph.js";
+import { handleCliFailure } from "./errors.js";
 
 /** Re-exported so CLI commands can canonicalise csproj paths without touching `project-graph`. */
 export const canonicalKeyOf = canonicalKey;
 
 /**
- * Map a graph-construction error into a `(exitCode, message)` pair for the CLI. Cycles
- * exit 1 (they are build-level errors, not flag-shape errors). Collisions exit 3 because
- * the user has to edit csproj files to fix them (the acceptance plan pins this — §2.9).
- * Missing references exit 1, same bucket as a compile failure.
+ * Map a graph-construction error into a `(exitCode, message)` pair for the CLI.
+ *
+ * U1.3 absorbed the body of this function into {@link handleCliFailure}; kept as a
+ * public export for TS callers that pinned it. New code should call `handleCliFailure`
+ * directly.
  */
 export function handleProjectGraphError(
     err: unknown,
     format: "json" | "human",
 ): number {
-    if (err instanceof ProjectGraphCycleError) {
-        const msg = err.message;
-        if (format === "human") {
-            process.stderr.write(`carbide: ${msg}\n`);
-        } else {
-            process.stderr.write(`carbide: ${msg}\n`);
-            process.stdout.write(
-                "\n" +
-                    JSON.stringify({
-                        success: false,
-                        diagnostics: [],
-                        warnings: [
-                            {
-                                code: "MSPROJ001",
-                                message: msg,
-                                severity: "error",
-                                project: err.cyclePath[0] ?? null,
-                            },
-                        ],
-                    }) +
-                    "\n",
-            );
-        }
-        return 1;
-    }
-    if (err instanceof ProjectGraphNameCollisionError) {
-        const msg = err.message;
-        if (format === "human") {
-            process.stderr.write(`carbide: ${msg}\n`);
-        } else {
-            process.stderr.write(`carbide: ${msg}\n`);
-            process.stdout.write(
-                "\n" +
-                    JSON.stringify({
-                        success: false,
-                        diagnostics: [],
-                        warnings: [
-                            {
-                                code: "MSPROJ002",
-                                message: msg,
-                                severity: "error",
-                                project: err.csprojPaths[0] ?? null,
-                            },
-                        ],
-                    }) +
-                    "\n",
-            );
-        }
-        return 3;
-    }
-    if (err instanceof ProjectReferenceNotFoundError) {
-        const msg = err.message;
-        if (format === "human") {
-            process.stderr.write(`carbide: ${msg}\n`);
-        } else {
-            process.stderr.write(`carbide: ${msg}\n`);
-            process.stdout.write(
-                "\n" +
-                    JSON.stringify({
-                        success: false,
-                        diagnostics: [],
-                        warnings: [
-                            {
-                                code: "MSPROJ004",
-                                message: msg,
-                                severity: "error",
-                                project: err.referrerPath,
-                            },
-                        ],
-                    }) +
-                    "\n",
-            );
-        }
-        return 1;
+    if (
+        err instanceof ProjectGraphCycleError ||
+        err instanceof ProjectGraphNameCollisionError ||
+        err instanceof ProjectReferenceNotFoundError
+    ) {
+        return handleCliFailure(err, format);
     }
     throw err;
 }
@@ -213,11 +147,27 @@ export async function runCsprojPipeline(
  * references, but no build is triggered. Callers drive the per-project build / run / validate
  * step themselves; see {@link compileGraphInOrder} for the default sequencer.
  */
+export interface RunProjectGraphPipelineOptions {
+    /**
+     * U3 — when true, skip writing `carbide.lock.json` for every sub-project. Used by
+     * `carbide audit` to stay read-only; the fresh-resolve path still runs (needed to
+     * populate the audit report), just without persisting the lock.
+     */
+    skipLockWrite?: boolean;
+    /**
+     * U3.4 `--scratch` — additional source paths to add to the *root* project's source
+     * set after the csproj-derived sources. Sub-projects are not affected. Paths are
+     * read via `readSource` (stdin `-` allowed, same as `--source`).
+     */
+    extraRootSources?: readonly string[];
+}
+
 export async function runProjectGraphPipeline(
     session: CarbideSession,
     rootProjectPath: string,
     extraRefs: readonly string[] = [],
     nugetOptions: NugetCliOptions | null = null,
+    options: RunProjectGraphPipelineOptions = {},
 ): Promise<MultiProjectPipelineResult> {
     const graph = await buildProjectGraph(rootProjectPath);
     const warnings: PipelineWarning[] = [];
@@ -244,10 +194,15 @@ export async function runProjectGraphPipeline(
     const extraRefHandles = await loadExtraRefHandles(session, extraRefs);
 
     for (const node of graph.order) {
-        const sub = await configureSubproject(session, node, nugetOptions, warnings);
+        const sub = await configureSubproject(session, node, nugetOptions, warnings, {
+            skipLockWrite: options.skipLockWrite ?? false,
+        });
         if (node.isRoot) {
             for (const handle of extraRefHandles) {
                 sub.project.addReference(handle);
+            }
+            if (options.extraRootSources && options.extraRootSources.length > 0) {
+                await addExtraRootSources(sub, options.extraRootSources);
             }
         }
         subprojects.push(sub);
@@ -409,7 +364,51 @@ export type AttributedDiagnostic = Diagnostic & {
     subprojectAssemblyName: string;
 };
 
+/**
+ * U3.3 — when a CS8802 diagnostic is present for the root in `--project` mode, append a
+ * `CARBIDE_HINT_CS8802` info-severity diagnostic pointing at the supported escape hatches.
+ * The hint helps users in "scratch directory with multiple top-level-statement files"
+ * situations find the `<EnableDefaultCompileItems>false</EnableDefaultCompileItems>`,
+ * explicit `<Compile Include>`, and `--scratch` workarounds.
+ */
+export function attachCs8802Hint(
+    diagnostics: readonly AttributedDiagnostic[],
+    rootCsproj: string,
+): AttributedDiagnostic[] {
+    const hasCs8802 = diagnostics.some((d) => d.id === "CS8802");
+    if (!hasCs8802) return [...diagnostics];
+    const hint: AttributedDiagnostic = {
+        id: "CARBIDE_HINT_CS8802",
+        severity: "info",
+        message:
+            "Multiple files contain top-level statements. Options: " +
+            "(1) add <EnableDefaultCompileItems>false</EnableDefaultCompileItems> and list Compile items explicitly; " +
+            "(2) pass --scratch to add --source files on top of the csproj-derived set; " +
+            "(3) move the extra top-level statements into a regular class/method.",
+        spanStart: 0,
+        spanEnd: 0,
+        project: rootCsproj,
+        subprojectAssemblyName: "",
+    };
+    return [...diagnostics, hint];
+}
+
 // --- Helpers ---------------------------------------------------------------------------
+
+async function addExtraRootSources(
+    sub: SubprojectPipelineResult,
+    sourceSpecs: readonly string[],
+): Promise<void> {
+    // U3.4 `--scratch` — appends CLI `--source` files to the root's csproj-derived set.
+    // Reuses `readSource` for the stdin-`-` dance; paths are registered under the source
+    // basename so diagnostics stay readable.
+    const { readSource } = await import("./io.js");
+    for (const spec of sourceSpecs) {
+        const { path: docPath, code } = await readSource(spec);
+        sub.project.addSource(docPath, code);
+        sub.sourcePaths.add(docPath);
+    }
+}
 
 async function loadExtraRefHandles(
     session: CarbideSession,
@@ -429,6 +428,7 @@ async function configureSubproject(
     node: ProjectNode,
     nugetOptions: NugetCliOptions | null,
     warnings: PipelineWarning[],
+    configOptions: { skipLockWrite: boolean } = { skipLockWrite: false },
 ): Promise<SubprojectPipelineResult> {
     const model = node.model;
     const options = buildOptionsFromModel(model);
@@ -533,7 +533,7 @@ async function configureSubproject(
             });
         }
 
-        if (!lock && !nugetOptions!.noLockWrite) {
+        if (!lock && !nugetOptions!.noLockWrite && !configOptions.skipLockWrite) {
             await writeFile(lockPath, JSON.stringify(nugetGraph.lock, null, 2) + "\n");
             nugetLockWritten = true;
         }

@@ -11,6 +11,7 @@ import {
     runProjectGraphPipeline,
     compileGraphInOrder,
     attributeDiagnosticsBySubproject,
+    attachCs8802Hint,
     handleProjectGraphError,
     canonicalKeyOf,
 } from "../project-file.js";
@@ -19,10 +20,24 @@ import {
     NUGET_STRING_FLAGS,
     extractNugetOptions,
 } from "../nuget-options.js";
+import {
+    LOG_LEVEL_BOOLEAN_FLAGS,
+    LOG_LEVEL_STRING_FLAGS,
+    resolveLogLevel,
+} from "../logging.js";
 
 export const VALIDATE_ARG_SPEC = {
-    strings: ["source", "ref", "assembly-name", "format", "project", ...NUGET_STRING_FLAGS],
-    booleans: ["help", ...NUGET_BOOLEAN_FLAGS],
+    strings: [
+        "source",
+        "ref",
+        "assembly-name",
+        "format",
+        "project",
+        ...NUGET_STRING_FLAGS,
+        ...LOG_LEVEL_STRING_FLAGS,
+    ],
+    booleans: ["help", "scratch", ...NUGET_BOOLEAN_FLAGS, ...LOG_LEVEL_BOOLEAN_FLAGS],
+    aliases: { v: "verbose", q: "quiet" },
 } as const;
 
 export async function runValidate(args: ParsedArgs): Promise<number> {
@@ -33,20 +48,28 @@ export async function runValidate(args: ParsedArgs): Promise<number> {
 
     const sources = stringList(args, "source");
     const projectPath = lastString(args, "project");
+    const scratch = args.flags.has("scratch");
 
     if (!projectPath && sources.length === 0) {
         process.stderr.write("carbide validate: provide either --project <path>.csproj or at least one --source.\n");
         return 3;
     }
-    if (projectPath && (sources.length > 0 || lastString(args, "assembly-name"))) {
-        process.stderr.write("carbide validate: --project is mutually exclusive with --source / --assembly-name.\n");
+    if (projectPath && !scratch && (sources.length > 0 || lastString(args, "assembly-name"))) {
+        process.stderr.write(
+            "carbide validate: --project is mutually exclusive with --source / --assembly-name (pass --scratch to combine).\n",
+        );
+        return 3;
+    }
+    if (!projectPath && scratch) {
+        process.stderr.write("carbide validate: --scratch requires --project.\n");
         return 3;
     }
 
     const refs = stringList(args, "ref");
     const format = parseFormat(lastString(args, "format"));
+    const logLevel = resolveLogLevel(args);
 
-    const session = await CarbideSession.initializeAsync();
+    const session = await CarbideSession.initializeAsync({ logLevel });
     try {
         if (projectPath) {
             return await runProjectModeValidate({
@@ -54,6 +77,7 @@ export async function runValidate(args: ParsedArgs): Promise<number> {
                 projectPath,
                 refs,
                 format,
+                extraRootSources: scratch ? sources : [],
                 nugetOptions: extractNugetOptions(args, "validate"),
             });
         }
@@ -99,14 +123,17 @@ interface ProjectModeValidateContext {
     projectPath: string;
     refs: readonly string[];
     format: "json" | "human";
+    extraRootSources: readonly string[];
     nugetOptions: ReturnType<typeof extractNugetOptions>;
 }
 
 async function runProjectModeValidate(ctx: ProjectModeValidateContext): Promise<number> {
-    const { session, projectPath, refs, format, nugetOptions } = ctx;
+    const { session, projectPath, refs, format, nugetOptions, extraRootSources } = ctx;
     let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
     try {
-        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions);
+        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions, {
+            extraRootSources,
+        });
     } catch (err) {
         return handleProjectGraphError(err, format);
     }
@@ -141,7 +168,10 @@ async function runProjectModeValidate(ctx: ProjectModeValidateContext): Promise<
         diagnosticsByKey.set(canonicalKeyOf(sub.csprojPath), diags);
     }
 
-    const attributed = attributeDiagnosticsBySubproject(multi, diagnosticsByKey);
+    const attributed = attachCs8802Hint(
+        attributeDiagnosticsBySubproject(multi, diagnosticsByKey),
+        multi.root.csprojPath,
+    );
     const hasErrors = attributed.some((d) => d.severity === "error");
 
     if (format === "human") {

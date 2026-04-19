@@ -6,8 +6,9 @@ namespace Carbide.Core.Services;
 
 public sealed class BuildResult
 {
-    // See interop/schema.ts: single SCHEMA_VERSION across all Carbide payloads. M5 = 2.
-    public int SchemaVersion { get; init; } = 2;
+    // See interop/schema.ts: single SCHEMA_VERSION across all Carbide payloads. M5 = 2;
+    // U2 = 3 (bumped when RunAsync's request shape gained args/stdin).
+    public int SchemaVersion { get; init; } = 3;
     public bool Success { get; init; }
     public byte[]? Pe { get; init; }
     public byte[]? Pdb { get; init; }

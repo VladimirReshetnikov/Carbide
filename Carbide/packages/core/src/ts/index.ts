@@ -4,6 +4,7 @@ export type {
     Diagnostic,
     DiagnosticSeverity,
     RunResult,
+    RunOptions,
     BuildResult,
     ProjectOptions,
     ReferenceHandle,

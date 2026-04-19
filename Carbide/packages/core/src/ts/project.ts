@@ -1,6 +1,6 @@
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import type { BuildResult, Diagnostic, ReferenceHandle, RunResult } from "./types.js";
-import { parseBuildResult, parseDiagnostics, parseRunResult } from "./interop/schema.js";
+import type { BuildResult, Diagnostic, ReferenceHandle, RunOptions, RunResult } from "./types.js";
+import { parseBuildResult, parseDiagnostics, parseRunResult, SCHEMA_VERSION } from "./interop/schema.js";
 
 export class Project {
     /** @internal */
@@ -71,8 +71,31 @@ export class Project {
         return parseBuildResult(json);
     }
 
-    async run(): Promise<RunResult> {
-        const json = await this.interop.RunAsync(this.id);
+    /**
+     * Compile the project and execute the program.
+     *
+     * U2: optional {@link RunOptions} forward program arguments to the entry point's
+     * `Main(string[] args)` parameter (when it has one) and pre-seed `Console.In` with
+     * a string for programs that read stdin. Omitting the options parameter preserves the
+     * pre-U2 behaviour (empty args, disconnected stdin) and skips JSON marshalling on the
+     * interop boundary.
+     */
+    async run(options?: RunOptions): Promise<RunResult> {
+        const optionsJson = serializeRunOptions(options);
+        const json = await this.interop.RunAsync(this.id, optionsJson);
         return parseRunResult(json);
     }
+}
+
+function serializeRunOptions(options: RunOptions | undefined): string {
+    if (!options) return "";
+    const hasArgs = options.args && options.args.length > 0;
+    const hasStdin = options.stdin !== undefined && options.stdin !== null;
+    if (!hasArgs && !hasStdin) return "";
+    const payload: { schemaVersion: number; args?: readonly string[]; stdin?: string | null } = {
+        schemaVersion: SCHEMA_VERSION,
+    };
+    if (hasArgs) payload.args = options.args;
+    if (hasStdin) payload.stdin = options.stdin;
+    return JSON.stringify(payload);
 }

@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import type { Diagnostic } from "@carbide/core";
+import { writeJson } from "./json-output.js";
 
 export type Format = "json" | "human";
 
@@ -32,9 +33,6 @@ export function renderAttributedDiagnostic(d: Diagnostic & { project?: string | 
     return `${prefix}: ${base}`;
 }
 
-export function writeJson(payload: unknown): void {
-    // Keep the JSON payload parseable even if the user program writes to stdout in ways
-    // Carbide cannot currently capture (e.g. Console.OpenStandardOutput). Consumers should
-    // treat the *last* non-empty stdout line as the JSON trailer.
-    process.stdout.write("\n" + JSON.stringify(payload) + "\n");
-}
+// U1: `writeJson` moved to `json-output.ts` (now stamps the sentinel + schemaVersion).
+// Re-exported here so existing import sites stay stable.
+export { writeJson };
