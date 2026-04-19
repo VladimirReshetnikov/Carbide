@@ -40,17 +40,17 @@ The strategic risk (separately from the technical one) is **size-budget pressure
 
 ### 3.1 Carbide (current state, M5 plan in flight)
 
-Carbide is the repository's in-house "C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process." (Quoted from [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md).) Status at the report's commit: **M4 shipped, M5 in progress**.
+Carbide is the repository's in-house "C# compile-and-run framework that ships as a single npm package, embeds the .NET runtime and Roslyn, and works identically in a browser tab and a Node.js process." (Quoted from [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../carbide-vision__2026-04-17__16-16-47-000000.md).) Status at the report's commit: **M4 shipped, M5 in progress**.
 
-Layered runtime topology (from [`carbide-architecture-and-implementation-plan`](../../src/Carbide/docs/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) §1):
+Layered runtime topology (from [`carbide-architecture-and-implementation-plan`](../../carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) §1):
 
 - L9 Consumer → L8 `@carbide/core` TS surface → L7 Host adapter (browser or Node) → L6 .NET-WASM boot → L5 `Carbide.Core` (C#, compiled to WASM) → L4 Roslyn. Ref-pack, NuGet, msbuild-lite sit alongside.
 
 Key properties that matter for this report:
 
-- **Uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm`, `TargetFramework=$(NetVersion)` (net10.0 in practice).** See [`src/Carbide/packages/core/src/Carbide.Core.csproj:1`](../../src/Carbide/packages/core/src/Carbide.Core.csproj). This is **exactly** the SDK + RID Avalonia.Browser uses.
-- **JSExport boundary is string-based JSON**; `BuildAsync` returns `{pe, pdb}` as base64 ([`CompilationInterop.cs:86`](../../src/Carbide/packages/core/src/CompilationInterop.cs)). User code never escapes the browser tab that loaded Carbide.
-- **`ProjectCompiler.RunAsync`** ([`src/Carbide/packages/core/src/Services/ProjectCompiler.cs:311`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)) compiles → `Assembly.Load(byte[])` → calls `EntryPoint.Invoke`, captures stdout/stderr via `StringWriter`. No `AssemblyLoadContext.Unload()` yet (Mono-WASM's default context is non-collectible; running user code repeatedly accumulates assemblies until session `Reset`).
+- **Uses `Microsoft.NET.Sdk.WebAssembly` with `RuntimeIdentifier=browser-wasm`, `TargetFramework=$(NetVersion)` (net10.0 in practice).** See [`src/Carbide/packages/core/src/Carbide.Core.csproj:1`](../../../packages/core/src/Carbide.Core.csproj). This is **exactly** the SDK + RID Avalonia.Browser uses.
+- **JSExport boundary is string-based JSON**; `BuildAsync` returns `{pe, pdb}` as base64 ([`CompilationInterop.cs:86`](../../../packages/core/src/CompilationInterop.cs)). User code never escapes the browser tab that loaded Carbide.
+- **`ProjectCompiler.RunAsync`** ([`src/Carbide/packages/core/src/Services/ProjectCompiler.cs:311`](../../../packages/core/src/Services/ProjectCompiler.cs)) compiles → `Assembly.Load(byte[])` → calls `EntryPoint.Invoke`, captures stdout/stderr via `StringWriter`. No `AssemblyLoadContext.Unload()` yet (Mono-WASM's default context is non-collectible; running user code repeatedly accumulates assemblies until session `Reset`).
 - **Reference registry** already exists (`session.addReference(bytes) → handle`, `project.addReference(handle)`) — ready to absorb an arbitrary set of Avalonia DLLs at runtime.
 - **Multi-document source support** already in M2; implicit usings already synthesized; Portable-PDB emission already wired.
 - **Vision non-goals N.2, N.3** explicitly call out Avalonia/GUI as out of scope for `@carbide/core`. Integration with Avalonia is either a **vision amendment** or a **sibling project** decision.
@@ -221,13 +221,13 @@ Both answers are technically viable. See §7 for three concrete architectures, o
 
 Read in priority order of how much each accelerates an Avalonia integration.
 
-1. **`Microsoft.NET.Sdk.WebAssembly` + `browser-wasm` already wired** ([`Carbide.Core.csproj:1`](../../src/Carbide/packages/core/src/Carbide.Core.csproj)). No foundational SDK change needed; adding Avalonia is adding PackageReferences, not changing the build model.
-2. **`ReferenceRegistry` + `session.addReference(bytes)`** ([`ReferenceRegistry.cs`](../../src/Carbide/packages/core/src/Services/ReferenceRegistry.cs), public TS at [`session.ts:66`](../../src/Carbide/packages/core/src/ts/session.ts)). Already the correct seam to hand Avalonia assembly bytes to the compiler. A `@carbide-ui/refs-avalonia` sibling package can auto-populate this registry at session-init time.
-3. **Multi-document source support** (`AddSource` / `UpdateSource` / `RemoveSource`, [`ProjectCompiler.cs:110`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)). A real Avalonia app has `App.axaml.cs`, `MainView.axaml.cs`, view-models, and resources — all multi-document.
-4. **PE + Portable-PDB emission** (M4, [`BuildAsync`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)). This is the minimal handoff artefact for any Sketch-B/-C architecture where the runtime is separate from the compiler.
-5. **Implicit-usings synthesis** ([`ProjectCompiler.cs:37`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)). Already there; Avalonia apps normally add `using Avalonia;` etc., but the existing implicit-usings machinery is easy to extend with Avalonia-specific globals.
-6. **Host adapter abstraction** ([`adapter.ts`](../../src/Carbide/packages/core/src/ts/host/adapter.ts)). A future `BrowserAvaloniaHostAdapter` can live next to `BrowserHostAdapter`, providing the `<div id="out">` mount seam without disturbing the core surface.
-7. **`project.run()` sandboxing via `Console.SetOut` + `AppDomain.CurrentDomain.AssemblyResolve`** ([`ProjectCompiler.cs:363`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)). The AssemblyResolve hook is exactly what is needed to answer Avalonia's reflection-based type probes when the user PE references Avalonia types but Avalonia was loaded via `Assembly.Load(byte[])` rather than by the runtime's default resolver.
+1. **`Microsoft.NET.Sdk.WebAssembly` + `browser-wasm` already wired** ([`Carbide.Core.csproj:1`](../../../packages/core/src/Carbide.Core.csproj)). No foundational SDK change needed; adding Avalonia is adding PackageReferences, not changing the build model.
+2. **`ReferenceRegistry` + `session.addReference(bytes)`** ([`ReferenceRegistry.cs`](../../../packages/core/src/Services/ReferenceRegistry.cs), public TS at [`session.ts:66`](../../../packages/core/src/ts/session.ts)). Already the correct seam to hand Avalonia assembly bytes to the compiler. A `@carbide-ui/refs-avalonia` sibling package can auto-populate this registry at session-init time.
+3. **Multi-document source support** (`AddSource` / `UpdateSource` / `RemoveSource`, [`ProjectCompiler.cs:110`](../../../packages/core/src/Services/ProjectCompiler.cs)). A real Avalonia app has `App.axaml.cs`, `MainView.axaml.cs`, view-models, and resources — all multi-document.
+4. **PE + Portable-PDB emission** (M4, [`BuildAsync`](../../../packages/core/src/Services/ProjectCompiler.cs)). This is the minimal handoff artefact for any Sketch-B/-C architecture where the runtime is separate from the compiler.
+5. **Implicit-usings synthesis** ([`ProjectCompiler.cs:37`](../../../packages/core/src/Services/ProjectCompiler.cs)). Already there; Avalonia apps normally add `using Avalonia;` etc., but the existing implicit-usings machinery is easy to extend with Avalonia-specific globals.
+6. **Host adapter abstraction** ([`adapter.ts`](../../../packages/core/src/ts/host/adapter.ts)). A future `BrowserAvaloniaHostAdapter` can live next to `BrowserHostAdapter`, providing the `<div id="out">` mount seam without disturbing the core surface.
+7. **`project.run()` sandboxing via `Console.SetOut` + `AppDomain.CurrentDomain.AssemblyResolve`** ([`ProjectCompiler.cs:363`](../../../packages/core/src/Services/ProjectCompiler.cs)). The AssemblyResolve hook is exactly what is needed to answer Avalonia's reflection-based type probes when the user PE references Avalonia types but Avalonia was loaded via `Assembly.Load(byte[])` rather than by the runtime's default resolver.
 
 ## 6. What is NOT in Carbide today that matters
 
@@ -381,11 +381,11 @@ Two paths; both work on Mono-WASM:
 - **WasmSharp/Carbide pattern**: HTTP-fetch the DLLs from a co-located `_framework/` URL into bytes, feed to `MetadataReference.CreateFromImage(bytes)`.
 - **XamlPlayground pattern**: call `assembly.TryGetRawMetadata(out byte* blob, out int length)` on already-loaded assemblies and `ModuleMetadata.CreateFromMetadata((IntPtr)blob, length)`.
 
-Both produce `PortableExecutableReference` objects that Roslyn's `CSharpCompilation` accepts. Carbide's existing `WasmMetadataReferenceResolver` ([`src/Carbide/packages/core/src/Services/WasmMetadataReferenceResolver.cs`](../../src/Carbide/packages/core/src/Services/WasmMetadataReferenceResolver.cs)) already implements the first path and is the integration seam for the second.
+Both produce `PortableExecutableReference` objects that Roslyn's `CSharpCompilation` accepts. Carbide's existing `WasmMetadataReferenceResolver` ([`src/Carbide/packages/core/src/Services/WasmMetadataReferenceResolver.cs`](../../../packages/core/src/Services/WasmMetadataReferenceResolver.cs)) already implements the first path and is the integration seam for the second.
 
 ### 8.2 How does the user's compiled PE find Avalonia types at *runtime*?
 
-Carbide's `ProjectCompiler.RunAsync` already installs an `AppDomain.CurrentDomain.AssemblyResolve` handler that answers simple-name lookups from the session's reference registry ([`ProjectCompiler.cs:363`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs)). The same handler answers Avalonia's probe requests during CLR JIT/metadata binding of user code. No change required.
+Carbide's `ProjectCompiler.RunAsync` already installs an `AppDomain.CurrentDomain.AssemblyResolve` handler that answers simple-name lookups from the session's reference registry ([`ProjectCompiler.cs:363`](../../../packages/core/src/Services/ProjectCompiler.cs)). The same handler answers Avalonia's probe requests during CLR JIT/metadata binding of user code. No change required.
 
 Complication: Avalonia performs reflection-driven discovery during `AppBuilder.Configure<App>()` (looking for `[AvaloniaResource]`, theme asset URIs, etc.). All of this operates over already-loaded assemblies, which is the case here. No new seam required.
 
@@ -503,12 +503,12 @@ Must: `build.success === true`; the iframe renders the Avalonia UI; a second `la
 
 ### Repository-local
 
-- Carbide vision: [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md)
-- Carbide architecture: [`src/Carbide/docs/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md`](../../src/Carbide/docs/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
-- Carbide M4 plan: [`src/Carbide/docs/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md`](../../src/Carbide/docs/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md)
-- Carbide M5 plan: [`src/Carbide/docs/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md`](../../src/Carbide/docs/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md)
-- Feasibility predecessor: [`docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md`](csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md)
-- Carbide sources (illustrative): [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../src/Carbide/packages/core/src/Carbide.Core.csproj), [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../src/Carbide/packages/core/src/CompilationInterop.cs), [`src/Carbide/packages/core/src/Services/ProjectCompiler.cs`](../../src/Carbide/packages/core/src/Services/ProjectCompiler.cs), [`src/Carbide/packages/core/src/Services/ReferenceRegistry.cs`](../../src/Carbide/packages/core/src/Services/ReferenceRegistry.cs), [`src/Carbide/packages/core/src/ts/session.ts`](../../src/Carbide/packages/core/src/ts/session.ts), [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../src/Carbide/packages/core/src/ts/runtime/boot.ts).
+- Carbide vision: [`src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md`](../../carbide-vision__2026-04-17__16-16-47-000000.md)
+- Carbide architecture: [`src/Carbide/docs/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md`](../../carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
+- Carbide M4 plan: [`src/Carbide/docs/carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md`](../../carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md)
+- Carbide M5 plan: [`src/Carbide/docs/carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md`](../../carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md)
+- Feasibility predecessor: [`docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md`](../../../../../docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md)
+- Carbide sources (illustrative): [`src/Carbide/packages/core/src/Carbide.Core.csproj`](../../../packages/core/src/Carbide.Core.csproj), [`src/Carbide/packages/core/src/CompilationInterop.cs`](../../../packages/core/src/CompilationInterop.cs), [`src/Carbide/packages/core/src/Services/ProjectCompiler.cs`](../../../packages/core/src/Services/ProjectCompiler.cs), [`src/Carbide/packages/core/src/Services/ReferenceRegistry.cs`](../../../packages/core/src/Services/ReferenceRegistry.cs), [`src/Carbide/packages/core/src/ts/session.ts`](../../../packages/core/src/ts/session.ts), [`src/Carbide/packages/core/src/ts/runtime/boot.ts`](../../../packages/core/src/ts/runtime/boot.ts).
 
 ### External
 
