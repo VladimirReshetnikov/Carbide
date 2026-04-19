@@ -1,13 +1,14 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Repository HEAD: 39ff89aaa2868ccabeff078e3293c992bb57fb26
+Updated (UTC): 2026-04-19T00:00:35Z
+Repository HEAD: d2f6eb2b29127011a7f7d713607bdfb4861c2b5f
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
 ## Documents
 
-- [Carbide current-state guide](carbide-current-state-guide__2026-04-18__23-36-06-000000__3002613a289e.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
+- [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
 - [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md) — what Carbide is, who it's for, what it does and does not try to do, tiered goals, success criteria.
 - [Carbide — architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
 

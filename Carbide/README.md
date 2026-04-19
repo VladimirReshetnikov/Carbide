@@ -12,7 +12,7 @@ Carbide is a C# compile-and-run framework for environments that do not have the 
 - bounded `.csproj` support via `@carbide/msbuild-lite`
 - bounded `PackageReference` resolution, cache, and `carbide.lock.json` via `@carbide/nuget`
 
-Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode, source generators/analyzers, and broader MSBuild parity. The authoritative current-state guide is [Carbide Current-State Guide](docs/carbide-current-state-guide__2026-04-18__23-36-06-000000__3002613a289e.md).
+Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode, source generators/analyzers, and broader MSBuild parity. The authoritative current-state guide is [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md).
 
 ## Layout
 
@@ -135,9 +135,10 @@ npx carbide run --project Foo.csproj --offline
 See:
 
 - [`packages/cli/README.md`](packages/cli/README.md) for command details
+- [`packages/core/README.md`](packages/core/README.md) for the `@carbide/core` API and host-adapter model
 - [`packages/msbuild-lite/README.md`](packages/msbuild-lite/README.md) for the supported `.csproj` subset
 - [`packages/nuget/README.md`](packages/nuget/README.md) for NuGet resolution policy, cache, and lock behavior
-- [Carbide Current-State Guide](docs/carbide-current-state-guide__2026-04-18__23-36-06-000000__3002613a289e.md) for the full project manual, tutorial, limitations, and troubleshooting
+- [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md) for the full project manual, tutorial, limitations, and troubleshooting
 
 ## Origin
 

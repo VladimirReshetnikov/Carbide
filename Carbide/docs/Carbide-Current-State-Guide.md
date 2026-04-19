@@ -1,7 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Repository HEAD: bb6b2461b2a75fa95ff63a5774ec0411606bc041
+Updated (UTC): 2026-04-19T00:00:35Z
+Repository HEAD: d2f6eb2b29127011a7f7d713607bdfb4861c2b5f
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -15,6 +16,7 @@ Repository HEAD: bb6b2461b2a75fa95ff63a5774ec0411606bc041
 - Related docs:
   - [Carbide README](../README.md)
   - [Carbide docs index](README.md)
+  - [@carbide/core README](../packages/core/README.md)
   - [Carbide vision](carbide-vision__2026-04-17__16-16-47-000000.md)
   - [Carbide architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
   - [Drift tracking and documented runtime differences](drift/README.md)
@@ -359,6 +361,28 @@ Prefer the CLI when you:
 - are wiring Carbide into shell scripts, CI steps, or other language runtimes
 - are working from `.csproj` files and want built-in project-file and NuGet composition
 
+### Core API options (quick reference)
+
+This guide focuses on Carbide's behavior, but a few option points are worth having on one page.
+
+Session boot:
+
+- `CarbideSession.initializeAsync({ hostAdapter?, debugLevel?, enableDiagnosticTracing? })`
+  - `hostAdapter` overrides auto-detection and controls where `_framework/` (and ref-pack) assets are served from.
+  - `debugLevel` and `enableDiagnosticTracing` are passed through to the `dotnet.js` host config.
+  - When omitted, Carbide auto-detects and picks a Node or browser adapter.
+
+Project creation:
+
+- `session.createProject({ assemblyName?, languageVersion?, nullable?, implicitUsings?, rootNamespace?, defineConstants?, targetFramework? })`
+  - `implicitUsings` defaults to true and injects a hidden `Carbide.GlobalUsings.g.cs` document.
+  - `rootNamespace` and `targetFramework` are currently informational rather than full selectors.
+
+Host-adapter seam:
+
+- Browser uses `BrowserHostAdapter` with a `frameworkAssetsBaseUrl` that must serve `_framework/` over HTTP(S).
+- Node uses `NodeHostAdapter` (available via `@carbide/core/node`) and serves runtime assets over localhost HTTP by default.
+
 ### In-process Node example
 
 ```ts
@@ -448,6 +472,7 @@ CLI facts worth knowing:
 - `build` exits `1` for compile errors, `2` for unexpected or I/O errors, and `3` for bad flag combinations.
 - `build --out -` writes raw PE bytes to stdout and omits the PDB.
 - `validate` only reports diagnostics; it never emits or runs.
+- `--` is parsed as a program-argument separator, but program arguments are not forwarded yet (they are currently ignored).
 
 ### CLI `.csproj` mode
 
@@ -499,6 +524,7 @@ Useful NuGet flags:
 - `--no-lock-write`
 - `--nuget-source <url>`
 - `--allow-list-mode strict|advisory|off`
+- `CARBIDE_NUGET_CACHE_DIR` (env var) overrides the default cache location (`~/.carbide/nuget-cache`) used by `@carbide/nuget`.
 
 Default allow-list entries at the time of this document:
 
