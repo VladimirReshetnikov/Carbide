@@ -1,0 +1,7 @@
+<!--
+M11: empty marker Directory.Build.props. Stops the ancestor walk for parity fixtures at
+this directory so the real-world Carbide-root Directory.Build.props doesn't leak into
+the snapshots. Fixtures that deliberately test Directory.Build.props behaviour (e.g.
+`directory-props/`) provide their own props file nested inside — the closest one wins.
+-->
+<Project/>

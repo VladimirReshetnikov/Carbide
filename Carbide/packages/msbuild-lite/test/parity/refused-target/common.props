@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <Target Name="BeforeBuild">
+    <Message Text="This should be refused by Carbide." />
+  </Target>
+</Project>

@@ -1,0 +1,6 @@
+<Project>
+  <Import Project="leaf.props" />
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>

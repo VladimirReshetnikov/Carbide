@@ -18,3 +18,4 @@ This directory groups the detailed implementation plans for individual Carbide m
 - [U1 — detailed plan (CLI UX sharpening)](carbide-U1-detailed-plan__2026-04-19__06-00-00-000000.md)
 - [U2 — detailed plan (program I/O forwarding)](carbide-U2-detailed-plan__2026-04-19__07-00-00-000000.md)
 - [U3 — detailed plan (introspection + csproj polish)](carbide-U3-detailed-plan__2026-04-19__08-00-00-000000.md)
+- [M11 — detailed plan (Partial MSBuild evaluator)](carbide-M11-detailed-plan__2026-04-19__09-00-00-000000.md)

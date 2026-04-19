@@ -8,6 +8,13 @@ export interface Warning {
     message: string;
     category: string;
     severity: WarningSeverity;
+    /**
+     * M11: file in which the warning was raised. Null/absent for warnings that can't be
+     * attributed to a specific file (rare — typically only when the outer parseCsproj
+     * itself is the failure site). Existing consumers that ignore unknown fields are
+     * unaffected.
+     */
+    sourceFile?: string;
 }
 
 export interface PackageReference {
@@ -56,6 +63,26 @@ export interface EvaluationTrace {
         operations: CompileOperation[];
         resolved: CompileResolvedEntry[];
     };
+    /**
+     * M11: chronological list of every file the evaluator touched during parseCsproj,
+     * including auto-discovered Directory.Build.props, explicit `<Import>` elements, and
+     * refused Directory.Build.targets. Absent in the pre-M11 shape.
+     */
+    imports?: ImportTraceEntry[];
+}
+
+/** M11 — one entry per evaluator-visited file. */
+export interface ImportTraceEntry {
+    /** File that issued the import. Null for the root csproj and the auto-discovered Directory.Build.*. */
+    sourceFile: string | null;
+    /** Absolute path of the file being imported / walked. */
+    importedFile: string;
+    /** Origin of the import. */
+    kind: "csproj" | "props" | "targets" | "import";
+    /** True when the file was walked successfully. False for cycles, missing targets, parse failures, duplicates, refused targets. */
+    applied: boolean;
+    /** When `applied` is false, a short reason code. */
+    error?: "cycle" | "duplicate" | "missing" | "parse" | "refused";
 }
 
 /**

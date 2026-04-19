@@ -1,0 +1,7 @@
+<!--
+M11: empty marker Directory.Build.targets — parity with Directory.Build.props above.
+Stops the ancestor walk here so the real-world Carbide-root `.targets` doesn't surface
+MSBLITE027 in existing fixtures. An empty `<Project/>` is silent per index.ts's
+`targetsFileHasContent` check.
+-->
+<Project/>

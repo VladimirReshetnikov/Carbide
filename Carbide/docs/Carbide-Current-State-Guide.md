@@ -24,7 +24,7 @@ Repository HEAD: 79ecc77f66828d29728c83242293637e7d13aeb1
 
 ## Summary
 
-Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser, a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M9 + U1–U3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, sentinel-framed JSON output, and structured error classification all exist; Webcil mode, source generators, and general MSBuild parity do not.
+Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M9 + M11 + U1–U3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, sentinel-framed JSON output, and structured error classification all exist; Webcil mode, source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not.
 
 This guide is the current-state companion to the planning documents. The vision and architecture pages explain why Carbide exists and the intended shape of the system; this page explains what is actually present in the repository now, how to use it successfully, where the sharp edges are, and which apparent capabilities are still only roadmap material.
 
@@ -203,6 +203,10 @@ This is the key architectural distinction:
 | `.csproj` input | Supported, bounded | `TargetFramework`, `Nullable`, `LangVersion`, `ImplicitUsings`, `DefineConstants`, `AssemblyName`, `RootNamespace`, compile globs, simple `Condition` |
 | `PackageReference` | Supported in CLI path | Parsed by `msbuild-lite`, resolved by `@carbide/nuget` |
 | `ProjectReference` | Supported in CLI path | Walked by the M9 project-graph module; sub-projects compile leaves-first, sibling PEs become metadata references for downstream consumers; flat `<AssemblyName>.dll` output. Cycles and AssemblyName collisions are hard errors. |
+| `Directory.Build.props` | Supported (M11) | Auto-discovered via ancestor walk from the csproj directory; closest one wins. Its `<PropertyGroup>`s feed the evaluator before the csproj itself. |
+| `<Import Project="…"/>` | Supported (M11) | With `Condition`; variable-substituted (`$(MSBuildThisFileDirectory)` etc.); nested; cycle-detected. Missing targets log `MSBLITE024`. |
+| `Directory.Build.targets` | Discovered, not ingested (M11) | Logs `MSBLITE027` and skips the file — targets aren't executed. Empty `<Project/>` markers are silent. |
+| `<Target>` / `<Task>` / `<UsingTask>` / `<Choose>` / `<ItemDefinitionGroup>` | Refused (M11) | Emit `MSBLITE020`–`MSBLITE023`, `MSBLITE028`. |
 | NuGet cache and lock file | Supported | `~/.carbide/nuget-cache` plus `carbide.lock.json` |
 | Offline replay | Supported | `--offline` plus cache/lock |
 | Webcil | Not implemented | `<WasmEnableWebcil>false</WasmEnableWebcil>` |

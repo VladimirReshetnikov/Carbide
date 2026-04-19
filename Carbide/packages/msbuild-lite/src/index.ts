@@ -1,28 +1,31 @@
 // @carbide/msbuild-lite — public entry.
-// parseCsproj(path) reads a .csproj, runs the PropertyGroup / ItemGroup walk, expands
-// Compile globs against the filesystem, and returns a ProjectModel whose shape matches
-// cs_kit.msbuild_lite's output (see carbide-M5-detailed-plan §2.2).
+//
+// M5: parseCsproj reads a single .csproj, runs PropertyGroup / ItemGroup walk, expands
+//     Compile globs, and returns a ProjectModel whose shape matches cs_kit.msbuild_lite's
+//     output.
+//
+// M11: evolved from a single-file walk into a bounded MSBuild evaluator. The walker lives
+//     in `evaluator.ts`; this module orchestrates:
+//       1. Directory.Build.props auto-discovery (walk up from the csproj directory).
+//       2. Walking that props file into a shared EvaluationContext (if present).
+//       3. Walking the csproj itself — `<Import>` inside it chains through the evaluator.
+//       4. Discovering Directory.Build.targets (logs MSBLITE027 and does NOT ingest).
+//       5. Resolving compile-item globs against the accumulated property bag.
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { evalCondition } from "./conditions.js";
 import { resolveCompileItems } from "./compile-items.js";
 import {
-    findChildren,
-    isElement,
-    parseXml,
-    stripNamespace,
-    XmlParseError,
-    type XmlElement,
-} from "./xml.js";
+    createEvaluationContext,
+    evaluateProjectDocument,
+    findDirectoryBuild,
+    type EvaluationContext,
+} from "./evaluator.js";
+import { parseXml, isElement, XmlParseError } from "./xml.js";
 import type {
-    CompileOperation,
-    ConditionTraceEntry,
-    PackageReference,
     ParseOptions,
     ProjectModel,
     ProjectProperties,
-    Warning,
 } from "./types.js";
 
 export type {
@@ -35,12 +38,12 @@ export type {
     ConditionTraceEntry,
     CompileOperation,
     CompileResolvedEntry,
+    ImportTraceEntry,
 } from "./types.js";
 
 /** Parse a .csproj file from disk and return its ProjectModel. */
 export async function parseCsproj(projectPath: string, options: ParseOptions = {}): Promise<ProjectModel> {
     const absPath = path.resolve(projectPath);
-    const projectDir = path.dirname(absPath);
     const source = await readFile(absPath, "utf8");
     return parseCsprojString(source, absPath, options);
 }
@@ -56,40 +59,7 @@ export async function parseCsprojString(
     const configuration = options.configuration ?? "Debug";
     const [parsedConfiguration, parsedPlatform] = extractConfigurationAndPlatform(configuration);
 
-    const warnings: Warning[] = [];
-    const addWarning = (
-        code: string,
-        message: string,
-        category: string = "general",
-        severity: Warning["severity"] = "warning",
-    ): void => {
-        warnings.push({ code, message, category, severity });
-    };
-
-    let root: XmlElement;
-    try {
-        root = parseXml(source);
-    } catch (err) {
-        const message = err instanceof XmlParseError ? err.message : String(err);
-        addWarning("MSBLITE000", `XML parse error: ${message}`, "parse", "error");
-        return {
-            projectPath: absPath,
-            projectDir,
-            targetFrameworks: [],
-            properties: { configuration: parsedConfiguration, platform: parsedPlatform },
-            packageReferences: [],
-            projectReferences: [],
-            sourceFiles: [],
-            warnings,
-            evaluationTrace: {
-                targetFramework: { selectionPolicy: "first-listed", candidates: [], selected: null },
-                conditions: { evaluated: [], ignored: [] },
-                compileItems: { defaultIncludeEnabled: true, operations: [], resolved: [] },
-            },
-        };
-    }
-
-    // Property bag for condition evaluation uses lowercased keys (matches cs_kit).
+    // Seed the condition-property bag with the MSBuild basics — same keys M5 used.
     const conditionProps: Record<string, string> = {
         configuration: parsedConfiguration,
         platform: parsedPlatform,
@@ -99,122 +69,58 @@ export async function parseCsprojString(
         platform: parsedPlatform,
     };
 
-    const conditionTrace: ConditionTraceEntry[] = [];
-    const ignoredConditionTrace: Array<{ scope: string; condition: string | null }> = [];
+    const ctx = createEvaluationContext(absPath, conditionProps, props);
 
-    const applyCondition = (condition: string | undefined, scope: string): boolean => {
-        const c = condition ?? null;
-        const r = evalCondition(c, conditionProps);
-        conditionTrace.push({ scope, condition: c, evaluated: r.evaluated, applies: r.applies });
-        if (!r.evaluated && c) {
-            addWarning("MSBLITE001", `Condition not evaluated (ignored): ${c}`, "condition");
-            ignoredConditionTrace.push({ scope, condition: c });
-        }
-        return r.applies;
-    };
-
-    // --- PropertyGroup walk ------------------------------------------------------------
-
-    const tfms: string[] = [];
-
-    for (const pg of findChildren(root, "PropertyGroup")) {
-        if (!applyCondition(pg.attributes.Condition, "PropertyGroup")) continue;
-        for (const child of pg.children) {
-            if (!isElement(child)) continue;
-            const tag = stripNamespace(child.name);
-            const val = child.text || null;
-            if (!val) continue;
-            if (tag === "TargetFramework" || tag === "TargetFrameworks") {
-                for (const t of val.split(";").map((s) => s.trim()).filter(Boolean)) {
-                    tfms.push(t);
-                }
-                conditionProps[tag.toLowerCase()] = val;
-            } else if (tag === "Nullable" || tag === "LangVersion" || tag === "ImplicitUsings") {
-                props[lowercaseFirst(tag)] = val;
-                conditionProps[tag.toLowerCase()] = val;
-            } else if (tag === "DefineConstants") {
-                const consts = val
-                    .split(";")
-                    .map((c) => c.trim())
-                    .filter(Boolean);
-                props.defineConstants = consts;
-                conditionProps[tag.toLowerCase()] = val;
-            } else {
-                if (tag === "AssemblyName" || tag === "RootNamespace" || tag === "EnableDefaultCompileItems") {
-                    props[lowercaseFirst(tag)] = val;
-                }
-                conditionProps[tag.toLowerCase()] = val;
-            }
+    // 1. Directory.Build.props — walked first so its properties are overridden by
+    //    downstream imports and the csproj itself.
+    const dirPropsPath = await findDirectoryBuild("props", projectDir);
+    if (dirPropsPath !== null) {
+        try {
+            const dirPropsSource = await readFile(dirPropsPath, "utf8");
+            await evaluateProjectDocument(dirPropsPath, dirPropsSource, ctx, "props");
+        } catch (err) {
+            ctx.warnings.push({
+                code: "MSBLITE024",
+                message: `Could not read Directory.Build.props at '${dirPropsPath}': ${(err as Error).message}`,
+                category: "import",
+                severity: "warning",
+                sourceFile: absPath,
+            });
         }
     }
 
-    // --- ItemGroup walk: PackageReference, ProjectReference, Compile -------------------
+    // 2. The root csproj. `<Import>` elements inside it recurse via the evaluator.
+    await evaluateProjectDocument(absPath, source, ctx, "csproj");
 
-    const pkgRefs: PackageReference[] = [];
-    const projRefs: string[] = [];
-    const compileOperations: CompileOperation[] = [];
-
-    for (const ig of findChildren(root, "ItemGroup")) {
-        if (!applyCondition(ig.attributes.Condition, "ItemGroup")) continue;
-        for (const item of ig.children) {
-            if (!isElement(item)) continue;
-            const tag = stripNamespace(item.name);
-            const itemCondition = item.attributes.Condition;
-            if (itemCondition && !applyCondition(itemCondition, `Item:${tag}`)) continue;
-
-            if (tag === "PackageReference") {
-                const id = item.attributes.Include ?? item.attributes.Update;
-                if (!id) continue;
-                const version = item.attributes.Version ?? getChildText(item, "Version") ?? null;
-                pkgRefs.push({ id, version });
-                addWarning(
-                    "MSBLITE013",
-                    `<PackageReference Include="${id}"/> captured by msbuild-lite; resolution is the consumer's responsibility (wire @carbide/nuget to resolve).`,
-                    "package-reference",
-                );
-            } else if (tag === "ProjectReference") {
-                const include = item.attributes.Include;
-                if (include) {
-                    const resolved = path.resolve(projectDir, normaliseSlashes(include));
-                    projRefs.push(resolved);
-                    addWarning(
-                        "MSBLITE014",
-                        `<ProjectReference Include="${include}"/> captured by msbuild-lite; ` +
-                            `sibling-project orchestration is the consumer's responsibility ` +
-                            `(wire @carbide/cli's project-graph walker to build them).`,
-                        "project-reference",
-                    );
-                }
-            } else if (tag === "Compile") {
-                const include = item.attributes.Include;
-                const remove = item.attributes.Remove;
-                const update = item.attributes.Update;
-                if (include) {
-                    for (const patt of include.split(";").map((p) => p.trim()).filter(Boolean)) {
-                        compileOperations.push({ operation: "include", pattern: patt });
-                    }
-                }
-                if (remove) {
-                    for (const patt of remove.split(";").map((p) => p.trim()).filter(Boolean)) {
-                        compileOperations.push({ operation: "remove", pattern: patt });
-                    }
-                }
-                if (update) {
-                    addWarning(
-                        "MSBLITE011",
-                        "Compile Update metadata is not modeled in msbuild-lite.",
-                        "compile-items",
-                    );
-                }
-            }
+    // 3. Directory.Build.targets — refusal-warn if present AND non-empty; do NOT ingest.
+    //    A purely-empty `<Project/>` marker file is silent (D131 allows it as a "stop the
+    //    ancestor walk here" signal without noise).
+    const dirTargetsPath = await findDirectoryBuild("targets", projectDir);
+    if (dirTargetsPath !== null) {
+        const targetsHasContent = await targetsFileHasContent(dirTargetsPath);
+        if (targetsHasContent) {
+            ctx.warnings.push({
+                code: "MSBLITE027",
+                message:
+                    `Found Directory.Build.targets at '${dirTargetsPath}' but Carbide does not execute targets; contents ignored.`,
+                category: "refusal",
+                severity: "warning",
+                sourceFile: absPath,
+            });
         }
+        ctx.imports.push({
+            sourceFile: absPath,
+            importedFile: dirTargetsPath,
+            kind: "targets",
+            applied: false,
+            error: "refused",
+        });
     }
 
-    // --- Compile-item resolution -------------------------------------------------------
-
-    const enableDefaultCompileItems = String(props.enableDefaultCompileItems ?? "true").trim().toLowerCase() !== "false";
-
-    const explicitOps: Array<{ operation: "include" | "remove"; pattern: string }> = compileOperations
+    // 4. Compile-item resolution — same as pre-M11, driven off the accumulated property
+    //    bag and compile-operation list.
+    const enableDefaultCompileItems = String(ctx.props.enableDefaultCompileItems ?? "true").trim().toLowerCase() !== "false";
+    const explicitOps: Array<{ operation: "include" | "remove"; pattern: string }> = ctx.compileOperations
         .filter((o) => o.operation !== "default-include")
         .map((o) => ({ operation: o.operation as "include" | "remove", pattern: o.pattern }));
 
@@ -224,34 +130,33 @@ export async function parseCsprojString(
         explicitOps,
     );
 
-    // Merge match counts back into the compileOperations list (drops default-include rows
-    // since those are implicit, matching cs_kit's output shape).
-    for (let i = 0; i < compileOperations.length && i < operationMatches.length; i++) {
-        compileOperations[i].matchCount = operationMatches[i].matchCount;
+    for (let i = 0; i < ctx.compileOperations.length && i < operationMatches.length; i++) {
+        ctx.compileOperations[i].matchCount = operationMatches[i].matchCount;
         if (operationMatches[i].matchCount === 0) {
-            addWarning(
-                "MSBLITE012",
-                `Compile ${operationMatches[i].operation} pattern matched no source files: ${operationMatches[i].pattern}`,
-                "compile-items",
-            );
+            ctx.warnings.push({
+                code: "MSBLITE012",
+                message: `Compile ${operationMatches[i].operation} pattern matched no source files: ${operationMatches[i].pattern}`,
+                category: "compile-items",
+                severity: "warning",
+                sourceFile: absPath,
+            });
         }
     }
 
-    // --- Post-processing ---------------------------------------------------------------
-
-    const uniqueTfms = [...new Set(tfms)].sort();
-    const packageReferences = deduplicatePackageRefs(pkgRefs);
-    const projectReferences = [...new Set(projRefs)].sort();
+    // 5. Post-processing: dedupe TFMs + package references.
+    const uniqueTfms = [...new Set(ctx.tfms)].sort();
+    const packageReferences = deduplicatePackageRefs(ctx.pkgRefs);
+    const projectReferences = [...new Set(ctx.projRefs)].sort();
 
     return {
         projectPath: absPath,
         projectDir,
         targetFrameworks: uniqueTfms,
-        properties: props,
+        properties: ctx.props,
         packageReferences,
         projectReferences,
         sourceFiles: sources,
-        warnings,
+        warnings: ctx.warnings,
         evaluationTrace: {
             targetFramework: {
                 selectionPolicy: "first-listed",
@@ -259,30 +164,17 @@ export async function parseCsprojString(
                 selected: uniqueTfms[0] ?? null,
             },
             conditions: {
-                evaluated: conditionTrace,
-                ignored: ignoredConditionTrace,
+                evaluated: ctx.conditionTrace,
+                ignored: ctx.ignoredConditionTrace,
             },
             compileItems: {
                 defaultIncludeEnabled: enableDefaultCompileItems,
-                operations: compileOperations,
+                operations: ctx.compileOperations,
                 resolved,
             },
+            imports: ctx.imports,
         },
     };
-}
-
-function getChildText(element: XmlElement, name: string): string | null {
-    for (const child of element.children) {
-        if (!isElement(child)) continue;
-        if (stripNamespace(child.name) === name) {
-            return child.text.length > 0 ? child.text : null;
-        }
-    }
-    return null;
-}
-
-function lowercaseFirst(name: string): string {
-    return name.length === 0 ? name : name[0].toLowerCase() + name.slice(1);
 }
 
 function extractConfigurationAndPlatform(configuration: string): [string, string] {
@@ -295,7 +187,21 @@ function extractConfigurationAndPlatform(configuration: string): [string, string
     return [configuration.trim(), "AnyCPU"];
 }
 
-function deduplicatePackageRefs(refs: PackageReference[]): PackageReference[] {
+async function targetsFileHasContent(targetsPath: string): Promise<boolean> {
+    try {
+        const source = await readFile(targetsPath, "utf8");
+        const root = parseXml(source);
+        // `<Project/>` or `<Project></Project>` with no element children counts as empty.
+        return root.children.some((c) => isElement(c));
+    } catch (err) {
+        if (err instanceof XmlParseError) return true; // a broken targets file has "content" worth warning about
+        return false; // unreadable: silent (we already recorded the import trace)
+    }
+}
+
+function deduplicatePackageRefs(
+    refs: import("./types.js").PackageReference[],
+): import("./types.js").PackageReference[] {
     const seen = new Map<string, string | null>();
     for (const r of refs) {
         const key = r.id;
@@ -306,6 +212,7 @@ function deduplicatePackageRefs(refs: PackageReference[]): PackageReference[] {
         .map(([id, version]) => ({ id, version }));
 }
 
-function normaliseSlashes(s: string): string {
-    return s.replace(/\\/g, "/");
-}
+// Re-export the evaluator types for TS consumers that want direct access.
+export { createEvaluationContext, evaluateProjectDocument, findDirectoryBuild } from "./evaluator.js";
+export type { EvaluationContext } from "./evaluator.js";
+export { computeReservedProperties, isReservedProperty } from "./reserved-properties.js";

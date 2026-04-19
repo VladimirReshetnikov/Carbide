@@ -1,0 +1,13 @@
+{
+  "targetFrameworks": ["net10.0"],
+  "selectedTfm": "net10.0",
+  "properties": {
+    "configuration": "Debug",
+    "platform": "AnyCPU",
+    "nullable": "enable"
+  },
+  "packageReferences": [],
+  "projectReferences": [],
+  "sourceFileBasenames": ["Program.cs"],
+  "warningCodes": ["MSBLITE020"]
+}

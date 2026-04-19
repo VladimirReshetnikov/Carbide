@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants>SHARED_CONST</DefineConstants>
+  </PropertyGroup>
+</Project>

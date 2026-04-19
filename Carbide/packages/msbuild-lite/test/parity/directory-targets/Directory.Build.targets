@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <SomeProperty>not-ingested</SomeProperty>
+  </PropertyGroup>
+</Project>

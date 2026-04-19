@@ -1,0 +1,14 @@
+{
+  "targetFrameworks": ["net10.0"],
+  "selectedTfm": "net10.0",
+  "properties": {
+    "configuration": "Debug",
+    "platform": "AnyCPU",
+    "implicitUsings": "enable",
+    "defineConstants": ["SHARED_CONST"]
+  },
+  "packageReferences": [],
+  "projectReferences": [],
+  "sourceFileBasenames": ["Program.cs"],
+  "warningCodes": []
+}

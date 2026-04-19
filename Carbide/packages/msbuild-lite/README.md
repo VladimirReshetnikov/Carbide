@@ -15,6 +15,9 @@ This is a semantic port of `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` — t
 - `<Compile Include="…"/>` and `<Compile Remove="…"/>` (glob expansion with `**` and `*`).
 - `Condition=" '$(X)' == 'Y' "`, `!=`, `and`, `or`. Unparseable conditions are treated as "applies = true" with a warning.
 - Default `.cs` discovery under the project directory, excluding `bin/`, `obj/`, `.git/`, and other dotted directories.
+- **M11:** `<Import Project="…"/>` with `Condition`, variable substitution (`$(MSBuildThisFileDirectory)`, `$(MSBuildProjectDirectory)`, and the rest of the `$(MSBuildThis*)` / `$(MSBuildProject*)` family), nested imports, and cycle detection.
+- **M11:** Implicit `Directory.Build.props` discovery — walks up from the csproj's directory; the closest one found is imported at the head of evaluation (same semantics as upstream MSBuild).
+- **M11:** `Directory.Build.targets` discovery — found, logged (`MSBLITE027`), and explicitly NOT ingested (targets files hold target definitions Carbide can't execute).
 
 ### Not supported (warning codes are emitted)
 
@@ -26,8 +29,31 @@ This is a semantic port of `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` — t
 | `MSBLITE012` | A glob pattern matched no source files. |
 | `MSBLITE013` | `<PackageReference>` captured; a consumer may resolve it (the CLI suppresses this once `@carbide/nuget` actually runs). |
 | `MSBLITE014` | `<ProjectReference>` captured; a consumer (e.g. `@carbide/cli`'s project-graph walker) builds the sibling. The CLI suppresses this code once the walker actually runs. |
+| `MSBLITE020` | `<Target>` encountered; refused (Carbide does not execute targets). |
+| `MSBLITE021` | `<Task>` encountered; refused. |
+| `MSBLITE022` | `<UsingTask>` encountered; refused. |
+| `MSBLITE023` | `<Choose>/<When>/<Otherwise>` encountered; refused. Use `<PropertyGroup Condition="…">` instead. |
+| `MSBLITE024` | `<Import Project="…"/>` target not found / unreadable. |
+| `MSBLITE025` | `<Import>` cycle detected. The cycle chain is written into the warning message. |
+| `MSBLITE027` | `Directory.Build.targets` auto-discovered but not ingested (Carbide does not execute targets). Silent if the file is an empty `<Project/>` marker. |
+| `MSBLITE028` | `<ItemDefinitionGroup>` encountered; refused. |
+| `MSBLITE029` | Attempt to set a reserved MSBuild property (`$(MSBuildProjectDirectory)` etc.) via `<PropertyGroup>`; ignored. |
 
-Not handled at all: `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, item metadata functions, property functions. See M5 plan §7.
+Not handled at all: property functions (`$(Foo.ToUpper())`), item metadata functions (`%(Identity)`), item element functions (`@(Compile->Distinct())`), `<InitialTargets>` / `<DefaultTargets>`, SDK-style implicit `Sdk.props` / `Sdk.targets` imports. See M5 plan §7 and M11 plan §7.
+
+### M11 — MSBuild evaluator
+
+```ts
+// Directory.Build.props in App/../Directory.Build.props contains <Nullable>enable</Nullable>.
+// App/App.csproj declares only <TargetFramework>net10.0</TargetFramework>.
+const model = await parseCsproj("App/App.csproj");
+// model.properties.nullable === "enable"                    — inherited.
+// model.evaluationTrace.imports                            — records every file walked.
+//   [{ importedFile: ".../Directory.Build.props", kind: "props", applied: true },
+//    { importedFile: ".../App.csproj", kind: "csproj", applied: true }]
+```
+
+`<Import Project="…"/>` works both at the top of a csproj and inside imported files. Cycle detection uses canonical paths; the same file is walked at most once per `parseCsproj` invocation.
 
 ## Usage
 
