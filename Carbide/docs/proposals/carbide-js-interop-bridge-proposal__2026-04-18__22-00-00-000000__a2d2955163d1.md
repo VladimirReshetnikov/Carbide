@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-18T22:00:00Z
 - Repository HEAD: 0b929aad1eef7e0307cede8e6fb6b4dd1468b1d3
 
-Status: first-pass design proposal for a ClearScript-level object-graph bridge between the JavaScript host and Carbide-compiled C#. Companion to the landscape survey [*JS↔C# WASM interop libraries survey*](../../../docs/reports/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
+Status: first-pass design proposal for a ClearScript-level object-graph bridge between the JavaScript host and Carbide-compiled C#. Companion to the landscape survey [*JS↔C# WASM interop libraries survey*](../research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
 
 Audience: repository owner and future contributors picking up the data-plane interop workstream.
 
@@ -691,9 +691,9 @@ The v1 bridge is done when every item below is green.
 
 ### Carbide docs
 
-- [Carbide — architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
-- [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md)
-- [JS↔C# WASM interop libraries survey](../../../docs/reports/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md) — the landscape that motivates this proposal.
+- [Carbide — architecture and implementation plan](../planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md)
+- [Carbide — vision](../carbide-vision__2026-04-17__16-16-47-000000.md)
+- [JS↔C# WASM interop libraries survey](../research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md) — the landscape that motivates this proposal.
 
 ### Primary technical references
 

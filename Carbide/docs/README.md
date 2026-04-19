@@ -9,36 +9,33 @@ This directory holds the design material for **Carbide** — a working codename 
 ## Documents
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
-- [Carbide usability report](Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
-- [Archived report drafts](archived/README.md) — earlier parallel drafts and PR notes that were folded into the canonical usability report.
+- [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
 - [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md) — what Carbide is, who it's for, what it does and does not try to do, tiered goals, success criteria.
-- [Carbide — architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
+- [Planning docs index](planning/README.md) — the architecture plan plus detailed milestone implementation plans.
+- [Proposal index](proposals/README.md) — forward-looking design proposals built on Carbide's planning and research corpus.
+- [Project-local reports index](reports/README.md) — Carbide-specific reports about current behavior and usability.
+- [Archived drafts](archived/README.md) — superseded report drafts and earlier internal documentation snapshots retained for context.
 
-## Milestone plans
+## Planning docs
 
-- [M1 — detailed plan (single-file parity with WasmSharp)](carbide-M1-detailed-plan__2026-04-17__23-14-49-240376.md) — sub-milestones, file-by-file deliverables, explicit decisions, risks, and M1 non-goals.
-- [M2 — detailed plan (multi-document)](carbide-M2-detailed-plan__2026-04-18__00-58-47-753934.md) — sub-milestones, public-API additions (`updateSource`, `removeSource`), diagnostic-attribution rules, fixture seed, and M2 non-goals.
-- [M3 — detailed plan (reference DLL injection + ref-pack)](carbide-M3-detailed-plan__2026-04-18__05-18-02-170097.md) — sub-milestones, `ReferenceRegistry`, `session.addReference` / `project.addReference`, `@carbide/refs-net10.0` package, best-effort trim restoration, and M3 non-goals.
-- [M4 — detailed plan (PE emission & CLI)](carbide-M4-detailed-plan__2026-04-18__19-45-17-979644.md) — sub-milestones, `project.build()` returning `{pe, pdb}`, `@carbide/cli` package with `build` / `run` / `validate` commands, round-trip acceptance, and M4 non-goals.
-- [M5 — detailed plan (project-file input)](carbide-M5-detailed-plan__2026-04-18__21-23-32-734397.md) — sub-milestones, `@carbide/msbuild-lite` port of `cs_kit.msbuild_lite`, `carbide build --project Foo.csproj`, extended `ProjectOptions`, deterministic builds for byte-identical PE, parity fixtures, and M5 non-goals.
-- [M6 — detailed plan (NuGet resolver)](carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md) — sub-milestones, `@carbide/nuget` (flat-container + registration clients, nuspec/zip reader, version-range evaluator, TFM-compat matrix, nearest-wins resolver), 10-package allow-list, safety refusals, `carbide.lock.json` for offline replay, and M6 non-goals.
-- [M9 — detailed plan (Shape S5: project-to-project references)](carbide-M9-detailed-plan__2026-04-18__23-18-54-749142.md) — sub-milestones, project-graph orchestration inside `@carbide/cli`, transitive `<ProjectReference>` walk with cycle / assembly-name-collision detection, per-sub-project Carbide `Project` + NuGet lock, sibling-PE attachment in topological order, diagnostic attribution by csproj, and M9 non-goals. M7 (stability lock) and M8 (Webcil mode) are deferred; M9 takes the slot directly after M6.
+- [Carbide — architecture and implementation plan](planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
+- [Milestone planning index](planning/milestones/README.md) — detailed plans for M1, M2, M3, M4, M5, M6, and M9.
 
 ## Research reports
 
 - [Research report index](research/README.md) — Carbide-specific feasibility studies, surveys, and independent verification reports organized by topic.
 - [JS↔C# WASM interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md) — landscape survey that motivates Carbide's richer JS-facing bridge direction.
 - [Independent verification of the Carbide WASM JS interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey-verification__2026-04-19__00-10-31-940963__62239b6e3b7c.md) — independent audit of the survey's claims and recommendations.
-- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md) — feasibility analysis for an Avalonia browser GUI story next to Carbide.
-- [Verification: `carbide-avalonia-browser-gui-integration`](research/avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__6821d1cc24d2.md) — independent verification and corrections for the Avalonia feasibility report.
+- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis for an Avalonia browser GUI story next to Carbide.
+- [Verification: `carbide-avalonia-browser-gui-integration`](research/avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and corrections for the Avalonia feasibility report.
 
 ## Feature proposals
 
-- [JS↔C# interop bridge proposal](carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__fed51acfa157.md) — design for an ES6-Proxy-based object-graph bridge over `[JSExport]` plus a compile-time surface manifest, targeting ClearScript-level ergonomics for user C# compiled in-sandbox. Introduces `@carbide/bridge` (TS) and `Carbide.Core.Bridge` (C#) as a peer of the existing control-plane `CompilationInterop`. Companion to the Carbide-local [JS↔C# WASM interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
+- [JS↔C# interop bridge proposal](proposals/carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__a2d2955163d1.md) — design for an ES6-Proxy-based object-graph bridge over `[JSExport]` plus a compile-time surface manifest, targeting ClearScript-level ergonomics for user C# compiled in-sandbox. Introduces `@carbide/bridge` (TS) and `Carbide.Core.Bridge` (C#) as a peer of the existing control-plane `CompilationInterop`. Companion to the Carbide-local [JS↔C# WASM interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
 
 ## Companion-project proposals
 
-- [`Carbide.UI` / `@carbide-ui/*` — Avalonia GUI integration proposal](carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__5931f99c81e5.md) — three approaches compared (merged runtime / cross-frame runner / offline CLI), commits to cross-frame runner + offline CLI as concurrent delivery, specifies package layout, `postMessage` protocol, XAML strategy, and UI-M0..UI-M8 milestones. Paired with the Carbide-local [feasibility report](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__98c4ace801fb.md).
+- [`Carbide.UI` / `@carbide-ui/*` — Avalonia GUI integration proposal](proposals/carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__2bc4122b7f3f.md) — three approaches compared (merged runtime / cross-frame runner / offline CLI), commits to cross-frame runner + offline CLI as concurrent delivery, specifies package layout, `postMessage` protocol, XAML strategy, and UI-M0..UI-M8 milestones. Paired with the Carbide-local [feasibility report](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md).
 
 ## Packages in this repository
 

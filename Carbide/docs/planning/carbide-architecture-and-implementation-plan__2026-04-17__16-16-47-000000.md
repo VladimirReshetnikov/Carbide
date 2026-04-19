@@ -5,7 +5,7 @@ Repository HEAD: 39ff89aaa2868ccabeff078e3293c992bb57fb26
 
 Status: first-pass architectural proposal paired with a tiered implementation plan.
 Audience: repository owner and future contributors; intended to be buildable from without ambiguity on critical seams.
-Scope: the *how*. The *what* and *why* are in [carbide-vision](carbide-vision__2026-04-17__16-16-47-000000.md).
+Scope: the *how*. The *what* and *why* are in [carbide-vision](../carbide-vision__2026-04-17__16-16-47-000000.md).
 
 This document explicitly takes positions on every open decision the vision document flagged. Where a decision is ambiguous, the document picks one and states the alternative alongside it with a short rationale. Re-opening any decision requires editing §13 (Open questions) rather than silently reshaping the architecture.
 

@@ -7,15 +7,15 @@
 - Updated (UTC): 2026-04-19T02:45:13Z
 - Repository HEAD: 096c844391b86ce357ba8979065680b6587cff82
 - Related code:
-  - `../packages/core/src/Services/ProjectCompiler.cs` (compile/emit/run + output capture)
-  - `../packages/cli/src/bin/carbide.ts` (CLI entry point + logging redirection)
-  - `../packages/cli/src/commands/run.ts` (run behavior + JSON payload shape)
-  - `../packages/cli/src/project-file.ts` (csproj + NuGet composition)
-  - `../packages/nuget/src/resolver.ts` (bounded resolver + lock model)
+  - `../../packages/core/src/Services/ProjectCompiler.cs` (compile/emit/run + output capture)
+  - `../../packages/cli/src/bin/carbide.ts` (CLI entry point + logging redirection)
+  - `../../packages/cli/src/commands/run.ts` (run behavior + JSON payload shape)
+  - `../../packages/cli/src/project-file.ts` (csproj + NuGet composition)
+  - `../../packages/nuget/src/resolver.ts` (bounded resolver + lock model)
 - Related docs:
-  - [Carbide current-state guide](./Carbide-Current-State-Guide.md)
-  - [@carbide/cli README](../packages/cli/README.md)
-  - [@carbide/core README](../packages/core/README.md)
+  - [Carbide current-state guide](../Carbide-Current-State-Guide.md)
+  - [@carbide/cli README](../../packages/cli/README.md)
+  - [@carbide/core README](../../packages/core/README.md)
 
 ## Executive summary
 
@@ -285,7 +285,6 @@ npm test
 # Live NuGet end-to-end tests:
 CARBIDE_NUGET_LIVE=1 npm run test:live
 ```
-
 ## Traceability (merged PR notes)
 
 This report and the additional scenario coverage were merged from parallel Codex branches / PR notes:
