@@ -159,7 +159,7 @@ test("csproj Compile Include/Remove globs control the source set", async (t) => 
     assert.equal(payload.stdOut, "ok");
 });
 
-test("ProjectReference is captured as a warning and not built (current limitation)", async (t) => {
+test("M9: ProjectReference is built and linked; App can call into Lib", async (t) => {
     const workDir = mkdtempSync(path.join(tmpdir(), "carbide-cli-projref-"));
     t.after(() => rmSync(workDir, { recursive: true, force: true }));
 
@@ -197,11 +197,14 @@ test("ProjectReference is captured as a warning and not built (current limitatio
     );
 
     const run = runCarbide(["run", "--project", path.join(appDir, "App.csproj"), "--format", "json"]);
-    assert.equal(run.status, 1, `expected compile failure, got ${run.status}: ${run.stderr}`);
+    assert.equal(run.status, 0, `expected success, got ${run.status}: ${run.stderr}`);
     const payload = parseJsonTrailer(run.stdout);
-    assert.equal(payload.success, false);
-    assert.ok(Array.isArray(payload.warnings), "run JSON payload should include csproj warnings");
-    assert.ok(payload.warnings.some((w) => w.code === "MSBLITE014"), `expected MSBLITE014, got: ${JSON.stringify(payload.warnings)}`);
-    assert.ok(payload.diagnostics.some((d) => d.severity === "error"));
+    assert.equal(payload.success, true);
+    assert.equal(payload.stdOut, "7");
+    // M9 consumes the <ProjectReference> — MSBLITE014 must no longer appear.
+    assert.ok(
+        !(payload.warnings ?? []).some((w) => w.code === "MSBLITE014"),
+        `MSBLITE014 should be suppressed after M9, got: ${JSON.stringify(payload.warnings)}`,
+    );
 });
 

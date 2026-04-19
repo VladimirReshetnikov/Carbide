@@ -179,7 +179,9 @@ export async function parseCsprojString(
                     projRefs.push(resolved);
                     addWarning(
                         "MSBLITE014",
-                        `<ProjectReference Include="${include}"/> is captured but not built; sibling-project builds land in M9.`,
+                        `<ProjectReference Include="${include}"/> captured by msbuild-lite; ` +
+                            `sibling-project orchestration is the consumer's responsibility ` +
+                            `(wire @carbide/cli's project-graph walker to build them).`,
                         "project-reference",
                     );
                 }

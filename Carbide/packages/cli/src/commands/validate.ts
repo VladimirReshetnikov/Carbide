@@ -1,11 +1,19 @@
-// `carbide validate` — runs Roslyn diagnostics only, no emit or execution.
+// `carbide validate` — runs Roslyn diagnostics only, no emit or execution. Since M9 it
+// walks `<ProjectReference>` edges and surfaces diagnostics for every sub-project, each
+// attributed to its originating csproj.
 
 import path from "node:path";
 import { CarbideSession, type Project } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
 import { deriveAssemblyName, readReferenceBytes, readSource } from "../io.js";
-import { parseFormat, renderDiagnostic, writeJson } from "../format.js";
-import { runCsprojPipeline } from "../project-file.js";
+import { parseFormat, renderDiagnostic, renderAttributedDiagnostic, writeJson } from "../format.js";
+import {
+    runProjectGraphPipeline,
+    compileGraphInOrder,
+    attributeDiagnosticsBySubproject,
+    handleProjectGraphError,
+    canonicalKeyOf,
+} from "../project-file.js";
 import {
     NUGET_BOOLEAN_FLAGS,
     NUGET_STRING_FLAGS,
@@ -40,46 +48,29 @@ export async function runValidate(args: ParsedArgs): Promise<number> {
 
     const session = await CarbideSession.initializeAsync();
     try {
-        let project: Project;
-        let assemblyName: string;
-        let csprojWarnings: Array<{ code: string; message: string; severity: string }> = [];
-
         if (projectPath) {
-            const nugetOptions = extractNugetOptions(args, "validate");
-            const pipeline = await runCsprojPipeline(session, projectPath, refs, nugetOptions);
-            project = pipeline.project;
-            const modelAsmName = pipeline.model.properties.assemblyName as string | undefined;
-            assemblyName =
-                modelAsmName && modelAsmName.length > 0
-                    ? modelAsmName
-                    : path.basename(pipeline.model.projectPath, path.extname(pipeline.model.projectPath));
-            csprojWarnings = pipeline.warnings.map((w) => ({
-                code: w.code,
-                message: w.message,
-                severity: w.severity,
-            }));
-            if (format === "human") {
-                for (const w of pipeline.warnings) {
-                    process.stderr.write(`carbide: ${w.severity} ${w.code}: ${w.message}\n`);
-                }
-                if (pipeline.nugetLockWritten && pipeline.nugetLockPath) {
-                    process.stderr.write(`carbide: wrote ${pipeline.nugetLockPath}\n`);
-                }
-            }
-        } else {
-            assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
-            project = session.createProject({ assemblyName });
+            return await runProjectModeValidate({
+                session,
+                projectPath,
+                refs,
+                format,
+                nugetOptions: extractNugetOptions(args, "validate"),
+            });
+        }
 
-            for (const refPath of refs) {
-                const { name, bytes } = await readReferenceBytes(refPath);
-                const handle = session.addReference(bytes, name);
-                project.addReference(handle);
-            }
+        // Source-flag mode — single project, no graph walk needed.
+        const assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
+        const project: Project = session.createProject({ assemblyName });
 
-            for (const sourceSpec of sources) {
-                const { path: docPath, code } = await readSource(sourceSpec);
-                project.addSource(docPath, code);
-            }
+        for (const refPath of refs) {
+            const { name, bytes } = await readReferenceBytes(refPath);
+            const handle = session.addReference(bytes, name);
+            project.addReference(handle);
+        }
+
+        for (const sourceSpec of sources) {
+            const { path: docPath, code } = await readSource(sourceSpec);
+            project.addSource(docPath, code);
         }
 
         const diagnostics = await project.getDiagnostics();
@@ -94,13 +85,78 @@ export async function runValidate(args: ParsedArgs): Promise<number> {
                 success: !hasErrors,
                 assemblyName,
                 diagnostics,
-                warnings: csprojWarnings,
+                warnings: [],
             });
         }
         return hasErrors ? 1 : 0;
     } finally {
         await session.shutdown();
     }
+}
+
+interface ProjectModeValidateContext {
+    session: CarbideSession;
+    projectPath: string;
+    refs: readonly string[];
+    format: "json" | "human";
+    nugetOptions: ReturnType<typeof extractNugetOptions>;
+}
+
+async function runProjectModeValidate(ctx: ProjectModeValidateContext): Promise<number> {
+    const { session, projectPath, refs, format, nugetOptions } = ctx;
+    let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
+    try {
+        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions);
+    } catch (err) {
+        return handleProjectGraphError(err, format);
+    }
+
+    const csprojWarnings = multi.warnings.map((w) => ({
+        code: w.code,
+        message: w.message,
+        severity: w.severity,
+        project: w.project ?? null,
+    }));
+
+    if (format === "human") {
+        for (const w of multi.warnings) {
+            const where = w.project ? path.basename(w.project) : "carbide";
+            process.stderr.write(`${where}: ${w.severity} ${w.code}: ${w.message}\n`);
+        }
+        for (const sub of multi.subprojects) {
+            if (sub.nugetLockWritten && sub.nugetLockPath) {
+                process.stderr.write(`carbide: wrote ${sub.nugetLockPath}\n`);
+            }
+        }
+    }
+
+    // Validate every sub-project separately — the root's diagnostics need the producers'
+    // PEs on the session, so we compile producers first and then run getDiagnostics()
+    // per-sub-project. Producer failures surface as diagnostics.
+    await compileGraphInOrder(session, multi, { skipRoot: true });
+
+    const diagnosticsByKey = new Map<string, import("@carbide/core").Diagnostic[]>();
+    for (const sub of multi.subprojects) {
+        const diags = await sub.project.getDiagnostics();
+        diagnosticsByKey.set(canonicalKeyOf(sub.csprojPath), diags);
+    }
+
+    const attributed = attributeDiagnosticsBySubproject(multi, diagnosticsByKey);
+    const hasErrors = attributed.some((d) => d.severity === "error");
+
+    if (format === "human") {
+        for (const d of attributed) {
+            process.stderr.write(renderAttributedDiagnostic(d) + "\n");
+        }
+    } else {
+        writeJson({
+            success: !hasErrors,
+            assemblyName: multi.root.assemblyName,
+            diagnostics: attributed,
+            warnings: csprojWarnings,
+        });
+    }
+    return hasErrors ? 1 : 0;
 }
 
 const VALIDATE_HELP = `\
@@ -110,7 +166,8 @@ Run Roslyn diagnostics over the project without emitting or executing. Exit code
 error-severity diagnostics exist; non-zero otherwise.
 
 Input modes (mutually exclusive):
-  --project <path>.csproj  Parse a .csproj and validate per its options.
+  --project <path>.csproj  Parse a .csproj and validate per its options. Walks
+                           <ProjectReference> edges; every sub-project is validated (M9).
   --source <path>          Source file. Repeatable. '-' reads one source from stdin.
 
 Options:
@@ -122,7 +179,6 @@ Options:
 NuGet flags (only relevant with --project):
   --offline                Forbid network. Require cached bytes or a matching lock.
   --lock <path>            Override lock file path. Default: <projectDir>/carbide.lock.json.
-                           When the file exists it is replayed verbatim.
   --no-lock-write          Skip writing the lock after a fresh resolve.
   --nuget-source <url>     Override the flat-container base URL (default: nuget.org).
   --allow-list-mode <mode> strict | advisory | off. Default: strict.

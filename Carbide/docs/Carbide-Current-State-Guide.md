@@ -1,8 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Updated (UTC): 2026-04-19T01:36:09Z
-Repository HEAD: 826d84ca3a3a21c1b146dfaa851c962738631f75
+Updated (UTC): 2026-04-19T05:12:00Z
+Repository HEAD: 79ecc77f66828d29728c83242293637e7d13aeb1
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -24,7 +24,7 @@ Repository HEAD: 826d84ca3a3a21c1b146dfaa851c962738631f75
 
 ## Summary
 
-Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser, a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M6-era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate commands, `.csproj` ingestion, and bounded `PackageReference` resolution all exist; sibling `ProjectReference` build orchestration, Webcil mode, source generators, and general MSBuild parity do not.
+Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser, a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M9-era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate commands, `.csproj` ingestion, bounded `PackageReference` resolution, and sibling `<ProjectReference>` graph builds all exist; Webcil mode, source generators, and general MSBuild parity do not.
 
 This guide is the current-state companion to the planning documents. The vision and architecture pages explain why Carbide exists and the intended shape of the system; this page explains what is actually present in the repository now, how to use it successfully, where the sharp edges are, and which apparent capabilities are still only roadmap material.
 
@@ -39,8 +39,9 @@ This guide is the current-state companion to the planning documents. The vision 
   - bounded `.csproj` parsing through `@carbide/msbuild-lite`
   - bounded NuGet v3 resolution, caching, allow-list policy, and `carbide.lock.json`
   - `@carbide/refs-net10.0` for a stable compile-time API surface
+  - multi-project `<ProjectReference>` graph builds (topological leaves-first compilation, sibling-PE metadata references, cycle + AssemblyName-collision errors, diagnostic attribution per sub-project)
 - Deliberately not implemented yet:
-  - project-to-project build graphs for `<ProjectReference>`
+  - `.sln` parsing (vision §7 caps shape S5 at one-plus-siblings)
   - Webcil mode
   - source generators and analyzers
   - `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, or general MSBuild execution
@@ -201,7 +202,7 @@ This is the key architectural distinction:
 | Deterministic builds | Supported | Enabled by default |
 | `.csproj` input | Supported, bounded | `TargetFramework`, `Nullable`, `LangVersion`, `ImplicitUsings`, `DefineConstants`, `AssemblyName`, `RootNamespace`, compile globs, simple `Condition` |
 | `PackageReference` | Supported in CLI path | Parsed by `msbuild-lite`, resolved by `@carbide/nuget` |
-| `ProjectReference` | Not built | Captured and warned as `MSBLITE014`; no sibling-project orchestration yet |
+| `ProjectReference` | Supported in CLI path | Walked by the M9 project-graph module; sub-projects compile leaves-first, sibling PEs become metadata references for downstream consumers; flat `<AssemblyName>.dll` output. Cycles and AssemblyName collisions are hard errors. |
 | NuGet cache and lock file | Supported | `~/.carbide/nuget-cache` plus `carbide.lock.json` |
 | Offline replay | Supported | `--offline` plus cache/lock |
 | Webcil | Not implemented | `<WasmEnableWebcil>false</WasmEnableWebcil>` |
@@ -266,7 +267,8 @@ This is why repeated runs in one session do not provide AppDomain-style isolatio
 
 ### Current implementation gaps
 
-- `<ProjectReference>` is parsed but not built.
+- `<ProjectReference>` is walked and each reachable sub-project is built, but parallel compilation is not used; the leaves-first topological order is sequential.
+- `.sln` parsing is not supported; the CLI's `--project` flag takes one `.csproj`.
 - `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, property functions, and broad MSBuild evaluation are not implemented.
 - Webcil mode is off.
 - The public runtime path does not expose program-stdin or program-argv yet.
@@ -497,7 +499,7 @@ Supported `.csproj` features currently include:
 - `<Compile Include="...">` and `<Compile Remove="...">`
 - simple `Condition="..."` expressions using `==`, `!=`, `and`, and `or`
 - `<PackageReference Include="..." Version="..."/>`
-- `<ProjectReference Include="..."/>` capture only
+- `<ProjectReference Include="..."/>` — the CLI's M9 project-graph walker consumes it and builds each reachable sibling csproj in topological order
 
 Unsupported constructs produce warnings where possible and are otherwise ignored.
 
@@ -615,7 +617,7 @@ Consume it from another program:
 npx carbide run --source Program.cs --ref out/Demo.Greeter.dll --format human
 ```
 
-This is the manual alternative to the future `<ProjectReference>` story.
+Manual `--ref` feeding remains available, but since M9 the `--project` mode walks `<ProjectReference>` edges automatically and builds each reachable sibling csproj — see "Step 4b" below.
 
 ### Step 4: move to a `.csproj`
 
@@ -636,6 +638,25 @@ Now run:
 ```bash
 npx carbide run --project Foo.csproj --format human
 ```
+
+### Step 4b: split into app + sibling library
+
+```
+App/App.csproj               # declares <ProjectReference Include="../Lib/Lib.csproj"/>
+App/Program.cs               # using MyLib; Console.Write(Greeting.For("world"));
+Lib/Lib.csproj
+Lib/Greeting.cs              # namespace MyLib; public static class Greeting { ... }
+```
+
+```bash
+npx carbide build --project App/App.csproj --out out/
+# → out/App.{dll,pdb}, out/MyLib.{dll,pdb}
+
+npx carbide run --project App/App.csproj --format human
+# → hello world
+```
+
+Each sub-project keeps its own `carbide.lock.json` next to its csproj. Cycles exit with `MSPROJ001`; AssemblyName collisions exit with `MSPROJ002`; `--out -` is rejected for multi-project graphs (`MSPROJ003`).
 
 ### Step 5: add an allow-listed package
 
@@ -680,7 +701,11 @@ If this works, you have exercised the full currently implemented project-file pa
 | `MSNUGET015`, `MSNUGET016`, or `MSNUGET017` | The package carries native assets, MSBuild targets/props, or analyzers | Pick a different package or accept that this package shape is intentionally unsupported |
 | `MSNUGET030` under `--offline` | The package bytes are not in the local cache and/or the lock cannot be replayed | Run once without `--offline` to populate the cache and lock |
 | A newly added `<PackageReference>` seems to be ignored | Existing `carbide.lock.json` is being replayed | Delete or regenerate the lock file, then rerun online |
-| `MSBLITE014` warnings | The project uses `<ProjectReference>` | Build the referenced project separately and feed its DLL in via `--ref` or the session API |
+| `MSBLITE014` warnings | The project uses `<ProjectReference>` but the consumer is not Carbide's CLI (e.g. the TS API is called directly with `parseCsproj`) | Use `carbide build` / `run` / `validate` with `--project` — the CLI walks the reference graph and suppresses the warning. For direct TS API callers, build siblings manually or call `runProjectGraphPipeline` from `@carbide/cli` |
+| `MSPROJ001: ProjectReference cycle detected` | Two or more sibling projects reference each other | Restructure the graph to remove the cycle. Carbide does not attempt to break cycles |
+| `MSPROJ002: AssemblyName … claimed by multiple projects` | Two sibling csprojs set the same `<AssemblyName>` | Rename one. The flat `--out/` layout doesn't tolerate name collisions |
+| `MSPROJ003: --out - cannot be used with a multi-project graph` | Stdout PE piping + `<ProjectReference>` at the same time | Write to a directory instead, or restructure to a single project |
+| `MSPROJ004: ProjectReference target not found` | The referenced `.csproj` path doesn't exist relative to the referrer | Fix the `<ProjectReference Include="…"/>` path |
 | `Document path 'X' is already in the project` | `addSource` is being used for an existing logical path | Use `updateSource` instead |
 | `'Carbide.GlobalUsings.g.cs' is a reserved path` | User code is trying to manipulate Carbide's hidden implicit-usings document | Pick another logical path; if you want strict behavior, disable implicit usings |
 | Re-running within one session seems to observe stale loaded code or state | Assembly loads persist for the life of the process/session | Recreate the session between runs that need hard isolation |
@@ -712,6 +737,7 @@ If you need to modify Carbide, start here:
   - [`packages/nuget/src/lock.ts`](../packages/nuget/src/lock.ts)
 - CLI orchestration:
   - [`packages/cli/src/project-file.ts`](../packages/cli/src/project-file.ts)
+  - [`packages/cli/src/project-graph.ts`](../packages/cli/src/project-graph.ts)
   - [`packages/cli/src/commands/`](../packages/cli/src/commands/)
 
 The planning documents remain relevant because they describe intended future seams. The drift notes are equally important because they record the user-visible deltas between that design and today's implementation reality.
@@ -722,7 +748,7 @@ For contributors, the main future-facing topics are:
 
 - M7: public API hardening and stability freeze
 - M8: Webcil mode
-- M9: `<ProjectReference>` build graphs
+- M9: `<ProjectReference>` build graphs — landed; see the M9 detailed plan
 - bridge/UI proposals in this docs directory, which are exploratory and not part of the current shipping surface
 
 Treat roadmap docs as plans, not as claims about present behavior.

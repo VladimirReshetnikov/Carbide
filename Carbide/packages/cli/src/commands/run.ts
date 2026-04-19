@@ -1,13 +1,21 @@
 // `carbide run` — compiles sources and executes the program. Streams the program's
-// stdout/stderr through the outer process. Note: program arguments after `--` are parsed
-// by the CLI arg parser but are not forwarded into the runtime yet.
+// stdout/stderr through the outer process. Since M9, --project walks `<ProjectReference>`
+// edges and builds every sub-project before running the root.
+//
+// Note: program arguments after `--` are parsed by the CLI arg parser but are not
+// forwarded into the runtime yet.
 
 import path from "node:path";
 import { CarbideSession, type Project } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
 import { deriveAssemblyName, readReferenceBytes, readSource } from "../io.js";
-import { parseFormat, renderDiagnostic, writeJson } from "../format.js";
-import { runCsprojPipeline } from "../project-file.js";
+import { parseFormat, renderDiagnostic, renderAttributedDiagnostic, writeJson } from "../format.js";
+import {
+    runProjectGraphPipeline,
+    compileGraphInOrder,
+    attributeDiagnostics,
+    handleProjectGraphError,
+} from "../project-file.js";
 import {
     NUGET_BOOLEAN_FLAGS,
     NUGET_STRING_FLAGS,
@@ -42,46 +50,29 @@ export async function runRun(args: ParsedArgs): Promise<number> {
 
     const session = await CarbideSession.initializeAsync();
     try {
-        let project: Project;
-        let assemblyName: string;
-        let csprojWarnings: Array<{ code: string; message: string; severity: string }> = [];
-
         if (projectPath) {
-            const nugetOptions = extractNugetOptions(args, "run");
-            const pipeline = await runCsprojPipeline(session, projectPath, refs, nugetOptions);
-            project = pipeline.project;
-            const modelAsmName = pipeline.model.properties.assemblyName as string | undefined;
-            assemblyName =
-                modelAsmName && modelAsmName.length > 0
-                    ? modelAsmName
-                    : path.basename(pipeline.model.projectPath, path.extname(pipeline.model.projectPath));
-            csprojWarnings = pipeline.warnings.map((w) => ({
-                code: w.code,
-                message: w.message,
-                severity: w.severity,
-            }));
-            if (format === "human") {
-                for (const w of pipeline.warnings) {
-                    process.stderr.write(`carbide: ${w.severity} ${w.code}: ${w.message}\n`);
-                }
-                if (pipeline.nugetLockWritten && pipeline.nugetLockPath) {
-                    process.stderr.write(`carbide: wrote ${pipeline.nugetLockPath}\n`);
-                }
-            }
-        } else {
-            assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
-            project = session.createProject({ assemblyName });
+            return await runProjectModeRun({
+                session,
+                projectPath,
+                refs,
+                format,
+                nugetOptions: extractNugetOptions(args, "run"),
+            });
+        }
 
-            for (const refPath of refs) {
-                const { name, bytes } = await readReferenceBytes(refPath);
-                const handle = session.addReference(bytes, name);
-                project.addReference(handle);
-            }
+        // Source-flag mode — single project.
+        const assemblyName = deriveAssemblyName(lastString(args, "assembly-name"), sources);
+        const project: Project = session.createProject({ assemblyName });
 
-            for (const sourceSpec of sources) {
-                const { path: docPath, code } = await readSource(sourceSpec);
-                project.addSource(docPath, code);
-            }
+        for (const refPath of refs) {
+            const { name, bytes } = await readReferenceBytes(refPath);
+            const handle = session.addReference(bytes, name);
+            project.addReference(handle);
+        }
+
+        for (const sourceSpec of sources) {
+            const { path: docPath, code } = await readSource(sourceSpec);
+            project.addSource(docPath, code);
         }
 
         const result = await project.run();
@@ -97,7 +88,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                         success: false,
                         assemblyName,
                         diagnostics: result.diagnostics,
-                        warnings: csprojWarnings,
+                        warnings: [],
                         durationMs: result.durationMs,
                     });
                 }
@@ -112,7 +103,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                     stdErr: result.stdErr,
                     uncaughtException: result.uncaughtException ?? null,
                     exitCode: result.exitCode ?? 1,
-                    warnings: csprojWarnings,
+                    warnings: [],
                     durationMs: result.durationMs,
                 });
             } else {
@@ -131,7 +122,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 stdOut: result.stdOut,
                 stdErr: result.stdErr,
                 exitCode: result.exitCode ?? 0,
-                warnings: csprojWarnings,
+                warnings: [],
                 durationMs: result.durationMs,
             });
         }
@@ -141,13 +132,132 @@ export async function runRun(args: ParsedArgs): Promise<number> {
     }
 }
 
+interface ProjectModeRunContext {
+    session: CarbideSession;
+    projectPath: string;
+    refs: readonly string[];
+    format: "json" | "human";
+    nugetOptions: ReturnType<typeof extractNugetOptions>;
+}
+
+async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
+    const { session, projectPath, refs, format, nugetOptions } = ctx;
+    let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
+    try {
+        multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions);
+    } catch (err) {
+        return handleProjectGraphError(err, format);
+    }
+
+    const csprojWarnings = multi.warnings.map((w) => ({
+        code: w.code,
+        message: w.message,
+        severity: w.severity,
+        project: w.project ?? null,
+    }));
+
+    if (format === "human") {
+        for (const w of multi.warnings) {
+            const where = w.project ? path.basename(w.project) : "carbide";
+            process.stderr.write(`${where}: ${w.severity} ${w.code}: ${w.message}\n`);
+        }
+        for (const sub of multi.subprojects) {
+            if (sub.nugetLockWritten && sub.nugetLockPath) {
+                process.stderr.write(`carbide: wrote ${sub.nugetLockPath}\n`);
+            }
+        }
+    }
+
+    // Build every producer (skip the root). Each producer's PE registers on the session
+    // so the root's compile-and-run sees it.
+    const outcomes = await compileGraphInOrder(session, multi, { skipRoot: true });
+    const rootAssembly = multi.root.assemblyName;
+    const attributed = attributeDiagnostics(outcomes);
+
+    // If any producer failed to build, surface its diagnostics and exit 1 — the root can't
+    // run without its dependencies.
+    const nonRootFailed = outcomes.some(
+        (o) => !o.subproject.isRoot && (o.skipped || (o.buildResult && !o.buildResult.success)),
+    );
+    if (nonRootFailed) {
+        if (format === "human") {
+            for (const d of attributed) {
+                process.stderr.write(renderAttributedDiagnostic(d) + "\n");
+            }
+        } else {
+            writeJson({
+                success: false,
+                assemblyName: rootAssembly,
+                diagnostics: attributed,
+                warnings: csprojWarnings,
+                durationMs: 0,
+            });
+        }
+        return 1;
+    }
+
+    const result = await multi.root.project.run();
+
+    if (!result.success) {
+        if (result.diagnostics.length > 0) {
+            if (format === "human") {
+                for (const d of result.diagnostics) {
+                    process.stderr.write(renderDiagnostic(d) + "\n");
+                }
+            } else {
+                writeJson({
+                    success: false,
+                    assemblyName: rootAssembly,
+                    diagnostics: result.diagnostics,
+                    warnings: csprojWarnings,
+                    durationMs: result.durationMs,
+                });
+            }
+            return 1;
+        }
+        process.stderr.write(result.stdErr);
+        if (format === "json") {
+            writeJson({
+                success: false,
+                assemblyName: rootAssembly,
+                stdOut: result.stdOut,
+                stdErr: result.stdErr,
+                uncaughtException: result.uncaughtException ?? null,
+                exitCode: result.exitCode ?? 1,
+                warnings: csprojWarnings,
+                durationMs: result.durationMs,
+            });
+        } else {
+            process.stdout.write(result.stdOut);
+        }
+        return result.exitCode && result.exitCode !== 0 ? result.exitCode : 1;
+    }
+
+    if (format === "human") {
+        process.stdout.write(result.stdOut);
+        if (result.stdErr) process.stderr.write(result.stdErr);
+    } else {
+        writeJson({
+            success: true,
+            assemblyName: rootAssembly,
+            stdOut: result.stdOut,
+            stdErr: result.stdErr,
+            exitCode: result.exitCode ?? 0,
+            warnings: csprojWarnings,
+            durationMs: result.durationMs,
+        });
+    }
+    return result.exitCode ?? 0;
+}
+
 const RUN_HELP = `\
 Usage: carbide run [options] [-- <program args>...]
 
 Compile C# sources and execute the program.
 
 Input modes (mutually exclusive):
-  --project <path>.csproj  Parse a .csproj and run per its options.
+  --project <path>.csproj  Parse a .csproj and run per its options. Walks <ProjectReference>
+                           edges; every sub-project is built before the root runs (M9).
   --source <path>          Source file. Repeatable. '-' reads one source from stdin.
 
 Options:
@@ -162,7 +272,6 @@ Notes:
 NuGet flags (only relevant with --project):
   --offline                Forbid network. Require cached bytes or a matching lock.
   --lock <path>            Override lock file path. Default: <projectDir>/carbide.lock.json.
-                           When the file exists it is replayed verbatim.
   --no-lock-write          Skip writing the lock after a fresh resolve.
   --nuget-source <url>     Override the flat-container base URL (default: nuget.org).
   --allow-list-mode <mode> strict | advisory | off. Default: strict.

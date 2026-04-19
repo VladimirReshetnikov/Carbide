@@ -11,7 +11,7 @@ This is a semantic port of `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` — t
 - `<TargetFramework>` / `<TargetFrameworks>` (semicolon list; "first-listed" selection).
 - `<Nullable>`, `<LangVersion>`, `<ImplicitUsings>`, `<DefineConstants>`, `<AssemblyName>`, `<RootNamespace>`, `<EnableDefaultCompileItems>`.
 - `<PackageReference Include="…" Version="…"/>` (captured; the parser itself does not resolve packages, but `@carbide/cli` now hands them to `@carbide/nuget`).
-- `<ProjectReference Include="…"/>` (captured; sibling builds are M9).
+- `<ProjectReference Include="…"/>` (captured; `@carbide/cli`'s project-graph walker now consumes the list and builds each sibling csproj in topological order).
 - `<Compile Include="…"/>` and `<Compile Remove="…"/>` (glob expansion with `**` and `*`).
 - `Condition=" '$(X)' == 'Y' "`, `!=`, `and`, `or`. Unparseable conditions are treated as "applies = true" with a warning.
 - Default `.cs` discovery under the project directory, excluding `bin/`, `obj/`, `.git/`, and other dotted directories.
@@ -25,7 +25,7 @@ This is a semantic port of `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` — t
 | `MSBLITE011` | `<Compile Update="…"/>` metadata (ignored). |
 | `MSBLITE012` | A glob pattern matched no source files. |
 | `MSBLITE013` | `<PackageReference>` captured; a consumer may resolve it (the CLI suppresses this once `@carbide/nuget` actually runs). |
-| `MSBLITE014` | `<ProjectReference>` captured; sibling builds land in M9. |
+| `MSBLITE014` | `<ProjectReference>` captured; a consumer (e.g. `@carbide/cli`'s project-graph walker) builds the sibling. The CLI suppresses this code once the walker actually runs. |
 
 Not handled at all: `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, item metadata functions, property functions. See M5 plan §7.
 

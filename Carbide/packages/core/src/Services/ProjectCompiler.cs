@@ -234,6 +234,14 @@ internal sealed class ProjectCompiler
             ?? throw new InvalidOperationException("Project missing from solution.");
         var compilation = await project.GetCompilationAsync().ConfigureAwait(false)
             ?? throw new InvalidOperationException("Roslyn returned no compilation.");
+        // Apply the same OutputKind inference as BuildAsync so library projects (no
+        // top-level statements, no Main) don't trip CS5001 during validate. Aligns
+        // `validate` with `build` for multi-project graphs where libraries are routine.
+        var outputKind = InferOutputKind(compilation);
+        if (compilation.Options is CSharpCompilationOptions csOptions && csOptions.OutputKind != outputKind)
+        {
+            compilation = compilation.WithOptions(csOptions.WithOutputKind(outputKind));
+        }
         return compilation.GetDiagnostics().ToCarbideDiagnosticArray();
     }
 

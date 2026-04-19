@@ -123,8 +123,8 @@ Console.Write(Report.Render(tickets));
     );
 });
 
-test("validate --project reports MSBLITE014 for ProjectReference (known limitation)", async (t) => {
-    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-project-ref-warning-"));
+test("M9: validate --project walks ProjectReferences and suppresses MSBLITE014", async (t) => {
+    const workDir = mkdtempSync(path.join(tmpdir(), "carbide-project-ref-walk-"));
     t.after(() => rmSync(workDir, { recursive: true, force: true }));
 
     const sharedDir = path.join(workDir, "Shared");
@@ -166,5 +166,9 @@ test("validate --project reports MSBLITE014 for ProjectReference (known limitati
     const payload = parseJsonTrailer(validate.stdout);
     assert.equal(payload.success, true);
     const warnings = payload.warnings ?? [];
-    assert.ok(warnings.some((w) => w.code === "MSBLITE014"), `expected MSBLITE014 in warnings: ${JSON.stringify(warnings)}`);
+    // M9 consumes the <ProjectReference>: MSBLITE014 must NOT appear in warnings.
+    assert.ok(
+        !warnings.some((w) => w.code === "MSBLITE014"),
+        `MSBLITE014 should be suppressed after M9, got: ${JSON.stringify(warnings)}`,
+    );
 });

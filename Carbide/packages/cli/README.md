@@ -88,7 +88,24 @@ carbide validate --project Foo.csproj
 See [`@carbide/msbuild-lite`](../msbuild-lite/README.md) for the supported `.csproj` subset. Current behavior is:
 
 - `<PackageReference>` is parsed by `@carbide/msbuild-lite` and then resolved by `@carbide/nuget` when the CLI runs in `--project` mode.
-- `<ProjectReference>` is still captured-only and surfaces as `MSBLITE014`; sibling-project builds remain future work.
+- `<ProjectReference>` triggers a graph walk: every sibling `.csproj` reachable via `<ProjectReference>` edges is parsed, compiled in topological order (leaves first), and its PE is attached as a metadata reference for downstream consumers. Each sub-project keeps its own `carbide.lock.json`.
+
+### Sibling project builds (M9)
+
+```
+App/App.csproj               # root, references ../Lib/Lib.csproj
+Lib/Lib.csproj               # leaf library
+```
+
+```bash
+carbide build --project App/App.csproj --out out/
+# → out/App.dll, out/App.pdb, out/MyLib.dll, out/MyLib.pdb
+
+carbide run --project App/App.csproj
+# → hello world
+```
+
+Cycles are a hard error (`MSPROJ001`, exit 1). AssemblyName collisions across sub-projects are a hard error (`MSPROJ002`, exit 3). `--out -` (PE bytes to stdout) is rejected for multi-project graphs (`MSPROJ003`, exit 3). Missing `<ProjectReference>` targets surface as `MSPROJ004` (exit 1). Under `--format json`, each diagnostic carries a `project` field naming the csproj the error originated in (null for the root, so single-project output is byte-identical). `.sln` parsing is not in scope; the CLI's `--project` flag takes one `.csproj`.
 
 When a project declares packages, Carbide writes `carbide.lock.json` next to the project by default and replays it on subsequent runs:
 
