@@ -1,0 +1,3 @@
+{
+  "stdOut": "prod=CheckoutV2+TelemetryX\ndev=PerfMode+TelemetryX\n"
+}
