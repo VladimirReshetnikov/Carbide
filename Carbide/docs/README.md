@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-19T03:04:29Z
-Repository HEAD: 02320374747f2b62dd77906f429ecb51f2db805e
+Updated (UTC): 2026-04-19T20:29:04Z
+Repository HEAD: b27148c824028d42a26852cdff6db1bd0cebfcb3
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -28,6 +28,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [Independent verification of the Carbide WASM JS interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey-verification__2026-04-19__00-10-31-940963__62239b6e3b7c.md) — independent audit of the survey's claims and recommendations.
 - [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis for an Avalonia browser GUI story next to Carbide.
 - [Verification: `carbide-avalonia-browser-gui-integration`](research/avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and corrections for the Avalonia feasibility report.
+- [Feasibility: running a useful `lib/pwsh` subset on Carbide in Node.js](research/powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — feasibility analysis for a PowerShell-derived automation subset on Carbide, with separate conclusions for runtime hosting and source-build feasibility.
 
 ## Feature proposals
 
