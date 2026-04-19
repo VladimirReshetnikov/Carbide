@@ -9,6 +9,7 @@ This directory holds the design material for **Carbide** — a working codename 
 ## Documents
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
+- [Real-world usability assessment (complex scenario expansion)](carbide-real-world-usability-report__2026-04-19__2b6a8b667740.md) — assessment based on expanded scenario coverage, with limitations and concrete improvement proposals for broader adoption.
 - [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md) — what Carbide is, who it's for, what it does and does not try to do, tiered goals, success criteria.
 - [Carbide — architecture and implementation plan](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
 
