@@ -1,3 +1,3 @@
 {
-  "stdOut": "total=8\nservice=catalog;count=3;errors=1;p95=172\nservice=checkout;count=2;errors=0;p95=149\nservice=gateway;count=3;errors=1;p95=425\nroute=/orders;avg=218.3;count=3\nroute=/pay;avg=140.0;count=2\nroute=/products;avg=180.0;count=1"
+  "stdOut": "total=8\nservice=catalog;count=3;errors=1;p95=171\nservice=checkout;count=2;errors=0;p95=149\nservice=gateway;count=3;errors=1;p95=425\nroute=/orders;avg=285.0;count=2\nroute=/products;avg=180.0;count=1\nroute=/pay;avg=140.0;count=2"
 }

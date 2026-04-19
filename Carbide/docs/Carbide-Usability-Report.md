@@ -139,7 +139,7 @@ Added 11 multi-file fixtures under `../packages/core/test/node/corpus/`:
 
 Added live tests under `../packages/cli/test/integration/` (gated by `CARBIDE_NUGET_LIVE=1`) that complement the existing `nuget-round-trip`, `yaml-round-trip`, and `serilog-round-trip` coverage:
 
-- `real-world-scenarios.test.mjs` — `CsvHelper` ETL-ish pipeline; `YamlDotNet + Scriban` configuration rendering.
+- `real-world-scenarios.test.mjs` — `CsvHelper` ETL-ish pipeline; `YamlDotNet + Handlebars.Net` configuration rendering (Scriban currently triggers a safety refusal due to `build/*.props`).
 - `real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline (multi-package lock + offline replay).
 
 ## Practical usability notes
@@ -263,7 +263,7 @@ All gated by `CARBIDE_NUGET_LIVE=1`:
 - `../packages/cli/test/integration/nuget-round-trip.test.mjs` — `Newtonsoft.Json` + offline replay.
 - `../packages/cli/test/integration/yaml-round-trip.test.mjs` — `YamlDotNet` + offline replay.
 - `../packages/cli/test/integration/serilog-round-trip.test.mjs` — transitive graph (`Serilog.Sinks.Console` → `Serilog`) + offline replay.
-- `../packages/cli/test/integration/real-world-scenarios.test.mjs` — `CsvHelper` pipeline; `YamlDotNet + Scriban` rendering.
+- `../packages/cli/test/integration/real-world-scenarios.test.mjs` — `CsvHelper` pipeline; `YamlDotNet + Handlebars.Net` rendering (Scriban currently triggers a safety refusal due to `build/*.props`).
 - `../packages/cli/test/integration/real-world-data-pipeline.test.mjs` — mixed `Newtonsoft.Json + YamlDotNet` pipeline.
 
 ## How to run
@@ -289,7 +289,7 @@ CARBIDE_NUGET_LIVE=1 npm run test:live
 
 This report and the additional scenario coverage were merged from parallel Codex branches / PR notes:
 
-- PR #4536 (“Add realistic Carbide scenario coverage and usability assessment”): added `ecommerce-analytics`, `log-pipeline`, `pricing-engine`; added `real-world-scenarios.test.mjs` live integration tests (`CsvHelper`, `YamlDotNet+Scriban`); authored a draft usability report.
+- PR #4536 (“Add realistic Carbide scenario coverage and usability assessment”): added `ecommerce-analytics`, `log-pipeline`, `pricing-engine`; added `real-world-scenarios.test.mjs` live integration tests (`CsvHelper`, `YamlDotNet+Scriban` in the original draft; final merged version uses `YamlDotNet+Handlebars.Net` due to Scriban safety refusal); authored a draft usability report.
 - PR #4537 (“Add real-world Carbide scenario tests and usability report”): added `log-analytics`, `invoicing`, `release-notes`; added a `.csproj`-driven CLI scenario test; authored a draft usability report.
 - PR #4538 (“Carbide: expand real-world scenario coverage and add usability assessment”): added `ticket-triage`, `ledger-reconciliation`; added a mixed `Newtonsoft.Json+YamlDotNet` live integration test; authored a draft usability report.
 - PR #4539 (“Expand Carbide test corpus with realistic fixtures and add usability report”): added `order-fulfillment`, `log-analyzer`, `feature-flags`; updated corpus test commentary; authored a draft usability report.

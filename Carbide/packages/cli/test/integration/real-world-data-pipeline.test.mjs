@@ -45,9 +45,16 @@ test("live: mixed JSON+YAML data pipeline project resolves multiple packages and
         path.join(workDir, "Program.cs"),
         `using Newtonsoft.Json;
 using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
-var yaml = "orders:\n  - customer: alice\n    total: 12.4\n  - customer: bob\n    total: 8.1\n";
-var parser = new DeserializerBuilder().Build();
+var yaml = """
+orders:
+  - customer: alice
+    total: 12.4
+  - customer: bob
+    total: 8.1
+""";
+var parser = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
 var parsed = parser.Deserialize<Dictionary<string, List<Order>>>(yaml);
 var top = parsed["orders"]
     .OrderByDescending(o => o.Total)

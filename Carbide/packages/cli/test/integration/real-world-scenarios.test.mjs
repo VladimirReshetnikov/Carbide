@@ -85,7 +85,7 @@ public sealed record Sale(string Region, int Amount);
     assert.equal(summary2.stdOut, summary1.stdOut);
 });
 
-test("real-world: YamlDotNet + Scriban configuration rendering", { skip: !LIVE }, async (t) => {
+test("real-world: YamlDotNet + Handlebars.Net configuration rendering", { skip: !LIVE }, async (t) => {
     const workDir = mkdtempSync(path.join(tmpdir(), "carbide-rw-config-"));
     t.after(() => {
         try { rmSync(workDir, { recursive: true, force: true }); } catch { }
@@ -101,21 +101,21 @@ test("real-world: YamlDotNet + Scriban configuration rendering", { skip: !LIVE }
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="15.0.0" />
-    <PackageReference Include="Scriban" Version="5.9.1" />
+    <PackageReference Include="Handlebars.Net" Version="2.1.6" />
   </ItemGroup>
 </Project>`,
     );
     writeFileSync(
         path.join(workDir, "Program.cs"),
-        `using Scriban;
+        `using HandlebarsDotNet;
 using YamlDotNet.Serialization;
 
 var yaml = "service: Payments\\nregion: us-west\\nretries: 3";
 var parser = new DeserializerBuilder().Build();
 var data = parser.Deserialize<Dictionary<string, object>>(yaml);
 
-var template = Template.Parse("svc={{ service }};region={{ region }};retries={{ retries }}");
-var rendered = template.Render(data);
+var template = Handlebars.Compile("svc={{service}};region={{region}};retries={{retries}}");
+var rendered = template(data);
 Console.Write(rendered);
 `,
     );
