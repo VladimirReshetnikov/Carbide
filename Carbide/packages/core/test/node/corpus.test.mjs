@@ -1,7 +1,7 @@
 // M2.5 golden-corpus seed. Each directory under test/node/corpus/ is one Shape-S2 fixture:
 //   *.cs            — source files to feed into Project.addSource (basename as path)
 //   expected.json   — { stdOut: string, exitCode?: number }
-// The corpus grows incrementally toward vision §9's "≥ 50 programs" goal; M2 seeds five.
+// The corpus grows incrementally toward vision §9's "≥ 50 programs" goal; M2 seeded five; later milestones add richer business-style fixtures.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
