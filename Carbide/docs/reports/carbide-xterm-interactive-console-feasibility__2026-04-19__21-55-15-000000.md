@@ -1,8 +1,11 @@
 # Feasibility: running Carbide C# console apps in the browser with xterm.js and conhost-like `System.Console` / ANSI behavior
 
 - Created (UTC): 2026-04-19T21:55:15Z
+- Revised (UTC): 2026-04-19T22:15:00Z
 - Repository HEAD: 43db73bda4ae735ad00fe7c40caab66f203d9dd0
 - Status: Feasibility report (design evaluation, not an implementation plan).
+
+> **Revised after independent review** (2026-04-19T22:15Z). A second feasibility report — [`carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md`](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — landed shortly after this one and pushed back on four things: (a) the third-party-DLL coverage ceiling of a `CarbideConsole.*Async` API, (b) the strength of the "own a forked browser `System.Console`" path, (c) the execution-isolation / `Assembly.Load` lifecycle hazard for long-lived interactive sessions, and (d) `xterm-pty` as closer prior art than what I originally cited. The feasibility verdict is unchanged; the scope implications of "most of `System.Console`" are larger than my tier-2 framing implied. Inline ⚠ markers flag the specific corrections and §19 consolidates them. Read §19 first if you're returning to this report.
 - Audience: Vladimir; future Carbide contributors considering a browser-terminal story.
 - Scope: evaluate what it would take to extend `src/Carbide` so user C# console programs executed in the browser can drive an embedded [xterm.js](https://xtermjs.org/) instance with behavior that approximates running the same program under `conhost.exe` on Windows desktop. Includes `System.Console` surface, ANSI / VT sequences, stdin (line and key mode), window size, color, cursor, and Ctrl+C.
 - Related code:
@@ -14,12 +17,16 @@
 - Related docs:
   - [Carbide Current-State Guide](../Carbide-Current-State-Guide.md)
   - [Carbide usability report](Carbide-Usability-Report.md)
+  - [Independent feasibility report on the same topic](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — written against the same HEAD; points of disagreement consolidated in §19.
   - [Carbide–Avalonia browser GUI integration research](../research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md)
   - [Carbide–pwsh subset feasibility](../research/pwsh/carbide-pwsh-subset-feasibility__2026-04-19__10-30-00-000000__a7c3d4e9f1b2.md)
   - [Carbide JS-interop bridge proposal](../proposals/carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__a2d2955163d1.md)
 - External references (not vendored):
   - `lib/dotnet/runtime/src/libraries/System.Console/src/System/ConsolePal.Browser.cs` — authoritative `System.Console` browser surface.
   - `lib/dotnet/runtime/src/libraries/System.Console/src/System/Console.cs` — `SetIn`/`SetOut`/`SetError` contracts.
+  - `lib/dotnet/runtime/src/libraries/System.Console/src/System/ConsolePal.Unix.cs` — the VT-first `System.Console` implementation that a tier-3 forked `System.Console.dll` should port to browser.
+  - `lib/dotnet/runtime/src/libraries/System.Console/src/System/IO/KeyParser.cs`, `StdInReader.cs` — reusable VT key-escape decoding and line-editing primitives.
+  - `lib/dotnet/runtime/src/libraries/System.Console/src/System/TerminalFormatStrings.cs` — ANSI color/cursor/title capability table.
 
 ## 1. Request
 
@@ -56,6 +63,8 @@ Three scope words pinned before analysis:
 | SharedArrayBuffer-backed truly-synchronous stdin (no `async`) | not available (COOP/COEP not required) | — | — | feasible only under COOP/COEP | ✘ if isolation headers are off the table |
 
 **Bottom line.** An xterm.js-backed interactive Carbide surface is **feasible and largely additive**. The core change is a new execution path (`project.runInteractive(terminal, options?)`) that swaps today's buffered capture for a live bidirectional byte pipe between xterm.js and Mono-WASM. Conhost-like parity for the high-level `System.Console` API (colors, cursor, window size) requires patching or shimming the `ConsolePal` members that throw `PlatformNotSupportedException` on browser — this is the one unavoidable piece of "reach into the runtime" work.
+
+⚠ **Scope caveat corrected after review (§19.1):** "largely additive" is accurate only for the stdout-streaming tier. Once the goal is "most `System.Console` APIs work", the honest path is to replace Carbide's published `System.Console.dll` with a patched fork that ports the Unix `ConsolePal` model onto a browser-terminal byte pipe. That's a runtime-workstream-sized piece of engineering, not a TS-host enhancement. The user-code-rewrite alternative (`CarbideConsole.*`) can't cover pre-compiled NuGet DLLs that call `Console.ReadKey` / `Console.ForegroundColor` directly — only source Carbide itself compiles benefits.
 
 The single hard constraint: Mono-WASM is **single-threaded** on the main thread by default, so blocking `Console.ReadKey()` cannot be literally blocking. Three workable answers are on the table (§8.4), ordered from easiest to most invasive:
 
@@ -284,6 +293,8 @@ Patch strategies:
 
 **Recommendation:** tier 2 ships **B** (explicit `CarbideConsole.ReadKey`). Tier 3 or 4 evaluates **C** if demand materializes. **A** is rejected as too fragile on Mono-WASM interpreter mode.
 
+⚠ **Corrected after review (§19.2):** option **B** only fixes code Carbide compiles from source. Third-party NuGet packages already compiled against `System.Console` (e.g. Spectre.Console, ReadLine.NET, any prompt library) call `Console.ReadKey` directly from their own pre-compiled IL, and `CarbideConsole.*` cannot intercept that. If broad library compatibility is in scope, the honest path is **C+** — **fork `System.Console.dll` itself** (not the user's code). Carbide already ships `System.Console.dll` in its `_framework/`, so replacing it with a patched build that reuses `ConsolePal.Unix`'s `KeyParser` / `StdInReader` / `TerminalFormatStrings` and binds them to a JS terminal bridge is a cleaner answer than a source weaver. Cost: it's a runtime workstream, not a TS-host enhancement.
+
 Key decoding inside the reader:
 
 - xterm.js delivers keystrokes as bytes, not as `ConsoleKey` tags. `ArrowUp` arrives as `\x1b[A`, `F1` as `\x1bOP`, `Home` as `\x1b[H`, etc. A small Carbide-side state machine maps the CSI / SS3 forms back to `ConsoleKey` + `ConsoleModifiers`. Reference: `lib/dotnet/runtime/src/libraries/System.Console/src/System/IO/KeyParser.cs` — the Unix key parser already does this. Port it verbatim; it's ~400 lines and has excellent test coverage upstream.
@@ -303,6 +314,8 @@ public static ConsoleColor ForegroundColor
 Where `AnsiSgr.Foreground(ConsoleColor.Red)` returns `"\x1b[31m"` etc. (With `ConsoleColor.DarkRed` → `"\x1b[31m"`, `ConsoleColor.Red` → `"\x1b[91m"`, etc. — the Windows-to-ANSI mapping is documented.)
 
 Patch vehicle: same as ReadKey (§7.4) — either detour `ConsolePal.ForegroundColor` / `BackgroundColor` / `ResetColor` **or** provide a `CarbideConsole.ForegroundColor` equivalent. Since this is three getters and three setters, I lean toward a Carbide-owned sibling static class *and* a publish-time "rewrite `Console.ForegroundColor` → `CarbideConsole.ForegroundColor`" transform once Carbide has a usable weaver. For tier 2, the `CarbideConsole` static is enough to demo the feature.
+
+⚠ **Corrected after review (§19.2):** same third-party-DLL ceiling as `ReadKey`. Any pre-compiled library that sets `Console.ForegroundColor` (Spectre.Console's renderers do this whenever truecolor detection decides the terminal is "limited", and pretty-print helpers routinely do it directly) will still throw PNS. If broad compat is the goal, the sensible fix is to forward these setters/getters inside a forked `System.Console.dll` rather than expect every library to adopt `CarbideConsole`.
 
 ### 7.6 `Console.SetCursorPosition(x, y)` / `GetCursorPosition`
 
@@ -418,7 +431,11 @@ Scope:
 
 Non-scope: `Console.ReadLine`, `ReadKey`, color API, cursor API, resize awareness. Users who emit ANSI escapes manually get colors, cursor, and alternate screen for free — that's already enough for a lot of CLI demos.
 
-### 10.2 Tier 2 — "Usable interactive shell" (4–8 weeks)
+### 10.2 Tier 2 — "Usable interactive shell" (4–8 weeks, user-source only)
+
+⚠ **Scope ceiling flagged after review (§19.2):** tier 2 as sketched here covers code Carbide compiles from source. Third-party pre-compiled libraries that call `Console.ReadKey`, `Console.ForegroundColor`, `Console.WindowWidth`, etc. directly will still throw PNS at runtime. For a "works with arbitrary console libraries" tier, see tier 3 below — the forked `System.Console.dll` path.
+
+
 
 Goal: line-mode stdin works. Window-size queries work. Carbide-prefixed APIs cover the `ReadKey`/color gap.
 
@@ -433,17 +450,28 @@ Scope on top of tier 1:
 - Ctrl+C byte-delivery path.
 - Docs: xterm setup fixture, example page, `.csproj` fixture that references `CarbideConsole` via a lightweight `@carbide/terminal-bcl` metadata reference.
 
-### 10.3 Tier 3 — "Conhost-parity mostly" (2–4 months after tier 2)
+### 10.3 Tier 3 — "Conhost-parity mostly" (3–6 months after tier 2; runtime-workstream scale)
 
-Goal: strict API parity for the supported subset. `Console.ForegroundColor = ConsoleColor.Red` works unmodified; `Console.ReadKey()` works synchronously.
+Goal: strict API parity for the supported subset. `Console.ForegroundColor = ConsoleColor.Red` works unmodified; `Console.ReadKey()` works synchronously or throws a clear "use the async variant" diagnostic. **Includes pre-compiled NuGet libraries.**
+
+⚠ **Reframed after review (§19.3):** the mainline path here is a **forked `System.Console.dll` shipped inside Carbide's `_framework/`**, not a publish-time IL rewrite of user code. Carbide already publishes `System.Console.dll` as a standalone managed assembly (confirmed present in `packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/`). Replacing it with a fork that:
+
+- keeps the browser `ConsoleStream` output path for fd 1 / fd 2;
+- ports `KeyParser`, `StdInReader`, `TerminalFormatStrings`, and the `ConsolePal.Unix` `Console.ForegroundColor` / cursor / window / SGR machinery; and
+- binds their I/O endpoints to a Carbide-owned JS terminal bridge (replacing terminfo + ioctl with browser-supplied state)
+
+…lets arbitrary `System.Console` callers — including third-party libraries — work as-is, because the runtime they link against now implements the API rather than throwing PNS. Upstream .NET already has the VT-first machinery; this is "reuse the algorithms and contracts, not the exact implementation" (independent report §"Why Option C is technically plausible").
 
 Scope on top of tier 2:
 
-- Publish-time IL rewrite (or source-generator) in `@carbide/core` that rewrites user assemblies' `Console.ReadKey`, `Console.ForegroundColor`, `Console.SetCursorPosition`, `Console.WindowWidth`, `Console.Clear`, `Console.Title` to their `CarbideConsole` counterparts. *Or*, Option B (worker + SAB) if COOP/COEP is acceptable for the host page.
+- Forked `System.Console.dll` build: sibling csproj that targets `browser-wasm` and swaps in the replacement `ConsolePal.Browser` with the Unix-algorithm-derived implementation.
+- A small C-ABI or JSImport contract between the forked `System.Console` internals and the Carbide browser bridge (mirrors what ioctl/read/write buy on Unix).
 - `CancelKeyPress` event parity.
 - `Console.Clear` parity.
 - `GetCursorPosition` parity (DSR reply path).
-- ANSI-aware `SpectreConsole`, `Figgle`, `Pastel`, `ConsoleTables` smoke tests.
+- Execution-isolation budget (§12 risk 13) — collectible `AssemblyLoadContext`-alike semantics, or at minimum a well-documented "recreate the session between runs" contract for long-lived terminals.
+- ANSI-aware `Spectre.Console`, `Figgle`, `Pastel`, `ConsoleTables`, `ReadLine.NET` smoke tests.
+- Optional: worker + SAB (§8.2) behind a capability flag if the host page can serve COOP/COEP. Gives truly synchronous `ReadKey`.
 
 ### 10.4 Explicitly out of scope (at every tier)
 
@@ -599,15 +627,19 @@ Peer, not direct — the host page owns the xterm lifecycle and can choose versi
 | 10 | xterm.js is a large runtime dependency (~250 KB gzipped) | Low | Make it a peer dep; host chooses inclusion. |
 | 11 | Interop chattiness tanks perf for single-char `Write('x')` calls in tight loops | Medium | Buffered `TextWriter` (§9.2). |
 | 12 | Ctrl+C delivered mid-compile instead of mid-run | Low | Only wire the signal path once the user entry point has been invoked. |
+| 13 | `Assembly.Load(byte[])` accumulation across many interactive runs in one page | Medium (tier 2+) | Terminal sessions can host N successive program invocations without a reload; each leaks an un-collectible Assembly. Options: document a "recreate `CarbideSession` between interactive runs" contract (cheapest); investigate `AssemblyLoadContext` collectibility on Mono-WASM (not guaranteed); force a page/worker reset when the user explicitly requests a clean slate. Flagged by the independent review. |
+| 14 | Tier-2 `CarbideConsole.*` leaves third-party library calls throwing PNS | Medium | This is the scope ceiling of tier 2 as designed. Mitigation: bump to tier-3 forked `System.Console.dll` if third-party libs are in scope; otherwise document the limit. |
 
 ## 13. Prior art and confirmation
 
 Several projects confirm the pattern is tractable:
 
+- **[`mame/xterm-pty`](https://github.com/mame/xterm-pty)** — ⚠ added after the independent review flagged it. xterm.js addon that provides a pty-like stdin/stdout layer specifically designed for the "browser main-thread blocking read" problem. Demonstrates both cooperative and Asyncify-backed synchronous-read variants. Closest prior art to what Carbide needs for tier 2.
 - **`cryptool-org/wasm-webterm`** — xterm.js addon that runs WASI / Emscripten WebAssembly binaries interactively. Uses Comlink-proxied callbacks between a worker and main thread for synchronous stdin. Confirms both Option A and Option B are deployable in practice.
 - **Wasmer's `@wasmer/wasm-terminal`** — production-hardened browser terminal for WASI binaries; uses the same byte-pipe-plus-JS-shim pattern.
 - **`XtermBlazor`** — Blazor + xterm.js wrapper with ~72k downloads; primarily a UI widget for Blazor apps rather than a Console-API polyfill, but confirms xterm + Mono-WASM coexist cleanly at the DOM level.
 - **Wasmer docs: "Creating an Interactive Terminal with XTerm.js"** — reference implementation for the main-thread async Option A pattern.
+- **.NET runtime's `ConsolePal.Unix` + `StdInReader` + `KeyParser` + `TerminalFormatStrings`** — not a browser project, but the authoritative VT-first `System.Console` implementation inside the .NET runtime. The tier-3 fork of `System.Console.dll` for browser should be modeled on it rather than invented from scratch.
 
 None of them try to back `System.Console.ReadKey` specifically; the conhost-parity angle is where Carbide would add value. For tier 1 (output-only streaming) the path is thoroughly walked.
 
@@ -615,11 +647,16 @@ None of them try to back `System.Console.ReadKey` specifically; the conhost-pari
 
 **Pursue tier 1.** 1–2 weeks of focused work yields a real browser-interactive Carbide demo: user writes `Console.WriteLine("\x1b[1;33mhello\x1b[0m");` in the editor, sees it yellow-bold in xterm.js. That alone enables a class of tooling demos (ASCII art, banner generators, log replayers, spectre/console previews) that the current buffered-run model cannot show. No spec bumps to users, no new sync/async story, no PNS patches.
 
-**Decide tier 2 scope with Vladimir before starting.** The `CarbideConsole.*Async` vs patched-`Console.*` question has a different cost-benefit depending on how much conhost-parity matters. My default recommendation is `CarbideConsole.*` (explicit, honest, no publish-time weaver), but "strict parity" is also defensible and documented in §7.4.
+**Decide tier 2 vs tier 3 scope with Vladimir before starting.** The decision hinges on one question: does Carbide need to support pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` directly?
 
-**Defer tier 3 to a time when someone wants it.** Worker + SAB is real engineering and real operations (COOP/COEP). Nothing in the CLAUDE.md vision suggests Carbide is targeting shops where that's acceptable by default.
+- **If no** (the user is mostly writing original source that Carbide compiles): tier 2's `CarbideConsole.*Async` is the cheapest path to a useful interactive shell. The Carbide.Terminal ref-pack exposes the API; user code migrates from `Console.ReadLine()` → `await CarbideConsole.ReadLineAsync()` and similar.
+- **If yes** (Spectre.Console, ReadLine.NET, and any other prompt/TUI library is in scope): the honest tier is the **forked `System.Console.dll`** described in §10.3. That's a runtime workstream (3–6 months). Tier 2's `CarbideConsole.*` is still a useful intermediate — it de-risks the JS bridge and the streaming writer — but it's a stepping stone, not the destination.
 
-**Non-goals to lock in from day 1.** (a) No real filesystem/stdin pipe from outside the tab. (b) No child processes. (c) No SDK-level parity with `dotnet run` — Carbide's terminal story is the *runtime* terminal, not an interactive debugger or a full console-host replacement. These are the same non-goals [Carbide Current-State Guide §"What Carbide Is Not For"](../Carbide-Current-State-Guide.md) already commits to.
+**Tier 3 is optional only in the "no third-party libraries" world.** Otherwise it's the real deliverable, and tier 2 is a spike.
+
+**Worker + SAB stays tier-3-optional.** Real engineering and real operations (COOP/COEP); nothing in the CLAUDE.md vision suggests Carbide is targeting shops where that's acceptable by default.
+
+**Non-goals to lock in from day 1.** (a) No real filesystem/stdin pipe from outside the tab. (b) No child processes. (c) No SDK-level parity with `dotnet run` — Carbide's terminal story is the *runtime* terminal, not an interactive debugger or a full console-host replacement. (d) No Win32 console API semantics (`BufferWidth` ≠ `WindowWidth`, `MoveBufferArea`, `NumberLock`/`CapsLock`, scroll-buffer rectangle moves) — we're VT-first, and xterm-like behavior is what we promise. These are consistent with the non-goals [Carbide Current-State Guide §"What Carbide Is Not For"](../Carbide-Current-State-Guide.md) already commits to.
 
 ## 15. Appendix A: proposed `Carbide.Terminal` C# API sketch
 
@@ -716,3 +753,99 @@ with `_terminalSink` set by `runInteractive` and cleared on teardown. Outside `r
 | Recommended next step if greenlit? | Spike tier 1: a 40-line C# `StreamingStdOutWriter`, a 60-line TypeScript `TerminalSession`, a Playwright fixture that runs `Console.WriteLine` + ANSI color. One merge. Demo. Decide tier 2 scope from there. |
 
 Vladimir — this one is a clean extension. Carbide's existing seams (the host adapter, the `Console.SetOut` path, the reflection-based `s_in` install, the JSExport surface) already anticipate everything we'd need. The single piece of genuinely-new engineering is the `StreamingStdOutWriter` + `BrowserTerminalReader` pair and the JSImport bridge behind them. Tier 1 is a plausible weekend hack; tier 2 is the interesting design conversation; tier 3 is a "when we have a real user" decision.
+
+## 19. Revisions after independent review
+
+An independent feasibility report — [`carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md`](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — landed on the same topic against the same HEAD (`43db73bd`). The two reports reach the same top-line answer ("feasible; xterm.js isn't the limiting factor; `System.Console` on Mono-WASM browser is"), but the reviewer pushed back on four specifics where my framing was too optimistic or too narrow. This section captures the substantive deltas.
+
+### 19.1 The verdict is unchanged; the scope implications are larger
+
+Both reports agree:
+
+- xterm.js covers the terminal surface (VT parsing, colors, cursor, resize, alt screen, mouse).
+- `ConsolePal.Browser` throws `PlatformNotSupportedException` for most interactive APIs.
+- `Console.SetOut` / `Console.SetError` work unmodified; `Console.SetIn` needs the reflection patch Carbide already has.
+- Mono-WASM main-thread blocking is the central constraint; COOP/COEP + worker + `SharedArrayBuffer` is the only route to truly synchronous `ReadKey`.
+- A new `runInteractive` API, separate from `project.run()`, is the right shape.
+- The phased ordering is: stream output first, solve the input execution model second, only then broaden compatibility.
+
+My original tier 2 framed `CarbideConsole.*Async` as "the useful interactive shell." The independent review correctly flagged that "useful" in the sense Vladimir asked for ("most of `System.Console` API work similar to conhost") requires tier 3 — the forked runtime — not tier 2. Tier 2 as originally written is *user-source-only* and leaves a real compat hole.
+
+### 19.2 Third-party DLLs: the scope ceiling I under-weighted
+
+**The correction:** `CarbideConsole.*Async` and any "rewrite `Console.X` → `CarbideConsole.X`" publish-time weaver only covers code Carbide compiles from source. Third-party NuGet packages that are already pre-compiled against `System.Console` — Spectre.Console, ReadLine.NET, CliFx, various prompt libraries, Cocona, etc. — call `Console.ReadKey` / `Console.ForegroundColor` / `Console.WindowWidth` directly from their own IL. A user-code rewrite doesn't reach them.
+
+Carbide's allow-list currently contains Newtonsoft.Json, YamlDotNet, CsvHelper, Humanizer.Core, NodaTime, Scriban, Handlebars.Net, Serilog, Serilog.Sinks.Console, FluentAssertions — none of those are heavy `Console.ReadKey` callers, but Serilog.Sinks.Console uses `Console.ForegroundColor` for level-colored output, which would PNS under tier 2. The hole is real as soon as the allow-list grows toward TUI-shaped packages.
+
+**Consequence for the report:**
+
+- Tier 2's promise is narrowed to "works for the source you hand Carbide."
+- Tier 3 is reframed as "works for pre-compiled libraries too," and it becomes the honest target if the goal really is "most of `System.Console`."
+- The §14 recommendation now explicitly asks the decision: do we need pre-compiled-library coverage, yes or no? The answer picks tier 2 (cheap, incomplete) vs tier 3 (runtime workstream, complete enough).
+
+### 19.3 Option C revisited: fork `System.Console.dll`, not user code
+
+My original Option C talked about a "publish-time IL rewrite (or source-generator)." The reviewer's cleaner framing: **don't rewrite user code at all; replace Carbide's own published `System.Console.dll`.**
+
+Confirmed: Carbide ships `System.Console.dll` as a standalone managed assembly in `packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/`. It's there because `dotnet publish -c Release src/Carbide.Core.csproj` fans out the BCL. A fork that:
+
+- retargets `browser-wasm`;
+- replaces the `ConsolePal.Browser` class with a VT-first port of `ConsolePal.Unix` (reusing `KeyParser`, `StdInReader`, `TerminalFormatStrings`);
+- swaps the Unix `ioctl` / `read(0, …)` / `write(1, …)` / terminfo surface for JS-bridge equivalents that talk to the xterm.js terminal;
+- keeps the public API, attribute surface, and ref-pack metadata unchanged so Roslyn sees no diff
+
+…replaces the stock `System.Console.dll` in the `_framework/` ship. User code and third-party NuGet libraries both link against the stock API; at runtime the forked implementation provides real behavior instead of PNS. This is the independent report's Option C, and it's strictly cleaner than my original IL-weaver sketch.
+
+The reuse story is strong: most of the VT semantics already exist inside `ConsolePal.Unix`. The fork's delta vs the Unix path is narrow — stream primitives, size query, signals, terminfo. Everything else (color escape emission, cursor addressing, key decoding, line editing) is already correctly implemented in the .NET runtime for POSIX terminals.
+
+**Cost.** This is a real runtime workstream: csproj plumbing to build a sibling `System.Console.dll` in Carbide's `_framework/` ship; a JS-bridge for the primitives; keeping the fork current against upstream `System.Console` minor revisions. Not a weekend hack. The independent report's 2–4 months lands in roughly the same range as my tier-3 estimate, though I've bumped the tier-3 window to 3–6 months to account for the compat-test surface.
+
+### 19.4 Execution isolation and `Assembly.Load` lifecycle
+
+**The correction:** my report enumerated per-run risks but didn't address cross-run accumulation. An interactive terminal is long-lived by definition — one page can host N successive program invocations before shutdown. Each invocation calls `Assembly.Load(byte[])` and the emitted assembly is not collectible on Mono-WASM (there's no collectible `AssemblyLoadContext` in interpreter mode).
+
+Practical consequences:
+
+- a user who runs the same program 50 times from a browser terminal ends up with 50 assemblies pinned in the runtime heap;
+- statics defined in a previous run's assembly survive into the next run's type lookup via the `AssemblyResolve` handler, even if the name collides;
+- for short demo sessions this is harmless; for a hypothetical "REPL + run + run + run" workflow it's a slow-ballooning memory leak.
+
+**Consequence for the report:** added as risk #13 in §12. Tier-3's scope now explicitly includes an isolation budget: either document "recreate the session between interactive runs" as the clean-slate contract (cheapest), or investigate `AssemblyLoadContext` collectibility on Mono-WASM (which may be broken in interpreter mode; needs a spike), or force a tab/worker reset on explicit user request.
+
+### 19.5 Prior art: `xterm-pty` is the closer reference
+
+**The correction:** my §13 cited `cryptool-org/wasm-webterm`, Wasmer's `wasm-terminal`, and `XtermBlazor`. The independent report flags `mame/xterm-pty` as closer. `xterm-pty` is specifically an xterm.js addon that provides a pty-like stdin/stdout layer with both cooperative and Asyncify-backed sync-read variants — exactly the shape Carbide needs for tier 2 `ReadLineAsync`. I've added it to §13 at the top of the list.
+
+The .NET runtime's own `ConsolePal.Unix` is also arguably the single most relevant prior art for tier 3 — it's the reference implementation for VT-first `System.Console` behavior that our fork would mirror. Added at the bottom of §13.
+
+### 19.6 Other corrections
+
+- **`onBinary` alongside `onData`.** xterm.js exposes `Terminal.onBinary` for non-UTF-8-compatible input (mouse byte protocols specifically). My §4 only listed `onData`. For tier 3 "mouse-aware TUI" support, `onBinary` is the right channel; added implicitly by pointing at xterm.js `vtfeatures` docs.
+- **"Decide non-goals explicitly at phase 0."** The independent report recommends making non-goals an explicit deliverable of the planning phase. §14's non-goals list already does this; no text change needed, but the stance is endorsed.
+- **Handle-level `OpenStandardInput`.** Tier 3 needs a real `Stream` for the fork path, not just a `TextReader` redirect. Captured implicitly in §10.3's "keeps the browser `ConsoleStream` output path for fd 1 / fd 2" bullet; worth emphasizing that a symmetric handle for fd 0 comes for free once we have the JS bridge for byte delivery.
+
+### 19.7 What survived review unchanged
+
+- Tier 1 (streaming stdout/stderr via `[JSImport]` + custom `TextWriter`) is a 1–2 week piece of work.
+- The cooperative-async story for `Console.In.ReadLineAsync()` at tier 2 is correct.
+- The free-fix-for-U1-stdout-bypass by overriding emscripten `print`/`printErr` is correct and independent.
+- The specific ANSI translations (OSC 0 for title, DSR for cursor query, DECTCEM for visibility, DECSCUSR for style, `\x1b[2J\x1b[H` for clear, `\x1b[3%c;4%cm` for SGR) are correct and reusable at tier 2 *or* tier 3.
+- `KeyParser.cs` port is still the right engineering answer for translating xterm input escapes to `ConsoleKeyInfo`.
+- Tier 1 + the ref-pack need-`CarbideConsole` argument remain valid in the tier-2 world; in the tier-3 world the ref-pack needs no additions because `System.Console` itself is unchanged at the API-surface level.
+- The `Project.runInteractive(options)` TS API and the `CarbideSession` / project lifetime integration are unchanged.
+
+### 19.8 Updated phased plan (net of the review)
+
+| Phase | Deliverable | Cost | Value |
+|---|---|---|---|
+| **Phase 0 — lock non-goals** | Document Win32-console-API non-goals, pre-compiled-library-coverage decision, COOP/COEP decision. | Hours. | Prevents scope creep; surfaces the tier-2-vs-tier-3 decision explicitly. |
+| **Phase 1 — streaming output** | `runInteractive` with `StreamingStdOutWriter` + `StreamingStdErrWriter`; xterm.js `write` integration; emscripten `print` override. | 1–2 weeks. | First working interactive demo; fixes the U1 stdout-bypass quirk for free. |
+| **Phase 2 — cooperative async input** | `BrowserTerminalReader : TextReader`; `CarbideConsole.ReadLineAsync` / `ReadKeyAsync`; line editor. Ctrl+C byte delivery. Resize propagation. | 3–4 weeks. | Usable interactive shell for original source code. |
+| **Phase 3 — forked `System.Console.dll`** | Sibling csproj that builds a VT-first `System.Console.dll` for `browser-wasm`; reuse `ConsolePal.Unix` algorithms; bridge to the JS terminal. Replace in `_framework/` at publish time. | 3–6 months. | Pre-compiled-library compatibility; strict `Console.ReadKey` / `Console.ForegroundColor` parity. Optional worker + SAB if COOP/COEP is acceptable. |
+| **Phase 4 — hardening and compat tests** | Playwright-driven fixtures for Spectre.Console, ReadLine.NET, mouse mode, alt screen, resize. Isolation/lifecycle budget. | 2–4 weeks. | Confidence floor; regression net. |
+
+Phase 3 is only necessary if phase 0's decision is "yes, pre-compiled libraries in scope." Otherwise phase 2 is the ship-it tier, phase 3 becomes deferred, and phase 4 is proportionally smaller.
+
+### 19.9 Closing note
+
+The independent review didn't change the feasibility verdict, but it pointed at a honest scope ceiling my original report had glossed over. The revised shape — ship phase 1 quickly, pause at the phase-0 decision before committing to phase 2 vs phase 3 — is more defensible than my original "tier 2 is the useful one, tier 3 is optional" framing. Credit to the reviewer for catching the pre-compiled-library hole early; it would have been a painful discovery at implementation time.
