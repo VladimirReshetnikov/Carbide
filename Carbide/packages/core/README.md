@@ -249,6 +249,50 @@ Out of scope for T2: pre-compiled-library `Console.ReadKey` / `Console.Foregroun
 parity (T3), DSR-based `GetCursorPosition` (T3), worker + SharedArrayBuffer for truly
 synchronous reads (T3 optional), line-editor history ring (follow-up).
 
+**T3** — forked `System.Console.dll`. Carbide ships its own `_framework/System.Console.dll`
+so pre-compiled NuGet libraries that call the stock API directly (Spectre.Console,
+Serilog.Sinks.Console, ReadLine.NET, CommandLineParser, …) work inside
+`runInteractive` without code changes:
+
+```csharp
+// All of these now work via the stock API, no Carbide import required.
+Console.ForegroundColor = ConsoleColor.Red;
+Console.Write("error: ");
+Console.ResetColor();
+Console.WriteLine("disk full");
+
+Console.SetCursorPosition(0, 0);
+Console.Clear();
+Console.Title = "demo";
+
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;   // keep running
+    Console.WriteLine("got Ctrl+C, ignored");
+};
+
+var (w, h) = (Console.WindowWidth, Console.WindowHeight);
+```
+
+The `CarbideConsole` cosmetic members (`ForegroundColor`, `SetCursorPosition`, `Title`,
+`Clear`, `WindowWidth`, etc.) stay around for source compatibility but are marked
+`[Obsolete]` — prefer the stock API from new code. Async-input surface
+(`CarbideConsole.ReadKeyAsync`, `ReadLineAsync`, `DelayAsync`, `WaitForResizeAsync`,
+`TerminalResized`, `WriteRaw`) is unaffected — those have no stock equivalent.
+
+What still throws `PlatformNotSupportedException` in T3: synchronous `Console.ReadKey(bool)`
+and any blocking `Console.In.Read*` (single-threaded browser-wasm has no sync-over-async
+primitive — use the async variants), `Console.GetCursorPosition()` (needs DSR-reply
+pre-filtering, tracked as T3.1), `Console.Beep(int, int)` (no portable browser
+equivalent), `Console.MoveBufferArea` / `SetBufferSize` / `SetWindowSize` /
+`SetWindowPosition` (browser terminal has no separate scrollback). Pointed messages
+direct callers to the async variants or portable escape-hatch patterns.
+
+Outside an interactive run (`Project.run`), the cosmetic API throws PNS with the same
+"use runInteractive" message so captured-stdout runs don't silently leak SGR bytes into
+`RunResult.stdOut`. An `AppContext` flag (`"Carbide.InteractiveBridge"`) gates the
+emit paths; it's true only inside `RunInteractiveAsync`.
+
 Not available on the Node adapter — `project.runInteractive` throws if called on a
 Node-backed session. The CLI has no `--interactive` flag; interactive terminals are
 a browser-only feature.

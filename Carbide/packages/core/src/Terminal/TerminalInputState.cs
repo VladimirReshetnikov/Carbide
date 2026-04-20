@@ -144,9 +144,57 @@ internal sealed class TerminalInputState
         {
             // Swallow — a thrown handler shouldn't prevent token cancellation.
         }
-        if (args is null || !args.Cancel)
+
+        // T3 — also fan out to the static `Console.CancelKeyPress` chain so user code that
+        // attaches to the idiomatic BCL event gets the callback. Only present when the T3
+        // forked System.Console.dll is loaded; stock BCL has no such method and the
+        // reflected MethodInfo stays null.
+        var forkCancelled = InvokeForkedConsoleCancelKeyPress();
+
+        if ((args is null || !args.Cancel) && !forkCancelled)
         {
             CancellationTokenSource.Cancel();
+        }
+    }
+
+    private static MethodInfo? s_forkedHandleCancelKeyPress;
+    private static bool s_forkedHandleProbed;
+
+    private static bool InvokeForkedConsoleCancelKeyPress()
+    {
+        if (!s_forkedHandleProbed)
+        {
+            try
+            {
+                s_forkedHandleCancelKeyPress = typeof(Console).GetMethod(
+                    "HandleCancelKeyPress",
+                    BindingFlags.Static | BindingFlags.NonPublic,
+                    binder: null,
+                    types: [typeof(ConsoleSpecialKey)],
+                    modifiers: null);
+            }
+#pragma warning disable CA1031
+            catch
+#pragma warning restore CA1031
+            {
+                s_forkedHandleCancelKeyPress = null;
+            }
+            s_forkedHandleProbed = true;
+        }
+        if (s_forkedHandleCancelKeyPress is null)
+        {
+            return false;
+        }
+        try
+        {
+            var result = s_forkedHandleCancelKeyPress.Invoke(null, [ConsoleSpecialKey.ControlC]);
+            return result is true;
+        }
+#pragma warning disable CA1031
+        catch
+#pragma warning restore CA1031
+        {
+            return false;
         }
     }
 

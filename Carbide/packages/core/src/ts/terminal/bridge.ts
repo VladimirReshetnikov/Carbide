@@ -1,9 +1,11 @@
-// T1+T2 — installs the JS-side half of the interactive terminal bridge on
+// T1+T2+T3 — installs the JS-side half of the interactive terminal bridge on
 // `globalThis.Carbide.Terminal`. The C# side reaches this via
-// `[JSImport("globalThis.Carbide.Terminal.{write|writeErr|setKeyMode|setTreatControlCAsInput}")]`.
+// `[JSImport("globalThis.Carbide.Terminal.{write|writeErr|setKeyMode|setTreatControlCAsInput|getCols|getRows}")]`.
 // T1 wires the output side (write/writeErr). T2 adds setKeyMode and setTreatControlCAsInput
 // so the line editor can be toggled + the Ctrl+C policy can be propagated from C# → JS
-// without a round-trip per keystroke.
+// without a round-trip per keystroke. T3 adds getCols/getRows so the forked
+// System.Console.dll's synchronous WindowWidth/WindowHeight getters can answer without a
+// NotifyResize round-trip.
 
 import type { XtermTerminalLike } from "../types.js";
 
@@ -14,6 +16,10 @@ export interface TerminalBridgeSink {
     setKeyMode(enabled: boolean): void;
     /** Propagate `CarbideConsole.TreatControlCAsInput` to the line editor's local flag. */
     setTreatControlCAsInput(value: boolean): void;
+    /** T3 — current column count, reads directly off the xterm instance. */
+    getCols(): number;
+    /** T3 — current row count, reads directly off the xterm instance. */
+    getRows(): number;
     /** Dispose hook — clears bridge-side subscriptions and pointers. */
     dispose(): void;
 }
@@ -52,6 +58,17 @@ export function installBridge(
         setTreatControlCAsInput(value) {
             editor?.setTreatControlCAsInput(value);
         },
+        getCols() {
+            // xterm always exposes a non-zero cols/rows after `open()`, but the
+            // `XtermTerminalLike` structural contract makes them optional to keep mock-based
+            // unit tests cheap. Default to VT100's 80×24 if the host's terminal is a reduced
+            // mock that elides the property — the forked System.Console consumer can still
+            // get a non-zero width.
+            return terminal.cols ?? 80;
+        },
+        getRows() {
+            return terminal.rows ?? 24;
+        },
         dispose() {
             // T2 editor disposal is handled by the session shell which owns the editor's
             // lifecycle; the bridge just holds the pointer.
@@ -64,6 +81,8 @@ export function installBridge(
         writeErr: sink.writeStdErr,
         setKeyMode: sink.setKeyMode,
         setTreatControlCAsInput: sink.setTreatControlCAsInput,
+        getCols: sink.getCols,
+        getRows: sink.getRows,
         // T2 — `CarbideConsole.DelayAsync` routes through this setTimeout-backed Promise.
         // `Task.Delay(int)` on Mono-WASM browser throws on unsatisfiable sync-context
         // continuation scheduling, so Carbide exposes a JS-native async delay instead.

@@ -99,6 +99,7 @@ public static class CarbideConsole
     /// <see cref="Console.Out"/>; the xterm buffer sees the color change before the next
     /// character is written.
     /// </summary>
+    [Obsolete("T3: stock System.Console.ForegroundColor works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static ConsoleColor ForegroundColor
     {
         get => RequireState(nameof(ForegroundColor)).ForegroundColor;
@@ -111,6 +112,7 @@ public static class CarbideConsole
     }
 
     /// <summary>The background color used for subsequent writes.</summary>
+    [Obsolete("T3: stock System.Console.BackgroundColor works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static ConsoleColor BackgroundColor
     {
         get => RequireState(nameof(BackgroundColor)).BackgroundColor;
@@ -123,6 +125,7 @@ public static class CarbideConsole
     }
 
     /// <summary>Reset foreground and background to the terminal defaults (<c>\x1b[39;49m</c>).</summary>
+    [Obsolete("T3: stock System.Console.ResetColor() works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static void ResetColor()
     {
         var state = RequireState(nameof(ResetColor));
@@ -137,6 +140,7 @@ public static class CarbideConsole
     /// Move the cursor to the given 0-based coordinates by emitting CUP
     /// (<c>\x1b[&lt;top+1&gt;;&lt;left+1&gt;H</c>).
     /// </summary>
+    [Obsolete("T3: stock System.Console.SetCursorPosition(left, top) works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static void SetCursorPosition(int left, int top)
     {
         RequireState(nameof(SetCursorPosition));
@@ -148,6 +152,7 @@ public static class CarbideConsole
     /// <summary>
     /// Whether the cursor is shown. Setting emits DECTCEM (<c>\x1b[?25h</c> / <c>\x1b[?25l</c>).
     /// </summary>
+    [Obsolete("T3: stock System.Console.CursorVisible works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static bool CursorVisible
     {
         get => RequireState(nameof(CursorVisible)).CursorVisible;
@@ -181,6 +186,7 @@ public static class CarbideConsole
     /// there's no portable way to read the title back, so it's write-only to mirror what
     /// user code can portably do.
     /// </summary>
+    [Obsolete("T3: stock System.Console.Title setter works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static string Title
     {
         set
@@ -192,6 +198,7 @@ public static class CarbideConsole
     }
 
     /// <summary>Clear the terminal (ED + CUP home): <c>\x1b[2J\x1b[H</c>.</summary>
+    [Obsolete("T3: stock System.Console.Clear() works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static void Clear()
     {
         RequireState(nameof(Clear));
@@ -201,9 +208,11 @@ public static class CarbideConsole
     // ---- Window geometry ---------------------------------------------------------------
 
     /// <summary>Cached terminal width (columns). Updated by JS-side <c>onResize</c> deliveries.</summary>
+    [Obsolete("T3: stock System.Console.WindowWidth works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static int WindowWidth => RequireState(nameof(WindowWidth)).Cols;
 
     /// <summary>Cached terminal height (rows).</summary>
+    [Obsolete("T3: stock System.Console.WindowHeight works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static int WindowHeight => RequireState(nameof(WindowHeight)).Rows;
 
     /// <summary>
@@ -211,10 +220,16 @@ public static class CarbideConsole
     /// <see cref="WindowWidth"/>. Kept for conhost-parity so ported code doesn't have to
     /// decide which to call.
     /// </summary>
+    [Obsolete("T3: stock System.Console.BufferWidth works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
+#pragma warning disable CS0618
     public static int BufferWidth => WindowWidth;
+#pragma warning restore CS0618
 
     /// <summary>Alias for <see cref="WindowHeight"/>.</summary>
+    [Obsolete("T3: stock System.Console.BufferHeight works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
+#pragma warning disable CS0618
     public static int BufferHeight => WindowHeight;
+#pragma warning restore CS0618
 
     /// <summary>Fired on every JS-side terminal resize. Payload carries the new (cols, rows).</summary>
     public static event EventHandler<(int Cols, int Rows)>? TerminalResized
@@ -239,6 +254,7 @@ public static class CarbideConsole
     /// <see cref="CancelKeyPress"/> (<c>false</c>, default). Mirrors
     /// <see cref="System.Console.TreatControlCAsInput"/>.
     /// </summary>
+    [Obsolete("T3: stock System.Console.TreatControlCAsInput works in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static bool TreatControlCAsInput
     {
         get => RequireState(nameof(TreatControlCAsInput)).TreatControlCAsInput;
@@ -258,6 +274,7 @@ public static class CarbideConsole
     /// the signal-delivery thread; setting <c>args.Cancel = true</c> suppresses the
     /// subsequent <see cref="CancellationToken"/> trip.
     /// </summary>
+    [Obsolete("T3: stock System.Console.CancelKeyPress fires in interactive runs now. Prefer it; this shim remains for pre-T3 source compatibility.")]
     public static event ConsoleCancelEventHandler? CancelKeyPress
     {
         add

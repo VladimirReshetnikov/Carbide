@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide T3 smoke: stock System.Console emits ANSI via forked DLL</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeMockTerminal() {
+      const chunks = [];
+      return {
+        cols: 80, rows: 24,
+        write(data) {
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeMockTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        // Use ONLY the stock `System.Console.*` API — no Carbide.Terminal.
+        // This validates the T3 forked System.Console.dll overlay: if the stock DLL were
+        // still active, ForegroundColor/BackgroundColor/ResetColor/Clear/SetCursorPosition
+        // would throw PlatformNotSupportedException (the Mono-WASM defaults).
+        project.addSource(
+          "Program.cs",
+          'Console.ForegroundColor = ConsoleColor.Red;\n' +
+            'Console.Write("R");\n' +
+            'Console.BackgroundColor = ConsoleColor.DarkBlue;\n' +
+            'Console.Write("B");\n' +
+            'Console.ResetColor();\n' +
+            'Console.Write("_");\n' +
+            'Console.SetCursorPosition(5, 2);\n' +
+            'Console.CursorVisible = false;\n' +
+            'Console.Title = "t3";\n' +
+            'Console.Clear();\n',
+        );
+        const handle = project.runInteractive({ terminal });
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

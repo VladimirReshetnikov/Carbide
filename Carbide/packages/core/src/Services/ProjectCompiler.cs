@@ -678,6 +678,13 @@ internal sealed class ProjectCompiler
         var oldIn = GetConsoleInField();
         SetConsoleInField(inputState.Reader);
 
+        // T3 — signal the forked System.Console.dll that an interactive bridge is live so
+        // the fork's cosmetic emitters (`Console.ForegroundColor`, `Console.Clear()`, etc.)
+        // emit ANSI instead of throwing. Outside this region the flag is false and those
+        // members throw PlatformNotSupportedException with a "use runInteractive" message
+        // — preserving the pre-T3 contract for plain `Project.run` programs.
+        AppContext.SetData("Carbide.InteractiveBridge", true);
+
         int exitCode = 0;
         string? uncaught = null;
 
@@ -748,6 +755,8 @@ internal sealed class ProjectCompiler
             Console.SetOut(oldOut);
             Console.SetError(oldError);
             SetConsoleInField(oldIn);
+            // T3 — clear the flag so subsequent non-interactive runs see PNS again.
+            AppContext.SetData("Carbide.InteractiveBridge", false);
             AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
             SynchronizationContext.SetSynchronizationContext(oldSyncContext);
         }

@@ -1,8 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Updated (UTC): 2026-04-19T05:12:00Z
-Repository HEAD: 79ecc77f66828d29728c83242293637e7d13aeb1
+Updated (UTC): 2026-04-20T14:30:00Z
+Repository HEAD: 43db73bda (T3 forked System.Console.dll landed)
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -214,7 +214,7 @@ This is the key architectural distinction:
 | Program argv/stdin | Not wired through yet | The CLI parser understands `--`, but the runtime run path still invokes `Main` with an empty string array |
 | Interactive browser terminal (T1) | Supported (T1) | `Project.runInteractive({ terminal })` streams stdout/stderr into an xterm.js-shaped `Terminal` while the program runs. Browser adapter only; Node-backed sessions throw. ANSI passthrough is unchanged. `Console.OpenStandardOutput()` writes now route to the terminal via the emscripten `print` overlay rather than the devtools console. |
 | Interactive stdin / `CarbideConsole.*Async` | Supported (T2) with runtime limitation | `Carbide.Terminal.CarbideConsole` exposes `ReadLineAsync`, `ReadKeyAsync`, `ForegroundColor`/`BackgroundColor`/`ResetColor`, `SetCursorPosition`/`CursorVisible`, `WindowWidth`/`Height`, `Title`, `Clear`, `TerminalResized`/`CancelKeyPress` events, `TreatControlCAsInput`, `DelayAsync`, `WaitForResizeAsync`, `WriteRaw`. `Console.In` is reflection-patched to a `BrowserTerminalReader`; synchronous `Console.In.ReadLine()` etc. throw a pointed `NotSupportedException`. T2.1 follow-up: three fixtures (`ReadKeyAsync`, Ctrl+C, resize-event) are test-skipped pending a Mono-WASM browser async-scheduler fix — see drift (T2) for details. |
-| Pre-compiled-library `Console.*` parity | Not implemented (T3) | `System.Console.ReadKey` / `ForegroundColor` / `WindowWidth` still throw PNS on browser. T3 ships a forked `System.Console.dll` in `_framework/` that replaces the stock one. Until then, libraries that call those APIs directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, …) don't work unmodified in interactive mode. |
+| Pre-compiled-library `Console.*` parity | Supported (T3) | `@carbide/core`'s publish step overlays a Carbide-forked `System.Console.dll` on top of the stock Mono-WASM one in `_framework/`. In an interactive run (`Project.runInteractive`), stock `Console.ForegroundColor` / `BackgroundColor` / `ResetColor` / `SetCursorPosition` / `CursorVisible` / `Title` (setter) / `Clear` / `WindowWidth` / `WindowHeight` / `TreatControlCAsInput` / `CancelKeyPress` all work end-to-end. Synchronous `Console.ReadKey(bool)` / `Console.In.ReadLine()` remain PNS with a pointed "use runInteractive + async" message — true sync-block over async needs a worker + SharedArrayBuffer, tracked as T3.1. |
 
 ## Notable Implementation Details
 
@@ -302,6 +302,25 @@ Members that throw for T2:
 The JS line editor handles local echo (printable chars + backspace + Enter commit), propagates arrow keys through, and forwards the Ctrl+C byte to `CancelKeyPress` unless `TreatControlCAsInput` is on. Key mode (toggled by `ReadKeyAsync`) bypasses the line editor and forwards raw bytes.
 
 **Known T2.1 runtime gap.** Three fixtures — `interactive-readkey`, `interactive-ctrlc`, `interactive-resize` — are `test.skip`ped pending a Mono-WASM browser async-scheduler fix. Awaiting a `Task` that was completed from a JSExport-triggered path (event handler, CT callback, inner `async` method's await) trips `PlatformNotSupportedException: Cannot wait on monitors on this runtime`, even with a single-threaded `SynchronizationContext` installed. The three passing fixtures (`interactive-readline`, `interactive-color`, `interactive-sync-throw`) cover the surfaces that do work today. The API surface in `CarbideConsole` is complete regardless; the fix is runtime-level.
+
+### Interactive terminal (T3 — forked `System.Console.dll`)
+
+T3 ships a Carbide-authored replacement for Mono-WASM's `System.Console.dll` so pre-compiled NuGet libraries (Spectre.Console, Serilog.Sinks.Console, ReadLine.NET, etc.) that call stock `Console.ForegroundColor` / `Console.WindowWidth` / `Console.CancelKeyPress` directly work inside an interactive run without any source-level adapter.
+
+- The fork lives at `packages/core-bcl/System.Console/` and builds as `System.Console.dll` (same assembly name as stock). Its `ConsolePal.Browser` routes all cosmetic emitters (SGR, cursor, OSC 0, ED+CUP home, DECTCEM) through `Console.Out`, which T1's `StreamingStdOutWriter` already funnels into the xterm bridge. `WindowWidth` / `WindowHeight` reach the live xterm instance via new `globalThis.Carbide.Terminal.getCols` / `.getRows` JSImports added to the bridge; `TreatControlCAsInput` reuses the T2 `setTreatControlCAsInput` target.
+- `Carbide.Core.csproj`'s publish pipeline builds the fork and overlays its output on top of `bin/.../publish/wwwroot/_framework/System.Console.dll` via a `AfterTargets="Publish"` MSBuild target. The shipped DLL is the fork; at boot the Mono-WASM loader resolves `System.Console` by name and gets our version. A post-publish Node test (`test/node/t3-forked-console-shipped.test.mjs`) greps the shipped DLL for the fork-only marker string `"Carbide-forked System.Console.dll (T3)"` so a regressed overlay trips CI loudly.
+- A static `Console.CancelKeyPress` chain is fired from `TerminalInputState.FireCancelKeyPress` via a reflected call to the fork-only `Console.HandleCancelKeyPress(ConsoleSpecialKey)` method. Stock BCL has no such method, so the reflection lookup yields null on non-T3 deployments and the T2 instance-scoped event chain still fires — the T3 path is additive.
+- Non-interactive `Project.run` preserves pre-T3 semantics. An `AppContext` flag (`"Carbide.InteractiveBridge"`) is set true on entry to `runInteractive` and cleared on exit. The fork's cosmetic emitters gate on that flag and throw `PlatformNotSupportedException` with a "use runInteractive" message when it's false, so captured-stdout runs don't silently leak SGR bytes into `RunResult.stdOut`. `WindowWidth` / `WindowHeight` fall back to 80×24 when the bridge isn't live (same defaults the JS-side getter uses for mock terminals without a `cols`/`rows` property).
+- The corresponding `CarbideConsole` members (`ForegroundColor`, `SetCursorPosition`, etc.) are now marked `[Obsolete]` with a message pointing at the stock API. They still work; the marker is a soft nudge for new code.
+
+**What remains PNS in T3:**
+
+- Synchronous `Console.ReadKey(bool)` and any blocking read from `Console.In` — Mono-WASM browser is single-threaded, so a true sync-block over async would deadlock the xterm event pump. The pointed message directs callers to `CarbideConsole.ReadKeyAsync` / `Console.In.ReadLineAsync`. Real sync-block support needs a worker + SharedArrayBuffer coordination layer, tracked as T3.1.
+- `Console.GetCursorPosition()` — still needs DSR reply pre-filtering in the JS bridge, tracked as T3.1.
+- `Console.Beep(int, int)` — no portable browser equivalent. Plain `Console.Beep()` emits BEL.
+- `Console.MoveBufferArea`, `SetBufferSize`, `SetWindowSize`, `SetWindowPosition` — the browser terminal has no separate scroll-back buffer and xterm.js doesn't expose a programmatic resize. These throw PNS.
+- `Console.Title` getter — no portable way to read a terminal's current title. The setter works via OSC 0.
+- `Console.InputEncoding`, `Console.NumberLock`, `Console.CapsLock` — browser-inapplicable state.
 
 ## Known Limitations And Differences
 

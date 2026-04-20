@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    T3 — Carbide's forked System.Console.dll. Replaces the stock one in @carbide/core's
+    _framework/ so pre-compiled NuGet libraries that call Console.ForegroundColor /
+    Console.WindowWidth / Console.SetCursorPosition / etc. work unmodified, instead of
+    tripping PlatformNotSupportedException. See
+    docs/planning/milestones/carbide-T3-detailed-plan__... for the full design.
+
+    Assembly name must be "System.Console" for the runtime to load this in place of the
+    stock BCL's DLL. Public API surface matches the stock DLL's; only ConsolePal.Browser
+    internals change. The fork is not used at compile time — user code compiles against
+    @carbide/refs-net10.0's stock ref metadata, and the fork only replaces the runtime
+    assembly.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <AssemblyName>System.Console</AssemblyName>
+    <RootNamespace>System</RootNamespace>
+    <OutputType>Library</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+
+    <!-- Disable trim + webcil. Carbide.Core does the same for the same reasons. -->
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+
+    <!-- This is a managed library; no Web SDK / publish machinery needed. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      T3 — our fork must have the same AssemblyRef identity as the stock
+      `System.Console.dll` so Roslyn accepts it as a drop-in replacement during user-source
+      compilation. Concretely:
+
+      * `AssemblyVersion` matches stock (10.0.0.0). Otherwise `Carbide.Core.dll`, which was
+        compiled against the stock .NET ref pack, has an `AssemblyRef` to System.Console
+        v10.0.0.0 that doesn't unify with our fork's default `0.0.0.0`.
+      * `PublicKeyToken` matches stock (`b03f5f7f11d50a3a`) via `PublicSign=true` + the
+        Microsoft.NET open public key. Public-signing sets the token on the AssemblyDef
+        without actually signing with the private key; Mono-WASM browser does not verify
+        strong-name hashes, so the mismatch is invisible at runtime. Without this, Roslyn
+        emits CS0012 "type 'ConsoleColor' is defined in an assembly that is not referenced"
+        because the stock-ref identity and our fork identity don't unify.
+    -->
+    <AssemblyVersion>10.0.0.0</AssemblyVersion>
+    <FileVersion>10.0.0.0</FileVersion>
+    <InformationalVersion>10.0.0.0+CarbideT3</InformationalVersion>
+    <SignAssembly>true</SignAssembly>
+    <PublicSign>true</PublicSign>
+    <AssemblyOriginatorKeyFile>microsoft-net-public-key.snk</AssemblyOriginatorKeyFile>
+    <DelaySign>false</DelaySign>
+
+    <!-- We're defining `System.*` types that already exist in the BCL's ref pack. Allow
+         that without the analyzer warning. -->
+    <NoWarn>$(NoWarn);CS0436;CS8981;CA1050;CA1034;CA2255</NoWarn>
+  </PropertyGroup>
+
+  <!-- Explicit compile items; EnableDefaultCompileItems=true gets everything under the
+       project dir which is what we want here. -->
+
+  <!-- Don't pull in any implicit System.Console reference — we ARE System.Console. -->
+  <ItemGroup>
+    <FrameworkReference Update="Microsoft.NETCore.App" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

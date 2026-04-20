@@ -63,4 +63,35 @@
     <None Remove="node_modules/**/*" />
     <None Remove="dist/**/*" />
   </ItemGroup>
+
+  <!--
+    T3 — overlay Carbide's forked System.Console.dll on top of the stock one that the
+    Mono-WASM publish pipeline drops into `_framework/`. Runs after Publish so the file we
+    copy into survives; the loader picks up the fork (same assembly name, same TFM) at
+    `dotnet.js` boot time because the loader trusts the file by name.
+
+    We don't ProjectReference the fork — that would double-register the assembly in the
+    Core build graph and confuse ref-pack resolution. Instead we build the fork
+    out-of-band here and file-copy its output.
+  -->
+  <Target Name="CarbideBuildForkedSystemConsole" BeforeTargets="Publish">
+    <MSBuild Projects="..\..\core-bcl\System.Console\Carbide.System.Console.csproj"
+             Properties="Configuration=$(Configuration)"
+             Targets="Build" />
+  </Target>
+  <Target Name="CarbideOverlayForkedSystemConsole" AfterTargets="Publish">
+    <PropertyGroup>
+      <CarbideForkedConsoleDll>..\..\core-bcl\System.Console\bin\$(Configuration)\$(TargetFramework)\System.Console.dll</CarbideForkedConsoleDll>
+      <CarbideFrameworkPublishDir>$(PublishDir)wwwroot\_framework\</CarbideFrameworkPublishDir>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(CarbideForkedConsoleDll)')"
+           Text="T3 overlay failed: forked System.Console.dll not found at $(CarbideForkedConsoleDll). Build Carbide.System.Console.csproj first." />
+    <Error Condition="!Exists('$(CarbideFrameworkPublishDir)System.Console.dll')"
+           Text="T3 overlay failed: stock System.Console.dll not found at $(CarbideFrameworkPublishDir). Did the Mono-WASM publish step run?" />
+    <Copy SourceFiles="$(CarbideForkedConsoleDll)"
+          DestinationFolder="$(CarbideFrameworkPublishDir)"
+          OverwriteReadOnlyFiles="true"
+          UseHardlinksIfPossible="false" />
+    <Message Text="T3: overlaid forked System.Console.dll into $(CarbideFrameworkPublishDir)" Importance="high" />
+  </Target>
 </Project>

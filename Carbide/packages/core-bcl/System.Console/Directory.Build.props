@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    T3 — local overrides for the forked System.Console.dll build. The Carbide repo root
+    sets trimming on by default for everything under it; the fork must stay untrimmed
+    because it ships as the runtime-time replacement for the BCL's System.Console.dll,
+    and trimming would strip members reflection-reachable from the stock public API.
+  -->
+  <PropertyGroup>
+    <NetVersion>net10.0</NetVersion>
+    <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+  </PropertyGroup>
+</Project>

@@ -1,8 +1,8 @@
 # Carbide — milestone plans
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-20T00:16:33Z
-- Repository HEAD: 02822786b0533e1ab30b09a7ab451557bf3e6ce1
+- Updated (UTC): 2026-04-20T14:45:00Z
+- Repository HEAD: 43db73bda
 
 This directory groups the detailed implementation plans for individual Carbide milestones.
 
@@ -21,3 +21,4 @@ This directory groups the detailed implementation plans for individual Carbide m
 - [M11 — detailed plan (Partial MSBuild evaluator)](carbide-M11-detailed-plan__2026-04-19__09-00-00-000000.md)
 - [T1 — detailed plan (streaming output + terminal session API)](carbide-T1-detailed-plan__2026-04-20__00-16-33-000000.md) — first phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).
 - [T2 — detailed plan (cooperative async input + `CarbideConsole`)](carbide-T2-detailed-plan__2026-04-20__03-09-57-000000.md) — second phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).
+- [T3 — detailed plan (forked `System.Console.dll`)](carbide-T3-detailed-plan__2026-04-20__13-56-27-000000.md) — third phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md). **Implemented (base surface).** Replaces the stock `System.Console.dll` with a Carbide fork so pre-compiled NuGet libraries call stock `Console.ForegroundColor` / `Console.WindowWidth` / `Console.CancelKeyPress` etc. without code changes. Sync-block APIs (`Console.ReadKey`, `Console.GetCursorPosition`) remain PNS pending T3.1 (worker + SAB).
