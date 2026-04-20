@@ -1,14 +1,15 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-19T22:01:41Z
-Repository HEAD: 43db73bda4ae735ad00fe7c40caab66f203d9dd0
+Updated (UTC): 2026-04-20T16:09:06Z
+Repository HEAD: 8c224d6b64e38c5ec1edf4792b0ccecb188e1c99
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
 ## Documents
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
+- [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
 - [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
 - [Feasibility: browser-hosted interactive C# console apps in Carbide via xterm.js](reports/carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — feasibility analysis for an xterm.js-backed browser terminal runner and the runtime work required for substantial `System.Console` parity.
 - [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md) — what Carbide is, who it's for, what it does and does not try to do, tiered goals, success criteria.
