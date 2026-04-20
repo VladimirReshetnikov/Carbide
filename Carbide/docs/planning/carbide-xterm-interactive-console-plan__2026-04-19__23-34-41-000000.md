@@ -1,7 +1,7 @@
 # Carbide — xterm.js interactive console plan (Phases T1–T4)
 
 - Created (UTC): 2026-04-19T23:34:41Z
-- Revised (UTC): 2026-04-19T23:50:00Z
+- Revised (UTC): 2026-04-20T00:16:33Z
 - Repository HEAD: e9e9e23e1e146a2509a6e1cf7dc0b61b81090977
 
 Status: parent implementation plan for the xterm.js-backed interactive browser terminal feature. **All four phases (T1, T2, T3, T4) are committed deliverables.** Written on top of the two feasibility reports that established the verdict and the T3 fork-the-BCL direction:
@@ -93,6 +93,8 @@ These are the non-negotiables that every phase preserves; each phase's acceptanc
 ## 4. Phase T1 — streaming output + terminal session API
 
 **Goal.** First working browser-interactive demo. The user writes `Console.WriteLine("\x1b[1;33mhello\x1b[0m");` in the editor; the text renders in xterm.js yellow-bold as the program runs. Also closes the long-standing U1-era "raw bytes leak to browser devtools console instead of the captured stream" footgun.
+
+> **Detailed plan:** [`milestones/carbide-T1-detailed-plan`](milestones/carbide-T1-detailed-plan__2026-04-20__00-16-33-000000.md) — §4 of this parent plan is the overview; the detailed plan is the working plan with code sketches, per-file change tables, D-series and R-series, and out-of-scope ownership.
 
 ### 4.1 Acceptance
 
