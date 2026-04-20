@@ -8,7 +8,7 @@
 const playwrightUrl = new URL("../../../packages/core/node_modules/playwright/index.mjs", import.meta.url);
 const { chromium } = await import(playwrightUrl.href);
 
-const demoUrl = process.env.DEMO_URL ?? "http://127.0.0.1:34570/examples/carbide-gh/";
+const demoUrl = process.env.DEMO_URL ?? "http://127.0.0.1:34570/docs/reports/artifacts/carbide-gh-T21-artifact/";
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 180_000);
 
 console.log(`smoke: loading ${demoUrl}`);

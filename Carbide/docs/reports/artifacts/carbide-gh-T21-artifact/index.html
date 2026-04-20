@@ -2,23 +2,33 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>carbide-gh — a Spectre.Console GitHub REPL in the browser</title>
+  <title>carbide-gh — T2.1 investigation artifact (not a working demo)</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
   <style>
     :root { color-scheme: dark; }
     html, body { margin: 0; padding: 0; background: #111; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
+    .artifact-banner { background: #5a3a00; color: #ffdfa1; padding: 8px 16px; font: 12px/1.4 system-ui, sans-serif; border-bottom: 1px solid #7a5a00; }
+    .artifact-banner strong { color: #ffeac4; }
+    .artifact-banner a { color: #ffeac4; text-decoration: underline; }
     header { padding: 12px 16px; border-bottom: 1px solid #333; display: flex; gap: 16px; align-items: baseline; }
     header h1 { font-size: 16px; margin: 0; color: #7cc; }
     header .sub { color: #888; font-size: 12px; }
     header .status { margin-left: auto; color: #aaa; font-size: 12px; font-family: ui-monospace, monospace; }
     header .status[data-state="ready"] { color: #7c7; }
     header .status[data-state="error"] { color: #e77; }
-    #term { height: calc(100vh - 46px); padding: 8px; }
+    #term { height: calc(100vh - 82px); padding: 8px; }
     .xterm-viewport::-webkit-scrollbar { width: 10px; }
     .xterm-viewport::-webkit-scrollbar-thumb { background: #333; }
   </style>
 </head>
 <body>
+  <div class="artifact-banner">
+    <strong>⚠ T2.1 investigation artifact — not a working demo.</strong>
+    This page boots, renders the banner, then trips <code>Cannot wait on monitors</code>
+    on the first <code>await Console.In.ReadLineAsync()</code>. Preserved as a reference
+    for the <a href="../../carbide-T21-investigation-report__2026-04-20__17-11-37-000000.md">T2.1
+    investigation report</a>. See also <a href="README.md">README.md</a> in this directory.
+  </div>
   <header>
     <h1>carbide-gh</h1>
     <span class="sub">a Spectre.Console-powered GitHub REPL, compiled in the browser with Carbide</span>
@@ -74,7 +84,7 @@
       // DEBUG: Program.cs only; skip the other files to isolate.
       const names = ["Program.cs"];
       const results = await Promise.all(
-        names.map(async (n) => [n, await (await fetch(`/examples/carbide-gh/src/${n}`)).text()]),
+        names.map(async (n) => [n, await (await fetch(`/docs/reports/artifacts/carbide-gh-T21-artifact/src/${n}`)).text()]),
       );
       return results;
     }
@@ -90,7 +100,7 @@
       const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
 
       setStatus("vendoring Spectre.Console.dll\u2026");
-      const spectreBytes = await fetchBytes("/examples/carbide-gh/public/lib/Spectre.Console.dll", "Spectre.Console");
+      const spectreBytes = await fetchBytes("/docs/reports/artifacts/carbide-gh-T21-artifact/public/lib/Spectre.Console.dll", "Spectre.Console");
       const spectreHandle = session.addReference(spectreBytes, "Spectre.Console");
 
       setStatus("compiling REPL\u2026");

@@ -1,18 +1,26 @@
-// Static server for the carbide-gh demo. Root is the Carbide repo (not just the demo
-// folder) so the browser can reach:
+// Static server for the carbide-gh T2.1 investigation artifact. Root is the Carbide
+// repo (not just this artifact) so the browser can reach:
 //
-//   /examples/carbide-gh/index.html   — the demo page
-//   /packages/core/dist/index.js      — the @carbide/core ESM entry
-//   /packages/core/src/bin/.../wwwroot/_framework/*  — Mono-WASM runtime + forked DLLs
+//   /docs/reports/artifacts/carbide-gh-T21-artifact/index.html  — the page
+//   /packages/core/dist/index.js                                — the @carbide/core ESM entry
+//   /packages/core/src/bin/.../wwwroot/_framework/*             — Mono-WASM runtime + forked DLLs
 //
 // No caching, no directory listings, single process. Press Ctrl+C to stop.
+//
+// Artifact note: this script is preserved as part of the T2.1 report artifact. The
+// page it serves is NOT a working demo — it boots, renders the banner, then trips
+// "Cannot wait on monitors" on the first await. See ../README.md.
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+// From `.../docs/reports/artifacts/carbide-gh-T21-artifact/scripts/` up 5 to the Carbide
+// repo root. (T2 pre-move path was 3 levels; kept as a reminder if the artifact ever
+// moves back out of docs/reports/artifacts/.)
+const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..", "..");
+const ARTIFACT_URL_PATH = "docs/reports/artifacts/carbide-gh-T21-artifact/";
 const PORT = Number(process.env.PORT ?? 34570);
 
 function guessMime(filePath) {
@@ -36,8 +44,10 @@ const server = createServer(async (req, res) => {
     try {
         const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
         let pathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-        if (pathname === "" || pathname === "examples/carbide-gh" || pathname === "examples/carbide-gh/") {
-            pathname = "examples/carbide-gh/index.html";
+        if (pathname === "" ||
+            pathname === ARTIFACT_URL_PATH.replace(/\/$/, "") ||
+            pathname === ARTIFACT_URL_PATH) {
+            pathname = ARTIFACT_URL_PATH + "index.html";
         }
         const abs = path.resolve(REPO_ROOT, pathname);
         if (!abs.startsWith(REPO_ROOT)) {
@@ -62,7 +72,8 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-    const url = `http://127.0.0.1:${PORT}/examples/carbide-gh/`;
-    console.log(`carbide-gh demo server: ${url}`);
+    const url = `http://127.0.0.1:${PORT}/${ARTIFACT_URL_PATH}`;
+    console.log(`carbide-gh T2.1 artifact server: ${url}`);
     console.log(`  repo root = ${REPO_ROOT}`);
+    console.log(`  note: this artifact is NOT a working demo. See ../README.md.`);
 });

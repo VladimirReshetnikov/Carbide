@@ -3,9 +3,11 @@
 - Created (UTC): 2026-04-20T17:11:37Z
 - Repository HEAD: 0933154cf (after T3 landed, before any T2.1 attempt commits)
 
-Status: **investigation, not a fix**. This report documents what T2.1 actually is, which theories were tested, which were ruled out, and which options remain open for future work. It replaces the earlier `carbide-T21-detailed-plan__2026-04-20__16-30-00-000000.md` whose root-cause section was wrong.
+Status: **investigation, not a fix**. This report documents what T2.1 actually is, which theories were tested, which were ruled out, and which options remain open for future work. It replaces the earlier `carbide-T21-detailed-plan__2026-04-20__16-30-00-000000.md` whose root-cause section was wrong (now deleted).
 
 Audience: repository owner Vladimir; future contributors picking this up.
+
+Accompanying artifact: [`artifacts/carbide-gh-T21-artifact/`](artifacts/carbide-gh-T21-artifact/README.md) — the mini Spectre.Console + GitHub REPL we attempted to build on top of Carbide T3 as a consumer-shaped stress test of async suspension. It boots, renders its banner, and trips on the first `await Console.In.ReadLineAsync()`. Preserved as a reference, not a working demo.
 
 ## 1. Symptom recap
 
@@ -215,9 +217,10 @@ These changes were made during T2.1 investigation and should be kept or reverted
 - `packages/core/src/Terminal/CarbideConsole.cs:316-345` — `DelayAsync` rewired to use `DelayCallback`. Same as above.
 - `packages/core/src/ts/terminal/bridge.ts:63-72` — `delay` renamed to `delayCallback`. Paired with the C# change above.
 
-### Should be deleted regardless
+### Already done
 
-- `docs/planning/milestones/carbide-T21-detailed-plan__2026-04-20__16-30-00-000000.md` — the earlier plan doc. Its root-cause section is wrong. Replace with this report.
+- The earlier `docs/planning/milestones/carbide-T21-detailed-plan__2026-04-20__16-30-00-000000.md` (whose root-cause section was wrong) has been deleted; this report replaces it.
+- The in-repo `examples/carbide-gh/` directory has been moved to [`docs/reports/artifacts/carbide-gh-T21-artifact/`](artifacts/carbide-gh-T21-artifact/README.md) and labeled as a non-working reference artifact accompanying this report.
 
 ## 9. Open investigation leads for whoever picks this up
 
