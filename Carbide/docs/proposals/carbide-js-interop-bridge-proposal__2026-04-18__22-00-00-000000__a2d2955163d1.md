@@ -602,7 +602,7 @@ These are not show-stoppers but they are where bugs will land; call them out exp
 
 ## 14. Phasing — proposed milestones
 
-The survey's 4–8 engineer-week estimate maps to three Carbide milestones.
+The survey's new-surface estimate — a Carbide-owned source generator plus a handle-table / dispatcher / marshal-engine trio, roughly ~1.5–3k LOC C# + ~500 LOC TS — maps to three Carbide milestones.
 
 ### 14.1 M7.1 — C# side: `HandleTable`, `Dispatcher`, `MarshalEngine` (v0 primitives only)
 

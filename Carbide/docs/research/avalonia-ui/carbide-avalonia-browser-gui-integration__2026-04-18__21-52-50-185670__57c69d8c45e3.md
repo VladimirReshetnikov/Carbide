@@ -19,7 +19,7 @@ Three scope words to pin down before anything else:
 
 ## 2. Executive summary
 
-| Capability | Today, unmodified | ~2 weeks of work | Months of work | Blocked or vision-breaking |
+| Capability | Today, unmodified | Small-surface extension (indicative: two new npm packages, ~300 LOC of build plumbing, one new TS entry) | Moderate-to-large surface (indicative: new launcher/runner packages, collectible ALC work in `ProjectCompiler`, ~1–2k LOC) | Blocked or vision-breaking |
 |---|---|---|---|---|
 | Compile C# referencing `Avalonia.dll` / deps | — | ✔ (ref-pack + ReferenceRegistry wiring) | — | — |
 | Run compiled program that imports BCL only | ✔ Carbide M4 | — | — | — |
@@ -32,7 +32,7 @@ Three scope words to pin down before anything else:
 
 **Headline.** Technically, this is **already a solved problem** in the large: [`AvaloniaUI/XamlPlayground`](https://github.com/AvaloniaUI/XamlPlayground) is a production Avalonia-browser app that hosts Roslyn in-process, compiles user C# into an in-memory `Assembly`, loads it via `AssemblyLoadContext.LoadFromStream`, and parses user-authored XAML at runtime through `AvaloniaRuntimeXamlLoader`. The runtime+compiler coexistence is demonstrated to work in a shipped WebAssembly bundle. Carbide and Avalonia.Browser furthermore share the exact same SDK (`Microsoft.NET.Sdk.WebAssembly`) and runtime identifier (`browser-wasm`), so the two stacks are not architecturally alien — they are two C# consumers of one .NET WebAssembly runtime.
 
-The honest engineering gap is narrow and specific: about **1–2 weeks of work on four seams** (see §7 Sketch A) to deliver "compile-and-show-an-Avalonia-window" in the browser, plus a larger and more ambiguous decision about **vision alignment** — Carbide's vision document explicitly lists Avalonia among the `N.2` non-goals. The technical path is clear; the strategic path requires an owner call about whether GUI belongs in Carbide's scope, in a **sibling project** like `src/Carbide.Avalonia` or `@carbide-ui/avalonia`, or nowhere at all.
+The honest engineering gap is narrow and specific: **four identified seams** (see §7 Sketch A) — build-pipeline wiring to produce a merged `_framework/` bundle; a ref-pack that includes the Avalonia reference assemblies; two TS entries to boot the composite runtime; one demo fixture. The technical path is clear; the strategic path requires an owner call about whether GUI belongs in Carbide's scope, in a **sibling project** like `src/Carbide.Avalonia` or `@carbide-ui/avalonia`, or nowhere at all — because Carbide's vision document explicitly lists Avalonia among the `N.2` non-goals.
 
 The strategic risk (separately from the technical one) is **size-budget pressure**: adding Avalonia's managed assemblies, its browser-specific native WebAssembly glue (Skia-backed rendering via WebGL), and the Avalonia.Markup.Xaml.Loader dependency pushes the bundle from Carbide's current ~30 MB target into the 60–100 MB range — past Carbide's declared budget. This alone justifies carrying the integration in a *sibling* package rather than folding it into `@carbide/core`.
 
@@ -276,7 +276,7 @@ project.addSource("Program.cs", `
 await session.runAvalonia(project);   // pixels now on the canvas
 ```
 
-**Delivery estimate.** 1–2 weeks of engineering, most of it build-pipeline wiring:
+**Delivery surface.** Indicatively: one merged-`_framework/` build step, one extended ref-pack (Avalonia.* DLLs), two or three new TS entries, one demo fixture. Most of the work is build-pipeline wiring:
 
 - Days 1–2: `Carbide.Core.AvaloniaHost` project skeleton + `dotnet publish` pipeline that produces a merged `_framework/`.
 - Day 3: `@carbide-ui/refs-avalonia` ref-pack extraction from `Avalonia.Browser.nupkg`.
@@ -315,7 +315,7 @@ const build = await project.build();
 await launchInIframe(build, document.getElementById("preview-iframe"));
 ```
 
-**Delivery estimate.** 1.5–2.5 weeks. Roughly the same as Sketch A on build + runtime sides, plus the cross-frame `postMessage` protocol and origin/security story. The runtime bundle is smaller per page load (only GUI users download Avalonia), but the memory footprint is **higher** during use because two .NET WASM runtimes run concurrently.
+**Delivery surface.** Similar to Sketch A on build + runtime sides, plus a cross-frame `postMessage` protocol (indicatively ~200–400 LOC of TS for the launcher + runner halves) and an origin/security story. The runtime bundle is smaller per page load (only GUI users download Avalonia), but the memory footprint is **higher** during use because two .NET WASM runtimes run concurrently.
 
 **Upsides over Sketch A.**
 
@@ -357,7 +357,7 @@ npx carbide build --target avalonia-browser \
 python -m http.server --directory ./dist
 ```
 
-**Delivery estimate.** 1 week (all Node-side tooling; no browser runtime work).
+**Delivery surface.** Smallest of the three — all Node-side tooling; no browser runtime work. Indicatively: one new CLI target (`--target avalonia-browser`) + shared consumption of the Avalonia ref-pack; one fixture.
 
 **Upsides.**
 
@@ -430,12 +430,12 @@ Reasons:
 1. **Sketch B respects Carbide's vision non-goals.** Carbide itself stays strictly "compile and run console-shaped programs". GUI lives in a cleanly separate package. No vision amendment needed.
 2. **Sketch B keeps the size budget intact.** `@carbide/core` users who don't want GUI don't download Avalonia. `@carbide-ui/avalonia-runner` users pay for what they use.
 3. **Sketch A's in-process savings are not worth the vision tension.** Yes, one runtime is less memory than two; but Carbide's usual session is short-lived (agent verification, validator pass) and re-running within the same runtime is not a common enough workflow to justify doubling the bundle size and opening the N.2/N.3 scope question.
-4. **Sketch C is cheap and complementary.** `carbide build --target avalonia-browser` can ship at the same time as Sketch B (they share the ref-pack and the runtime bundle), is useful on its own for "I want to publish an Avalonia app I wrote in Carbide", and costs ~1 week. It can ship first while Sketch B is being built.
+4. **Sketch C is cheap and complementary.** `carbide build --target avalonia-browser` can ship at the same time as Sketch B (they share the ref-pack and the runtime bundle), is useful on its own for "I want to publish an Avalonia app I wrote in Carbide", and is the smallest of the three sketches in new-surface terms. It can ship first while Sketch B is being built.
 
 **A staged delivery path:**
 
-- **Stage 1 (1 week).** Ship `@carbide-ui/refs-avalonia` + `@carbide-ui/avalonia-runtime-bundle`. Ship `carbide build --target avalonia-browser` (Sketch C). No in-browser running yet; offline builds only.
-- **Stage 2 (1.5–2 weeks, concurrent or after).** Land collectible `AssemblyLoadContext` in `ProjectCompiler.RunAsync` as a general Carbide improvement (§8.3). Ship `@carbide-ui/avalonia-runner` (the iframe-hosted Avalonia runtime) + `@carbide-ui/launcher` (the Carbide-side bridge). Wire `launchInIframe(buildResult, iframe)` (Sketch B).
+- **Stage 1 (smallest surface).** Ship `@carbide-ui/refs-avalonia` + `@carbide-ui/avalonia-runtime-bundle`. Ship `carbide build --target avalonia-browser` (Sketch C). No in-browser running yet; offline builds only.
+- **Stage 2 (concurrent or after; moderate new surface).** Land collectible `AssemblyLoadContext` in `ProjectCompiler.RunAsync` as a general Carbide improvement (§8.3). Ship `@carbide-ui/avalonia-runner` (the iframe-hosted Avalonia runtime) + `@carbide-ui/launcher` (the Carbide-side bridge). Wire `launchInIframe(buildResult, iframe)` (Sketch B).
 - **Stage 3 (optional, Band B).** Support `.axaml` as source files *at runtime* via `AvaloniaRuntimeXamlLoader.Parse`, documented but without the XAML source generator. Users write Avalonia code + inline XAML strings (or `.axaml` loaded at runtime). This extends Sketch B naturally.
 - **Stage 4 (Band C, tied to Carbide M12).** Plumb the Avalonia XAML source generator through Carbide's generator driver. Build-time `.axaml` files become supported. This is the point at which a real-world Avalonia codebase (MVVM + `.axaml` files) "just works" in Carbide.
 
@@ -494,7 +494,7 @@ Must: `build.success === true`; the iframe renders the Avalonia UI; a second `la
 
 ## 12. What this report deliberately does not answer
 
-- **Whether this should happen at all.** That's an owner call. The report makes the case that *if* it happens, Sketch B (with optional Sketch C) is the cleanest path and that the technical barriers are all surmountable in ≤ 3 weeks.
+- **Whether this should happen at all.** That's an owner call. The report makes the case that *if* it happens, Sketch B (with optional Sketch C) is the cleanest path and that the technical barriers are all surmountable within a bounded new-surface budget (three new npm packages, collectible ALC work in the existing `ProjectCompiler`, ~1–2k LOC total across TS + C#).
 - **Whether Avalonia is the right GUI framework.** Uno Platform, .NET MAUI Blazor Hybrid, or Blazor WebAssembly with a component kit are all adjacent choices. This report is scoped to Avalonia per the request.
 - **Whether a Tauri or Electron path makes more sense for the "desktop+web+agent" matrix.** That is a different question — those stacks do not meet the "no dotnet SDK on the host" constraint that motivated Carbide.
 - **Detailed size measurements.** The numbers in §3.2 are order-of-magnitude from published docs and NuGet package sizes; the Stage 1 acceptance test will produce exact numbers, which should then be committed as size-budget gates.

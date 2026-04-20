@@ -135,7 +135,7 @@ In other words: the original report's **scope-separation conclusion** still hold
 
 ### Delivery-estimate note
 
-The original report's 1-3 week delivery estimates should be treated as planning guesses, not verified facts. The corrected package-layout findings make the first-stage packaging work look more involved than the original report suggested.
+The original report's delivery sizing should be treated as planning guesses, not verified facts. The corrected package-layout findings make the first-stage packaging work look more involved than the original report suggested — the Avalonia.Browser runtime surface to assemble into a `_framework/` ship is larger than the original sketch implied.
 
 ## Sources
 

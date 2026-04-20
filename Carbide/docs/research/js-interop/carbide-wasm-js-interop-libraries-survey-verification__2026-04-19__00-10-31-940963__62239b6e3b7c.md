@@ -39,7 +39,7 @@ What changed in this verification is mostly tightening:
 | Bootsharp is the closest current candidate for a higher-level bridge. | Verified, with caveats | Active, current release, browser + Node support, generated TS declarations, interface-based instance binding. Caveat: Bootsharp assumes a publish/build-driven workflow that Carbide has not yet proven compatible with its in-browser dynamic compilation model. |
 | Carbide should keep its own infrastructure boundary on raw `[JSImport]` / `[JSExport]`. | Verified as a sound recommendation | Fits Carbide's existing narrow payload shape and avoids depending on a higher-level library for internal control-plane operations. |
 | `componentize-dotnet` + `jco` are worth tracking long-term, but not a direct answer today. | Directionally verified | Both projects are active, but their center of gravity is WIT / components / WASI portability, not today's browser JS interop ergonomics. |
-| A custom proxy/source-generator layer is likely a 4-8 week effort. | Not independently verified | This may be a reasonable estimate, but I found no source that could validate it; it should be treated as planning judgment, not fact. |
+| A custom proxy/source-generator layer is a moderate-surface effort (indicatively one new npm/C# package: ~1–2k LOC C# source generator + ~300–600 LOC TS Proxy layer and TS type-decl emission). | Not independently verified | The sizing may be a reasonable estimate, but I found no source that could validate it; it should be treated as planning judgment, not fact. |
 
 ## 3. Local Carbide verification
 
@@ -179,7 +179,7 @@ If the original survey is kept as a design document, I would update these points
 - Soften any absolute wording around `JSType.Any` / managed-object opacity to: "I found no documented ClearScript-like member projection over this path."
 - Pin Bootsharp claims to release-tagged docs or release metadata where possible, because the live docs site currently mixes `v0.7.0` labeling with at least one `0.8.0` behavior note.
 - Correct the ClearScript generic-method example syntax.
-- Mark planning estimates such as "~60%" coverage or "4-8 weeks" implementation effort as engineering judgment rather than source-backed fact.
+- Mark planning estimates such as "~60%" coverage or new-surface sizing ("~1–2k LOC source generator plus ~300–600 LOC TS") as engineering judgment rather than source-backed fact.
 
 ## 6. Final verified conclusion
 

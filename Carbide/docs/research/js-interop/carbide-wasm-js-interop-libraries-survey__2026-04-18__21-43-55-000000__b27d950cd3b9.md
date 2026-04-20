@@ -222,7 +222,7 @@ Closing the remaining distance requires four pieces, none of which is individual
 3. **Delegate/event bridging.** Already partially covered by `Action`/`Func` ≤ 3 args auto-marshaling. For higher arities or variadic, a thin wrapper over `JSObject` property reads + invoke suffices.
 4. **Exception class mapping.** `[JSExport]` already surfaces managed exceptions as JS `Error`. Adding a TypeScript `CarbideError` subclass with `.inner.stack` preserved is the cosmetic step.
 
-Bootsharp already builds roughly the first 60 % of this (points 1 and 3, on interfaces), which is why it ranks highest. A Carbide-specific "last 40 %" — the `Proxy`-trap layer over Bootsharp's instance bindings, plus a property accessor generator — is a plausible 4–8 engineer-week spike.
+Bootsharp already builds roughly the first 60 % of this (points 1 and 3, on interfaces), which is why it ranks highest. A Carbide-specific "last 40 %" — the `Proxy`-trap layer over Bootsharp's instance bindings, plus a property accessor generator — is a plausible moderate-surface spike: indicatively one new `src/Carbide/packages/carbide-proxy-gen/` source-generator package (~1–2k LOC C#) plus ~300–600 LOC TS for the `Proxy`-trap layer and TS type-declaration emission.
 
 ## 7. Recommendations for Carbide
 
@@ -249,7 +249,7 @@ Two small wins are worth grabbing:
 
 ### 7.3 Medium term — build a thin "Proxy trap" layer on top of Bootsharp
 
-If usage shows that Carbide needs ClearScript-true ergonomics (JS consumer of compiled C# writing `obj.Name = "x"` and `obj.Items[0].Price`), the minimal work is a source generator that emits per-member `[JSExport]` stubs plus a JS-side factory that wraps them in a `Proxy`. This is the 4–8 week spike noted above. The generator can live in `src/Carbide/packages/carbide-proxy-gen/` (new package).
+If usage shows that Carbide needs ClearScript-true ergonomics (JS consumer of compiled C# writing `obj.Name = "x"` and `obj.Items[0].Price`), the minimal work is a source generator that emits per-member `[JSExport]` stubs plus a JS-side factory that wraps them in a `Proxy`. This is the moderate-surface spike noted above. The generator can live in `src/Carbide/packages/carbide-proxy-gen/` (new package).
 
 ### 7.4 Long term — track `componentize-dotnet` + `jco`
 
@@ -296,5 +296,5 @@ Once WASI Preview 3 lands async (current projection: late 2026) and `jco` stabil
 - **No library in the ecosystem today reaches ClearScript-level "CLR object as property-addressable JS `Proxy`"** — the wall is `JSType.Any`'s opacity on the JS side.
 - **Bootsharp** is the closest (instance binding over interfaces, single ES module output, active maintenance, Node + browser). It covers ~60 % of what's needed. Adopt it as the user-code bridge.
 - **Keep Carbide's own infrastructure boundary on raw `[JSImport]`/`[JSExport]`** — its payloads are strings and binary; JSON is correct.
-- **Closing the last 40 %** to full property-proxy ergonomics is a 4–8 week source-generator spike (`[CarbideExport]` marker → per-member stubs + ES6 `Proxy` + TS types). Do this only if users demand it.
+- **Closing the last 40 %** to full property-proxy ergonomics is a moderate-surface source-generator spike (one new `src/Carbide/packages/carbide-proxy-gen/` package: `[CarbideExport]` marker → per-member stubs + ES6 `Proxy` + TS types; indicatively ~1–2k LOC C# + ~300–600 LOC TS). Do this only if users demand it.
 - **Track `componentize-dotnet` + `jco`** as the 2027 portable substrate, but do not port today.

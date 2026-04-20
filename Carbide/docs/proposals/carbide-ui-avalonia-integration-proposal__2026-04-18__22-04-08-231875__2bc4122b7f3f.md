@@ -107,7 +107,7 @@ One npm package (`@carbide-ui/avalonia-host`) ships a WebAssembly bundle that co
 - **Crash radius**: a misbehaving user program (infinite loop, heap exhaustion) takes down the compiler too. No way to reset the compiler without reloading the page.
 - **Coupling**: Avalonia version bumps force `@carbide-ui/avalonia-host` rebuilds that touch the merged runtime. The triple-pinning discipline is harder to keep airtight when the packages share a `_framework/`.
 
-**Cost.** ~2 weeks of engineering. Most of it is build-pipeline plumbing for the merged `_framework/`.
+**Cost.** Small-to-moderate new surface: a merged-`_framework/` build step, extended ref-pack, one or two new TS entries. Most of it is build-pipeline plumbing for the merged `_framework/`.
 
 ### 4.2 Approach B — Cross-frame runner (Carbide compiles, iframe Avalonia runs) — **proposed**
 
@@ -131,7 +131,7 @@ Carbide itself is unchanged. Two runtimes coexist on the page: Carbide's (compil
 - **`postMessage` copy.** PE bytes transit the frame boundary as a base64 string in a JSON envelope. For a typical 100 KB user assembly this is imperceptible.
 - **Coordination complexity.** The protocol must handle boot races (Carbide tries to send before runner is ready), teardown races (new run requested while old one is still starting), and error propagation (runtime errors in the iframe must surface back to the launcher).
 
-**Cost.** ~1.5–2 weeks of engineering. Most of it is the runner project (a small Avalonia.Browser app whose `App` class is a dynamic loader) and the `postMessage` protocol.
+**Cost.** Moderate new surface. Indicatively: one new npm package for the runner (a small Avalonia.Browser app whose `App` class is a dynamic loader, ~200–400 LOC C#), one new npm package for the launcher (~200–400 LOC TS), and a `postMessage` protocol spec.
 
 ### 4.3 Approach C — Offline build CLI (no in-browser execution) — **proposed as concurrent delivery**
 
@@ -145,7 +145,7 @@ Carbide itself is unchanged. Two runtimes coexist on the page: Carbide's (compil
 No browser execution happens inside Carbide; the output is deployable to any static host. "Run" means "`python -m http.server --directory ./dist`" (or GitHub Pages, or Netlify, etc.).
 
 **Pros.**
-- **Lowest engineering cost.** All Node-side; no new browser runtime work. ~1 week.
+- **Lowest engineering cost.** All Node-side; no new browser runtime work. Smallest of the three in new-surface terms (one new CLI flag + ~100–200 LOC of static-bundle assembly + one fixture).
 - **Produces a deployable artifact** that survives Carbide itself. Users can ship their Avalonia app to static hosting.
 - **Shares the runtime bundle with Approach B.** Same `_framework/` serves both interactive and offline paths; the only difference is whether the HTML shell has an inline launcher or a static user-PE reference.
 
@@ -153,7 +153,7 @@ No browser execution happens inside Carbide; the output is deployable to any sta
 - **Doesn't satisfy "running in the browser with Carbide"**: the run happens on whatever host serves the static files, not inside Carbide's workflow.
 - **No iteration loop.** Edit → build → deploy → reload is slower than edit → run.
 
-**Cost.** ~1 week.
+**Cost.** Smallest new surface of the three sketches.
 
 ### 4.4 Comparison table
 
@@ -162,7 +162,7 @@ No browser execution happens inside Carbide; the output is deployable to any sta
 | Cold-start cost per use | 1× ~50 MB | 2× ~30 MB | 0 (offline build) |
 | Runtime memory peak | ~150 MB | ~250 MB | 0 in Carbide |
 | Alignment with Carbide N.2/N.3 | Risky | **Clean** | Clean |
-| Engineering effort | ~2 weeks | **~1.5–2 weeks** | ~1 week |
+| New-surface budget | merged `_framework/` + ext. ref-pack + 1–2 TS entries | **2 new npm packages (runner + launcher) + `postMessage` protocol** | 1 new CLI flag + static-bundle assembler |
 | Interactive in-browser run | Yes | **Yes** | No |
 | Deployable static artifact | No | No | **Yes** |
 | Can run multiple previews on one page | 1 (one runtime) | **N (N iframes)** | N/A |
@@ -184,8 +184,8 @@ No browser execution happens inside Carbide; the output is deployable to any sta
 Rationale:
 
 1. **Approach B keeps the letter and spirit of Carbide's N.2/N.3 non-goals.** No Avalonia artefacts inside `@carbide/core`; no vision amendment beyond adding the "companion projects" clause.
-2. **Approach B is only marginally more expensive than Approach A** (1.5–2 weeks vs 2 weeks) but buys **crash isolation, independent release cadence, multi-preview capability, and clean size accounting**.
-3. **Approach C piggybacks on Approach B's work** (shared `_framework/`, shared reference pack). It costs < 1 extra week on top of B and delivers the "publishable artefact" use case that Approach B does not.
+2. **Approach B is only marginally larger in new-surface terms than Approach A** (two sibling packages vs one merged build) but buys **crash isolation, independent release cadence, multi-preview capability, and clean size accounting**.
+3. **Approach C piggybacks on Approach B's work** (shared `_framework/`, shared reference pack). It adds one small CLI flag on top of B and delivers the "publishable artefact" use case that Approach B does not.
 4. **Approach A's one genuine advantage** — in-process compiler–GUI cross-talk — is not a v1 requirement. If it becomes one, `@carbide-ui/avalonia-host` can be added later as a third sibling package; nothing in B or C precludes it.
 5. **The combined B+C bundle**, sized ~40 MB compressed for the runner (Approach C's `_framework/` **is** Approach B's runner's `_framework/`), fits the proposed companion-family budget without Carbide's budget taking the hit.
 

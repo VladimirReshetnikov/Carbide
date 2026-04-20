@@ -40,7 +40,7 @@ Three scope words pinned before analysis:
 
 ## 2. Executive summary
 
-| Capability | Today in Carbide | Vertical slice (1–2 weeks) | Useful (4–8 weeks) | Conhost-like (2–4 months) | Out of scope |
+| Capability | Today in Carbide | Vertical slice (one new TS entry + ~300 LOC C#) | Useful subset (new `CarbideConsole` static + `TextReader`/`TextWriter` pair; ~800–1200 LOC C#, one peer dep) | Conhost-like (forked `System.Console.dll`; new csproj + ~2–4k LOC ported from Unix ConsolePal) | Out of scope |
 |---|---|---|---|---|---|
 | `Console.WriteLine` bytes streamed to xterm.js as they land | buffered into `StringWriter`, emitted after run completes | ✔ custom `TextWriter` → JSImport callback | ✔ | ✔ | — |
 | Plain `\x1b[...]` ANSI passthrough (colors, cursor, SGR) | works — bytes transit unchanged, but buffered | ✔ — xterm.js parses natively | ✔ | ✔ | — |
@@ -418,7 +418,7 @@ Mono-WASM's `[JSImport]` with `Task<T>` return type effectively does Option A wi
 
 ## 10. Tiered scope
 
-### 10.1 Tier 1 — "Hello, interactive world" (1–2 weeks)
+### 10.1 Tier 1 — "Hello, interactive world" (smallest new surface)
 
 Goal: a browser page with xterm.js; user C# code can do `Console.WriteLine`, `Console.Write`, emit ANSI escapes, and the bytes appear in the terminal as they land. **No input**.
 
@@ -431,7 +431,7 @@ Scope:
 
 Non-scope: `Console.ReadLine`, `ReadKey`, color API, cursor API, resize awareness. Users who emit ANSI escapes manually get colors, cursor, and alternate screen for free — that's already enough for a lot of CLI demos.
 
-### 10.2 Tier 2 — "Usable interactive shell" (4–8 weeks, user-source only)
+### 10.2 Tier 2 — "Usable interactive shell" (moderate new surface; user-source only)
 
 ⚠ **Scope ceiling flagged after review (§19.2):** tier 2 as sketched here covers code Carbide compiles from source. Third-party pre-compiled libraries that call `Console.ReadKey`, `Console.ForegroundColor`, `Console.WindowWidth`, etc. directly will still throw PNS at runtime. For a "works with arbitrary console libraries" tier, see tier 3 below — the forked `System.Console.dll` path.
 
@@ -450,7 +450,7 @@ Scope on top of tier 1:
 - Ctrl+C byte-delivery path.
 - Docs: xterm setup fixture, example page, `.csproj` fixture that references `CarbideConsole` via a lightweight `@carbide/terminal-bcl` metadata reference.
 
-### 10.3 Tier 3 — "Conhost-parity mostly" (3–6 months after tier 2; runtime-workstream scale)
+### 10.3 Tier 3 — "Conhost-parity mostly" (runtime-workstream scale: new sibling BCL csproj)
 
 Goal: strict API parity for the supported subset. `Console.ForegroundColor = ConsoleColor.Red` works unmodified; `Console.ReadKey()` works synchronously or throws a clear "use the async variant" diagnostic. **Includes pre-compiled NuGet libraries.**
 
@@ -645,12 +645,12 @@ None of them try to back `System.Console.ReadKey` specifically; the conhost-pari
 
 ## 14. Recommendation
 
-**Pursue tier 1.** 1–2 weeks of focused work yields a real browser-interactive Carbide demo: user writes `Console.WriteLine("\x1b[1;33mhello\x1b[0m");` in the editor, sees it yellow-bold in xterm.js. That alone enables a class of tooling demos (ASCII art, banner generators, log replayers, spectre/console previews) that the current buffered-run model cannot show. No spec bumps to users, no new sync/async story, no PNS patches.
+**Pursue tier 1.** Tier 1 is a small-surface extension — indicatively one new TS entry (`runInteractive`), one new `TextWriter`, one `[JSImport]` pair, one new browser test fixture — and yields a real browser-interactive Carbide demo: user writes `Console.WriteLine("\x1b[1;33mhello\x1b[0m");` in the editor, sees it yellow-bold in xterm.js. That alone enables a class of tooling demos (ASCII art, banner generators, log replayers, spectre/console previews) that the current buffered-run model cannot show. No spec bumps to users, no new sync/async story, no PNS patches.
 
 **Decide tier 2 vs tier 3 scope with Vladimir before starting.** The decision hinges on one question: does Carbide need to support pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` directly?
 
 - **If no** (the user is mostly writing original source that Carbide compiles): tier 2's `CarbideConsole.*Async` is the cheapest path to a useful interactive shell. The Carbide.Terminal ref-pack exposes the API; user code migrates from `Console.ReadLine()` → `await CarbideConsole.ReadLineAsync()` and similar.
-- **If yes** (Spectre.Console, ReadLine.NET, and any other prompt/TUI library is in scope): the honest tier is the **forked `System.Console.dll`** described in §10.3. That's a runtime workstream (3–6 months). Tier 2's `CarbideConsole.*` is still a useful intermediate — it de-risks the JS bridge and the streaming writer — but it's a stepping stone, not the destination.
+- **If yes** (Spectre.Console, ReadLine.NET, and any other prompt/TUI library is in scope): the honest tier is the **forked `System.Console.dll`** described in §10.3. That's a runtime workstream — a new sibling csproj for `browser-wasm` with on the order of 2–4k LOC ported or adapted from the Unix `ConsolePal` + `KeyParser` + `StdInReader` + `TerminalFormatStrings` tree. Tier 2's `CarbideConsole.*` is still a useful intermediate — it de-risks the JS bridge and the streaming writer — but it's a stepping stone, not the destination.
 
 **Tier 3 is optional only in the "no third-party libraries" world.** Otherwise it's the real deliverable, and tier 2 is a spike.
 
@@ -747,12 +747,12 @@ with `_terminalSink` set by `runInteractive` and cleared on teardown. Outside `r
 | Ask | Answer |
 |---|---|
 | Is this feasible? | Yes. No blocker is structural. Mono-WASM single-threading is the only real constraint, and it has a well-trodden workaround (async). |
-| Roughly what cost? | Tier 1: 1–2 focused weeks. Tier 2: 4–8 weeks. Tier 3 (parity + optional worker+SAB): 2–4 months. |
+| Roughly what cost? | Tier 1: small-surface extension — one new TS entry + ~300 LOC C# + one fixture. Tier 2: moderate surface — a new `CarbideConsole` static, a `BrowserTerminalReader`/`Writer` pair, a line-editor module, a `[JSImport]`/`[JSExport]` surface (~800–1200 LOC C# + ~300 LOC TS). Tier 3 (parity + optional worker+SAB): new sibling `System.Console.dll` csproj for `browser-wasm` with ~2–4k LOC ported from Unix ConsolePal + a JS-bridge primitive layer. |
 | Biggest hidden cost? | Patching `System.Console` statics for conhost parity. Defers cleanly to tier 3 if we ship tier 2 with `CarbideConsole.*Async`. |
 | Biggest non-obvious benefit? | Fixing the existing U1-era "raw bytes leaked to stdout" quirk via the `print`/`printErr` overlay is effectively free at tier 1. |
 | Recommended next step if greenlit? | Spike tier 1: a 40-line C# `StreamingStdOutWriter`, a 60-line TypeScript `TerminalSession`, a Playwright fixture that runs `Console.WriteLine` + ANSI color. One merge. Demo. Decide tier 2 scope from there. |
 
-Vladimir — this one is a clean extension. Carbide's existing seams (the host adapter, the `Console.SetOut` path, the reflection-based `s_in` install, the JSExport surface) already anticipate everything we'd need. The single piece of genuinely-new engineering is the `StreamingStdOutWriter` + `BrowserTerminalReader` pair and the JSImport bridge behind them. Tier 1 is a plausible weekend hack; tier 2 is the interesting design conversation; tier 3 is a "when we have a real user" decision.
+Vladimir — this one is a clean extension. Carbide's existing seams (the host adapter, the `Console.SetOut` path, the reflection-based `s_in` install, the JSExport surface) already anticipate everything we'd need. The single piece of genuinely-new engineering is the `StreamingStdOutWriter` + `BrowserTerminalReader` pair and the JSImport bridge behind them. Tier 1 is a small, self-contained surface; tier 2 is the interesting design conversation; tier 3 is a "when we have a real user" decision.
 
 ## 19. Revisions after independent review
 
@@ -798,7 +798,7 @@ Confirmed: Carbide ships `System.Console.dll` as a standalone managed assembly i
 
 The reuse story is strong: most of the VT semantics already exist inside `ConsolePal.Unix`. The fork's delta vs the Unix path is narrow — stream primitives, size query, signals, terminfo. Everything else (color escape emission, cursor addressing, key decoding, line editing) is already correctly implemented in the .NET runtime for POSIX terminals.
 
-**Cost.** This is a real runtime workstream: csproj plumbing to build a sibling `System.Console.dll` in Carbide's `_framework/` ship; a JS-bridge for the primitives; keeping the fork current against upstream `System.Console` minor revisions. Not a weekend hack. The independent report's 2–4 months lands in roughly the same range as my tier-3 estimate, though I've bumped the tier-3 window to 3–6 months to account for the compat-test surface.
+**Cost.** This is a real runtime workstream: csproj plumbing to build a sibling `System.Console.dll` in Carbide's `_framework/` ship; a JS-bridge for the primitives; keeping the fork current against upstream `System.Console` minor revisions. Indicative surface: a new csproj; ~2–4k LOC ported from `ConsolePal.Unix` + `KeyParser` + `StdInReader` + `TerminalFormatStrings`; a small (on the order of ~300 LOC) JS-bridge C primitive layer that replaces the `ioctl`/`read`/`write`/terminfo surface; compat fixtures for Spectre.Console, ReadLine.NET, and similar. This is materially larger than tier 1 or tier 2 and in the same range as the independent report's framing.
 
 ### 19.4 Execution isolation and `Assembly.Load` lifecycle
 
@@ -826,7 +826,7 @@ The .NET runtime's own `ConsolePal.Unix` is also arguably the single most releva
 
 ### 19.7 What survived review unchanged
 
-- Tier 1 (streaming stdout/stderr via `[JSImport]` + custom `TextWriter`) is a 1–2 week piece of work.
+- Tier 1 (streaming stdout/stderr via `[JSImport]` + custom `TextWriter`) is a small-surface piece of work — ~300 LOC C# + ~200 LOC TS, one new test fixture.
 - The cooperative-async story for `Console.In.ReadLineAsync()` at tier 2 is correct.
 - The free-fix-for-U1-stdout-bypass by overriding emscripten `print`/`printErr` is correct and independent.
 - The specific ANSI translations (OSC 0 for title, DSR for cursor query, DECTCEM for visibility, DECSCUSR for style, `\x1b[2J\x1b[H` for clear, `\x1b[3%c;4%cm` for SGR) are correct and reusable at tier 2 *or* tier 3.
@@ -839,10 +839,10 @@ The .NET runtime's own `ConsolePal.Unix` is also arguably the single most releva
 | Phase | Deliverable | Cost | Value |
 |---|---|---|---|
 | **Phase 0 — lock non-goals** | Document Win32-console-API non-goals, pre-compiled-library-coverage decision, COOP/COEP decision. | Hours. | Prevents scope creep; surfaces the tier-2-vs-tier-3 decision explicitly. |
-| **Phase 1 — streaming output** | `runInteractive` with `StreamingStdOutWriter` + `StreamingStdErrWriter`; xterm.js `write` integration; emscripten `print` override. | 1–2 weeks. | First working interactive demo; fixes the U1 stdout-bypass quirk for free. |
-| **Phase 2 — cooperative async input** | `BrowserTerminalReader : TextReader`; `CarbideConsole.ReadLineAsync` / `ReadKeyAsync`; line editor. Ctrl+C byte delivery. Resize propagation. | 3–4 weeks. | Usable interactive shell for original source code. |
-| **Phase 3 — forked `System.Console.dll`** | Sibling csproj that builds a VT-first `System.Console.dll` for `browser-wasm`; reuse `ConsolePal.Unix` algorithms; bridge to the JS terminal. Replace in `_framework/` at publish time. | 3–6 months. | Pre-compiled-library compatibility; strict `Console.ReadKey` / `Console.ForegroundColor` parity. Optional worker + SAB if COOP/COEP is acceptable. |
-| **Phase 4 — hardening and compat tests** | Playwright-driven fixtures for Spectre.Console, ReadLine.NET, mouse mode, alt screen, resize. Isolation/lifecycle budget. | 2–4 weeks. | Confidence floor; regression net. |
+| **Phase 1 — streaming output** | `runInteractive` with `StreamingStdOutWriter` + `StreamingStdErrWriter`; xterm.js `write` integration; emscripten `print` override. | ~300 LOC C# + ~200 LOC TS; 1 new test fixture. | First working interactive demo; fixes the U1 stdout-bypass quirk for free. |
+| **Phase 2 — cooperative async input** | `BrowserTerminalReader : TextReader`; `CarbideConsole.ReadLineAsync` / `ReadKeyAsync`; line editor. Ctrl+C byte delivery. Resize propagation. | ~500–900 LOC C# (`CarbideConsole`, reader, `KeyParser` port) + ~200–400 LOC TS (line editor, bridge); 3–5 fixtures. | Usable interactive shell for original source code. |
+| **Phase 3 — forked `System.Console.dll`** | Sibling csproj that builds a VT-first `System.Console.dll` for `browser-wasm`; reuse `ConsolePal.Unix` algorithms; bridge to the JS terminal. Replace in `_framework/` at publish time. | 1 new csproj; ~2–4k LOC ported from upstream Unix ConsolePal; ~300 LOC JS-bridge C primitives; 8–12 compat fixtures. | Pre-compiled-library compatibility; strict `Console.ReadKey` / `Console.ForegroundColor` parity. Optional worker + SAB if COOP/COEP is acceptable. |
+| **Phase 4 — hardening and compat tests** | Playwright-driven fixtures for Spectre.Console, ReadLine.NET, mouse mode, alt screen, resize. Isolation/lifecycle budget. | 6–10 new Playwright fixtures; ~400 LOC test plumbing. | Confidence floor; regression net. |
 
 Phase 3 is only necessary if phase 0's decision is "yes, pre-compiled libraries in scope." Otherwise phase 2 is the ship-it tier, phase 3 becomes deferred, and phase 4 is proportionally smaller.
 

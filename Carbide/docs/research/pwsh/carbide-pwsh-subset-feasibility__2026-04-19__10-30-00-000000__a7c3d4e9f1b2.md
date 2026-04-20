@@ -22,7 +22,7 @@ Three scope words pinned before the analysis:
 
 ## 2. Executive summary
 
-| Capability | Today, unmodified | A vertical slice (1–2 weeks) | A useful subset (1–3 months) | Months of deeper work | Blocked or out of scope |
+| Capability | Today, unmodified | Vertical slice (forked SMA csproj with `<Compile Remove>` globs + ~200 LOC host; prebuilt-DLL path) | Useful subset (fork SMA + Commands.Utility with ~5–10 source patches; VFS shim; ~2–4k LOC delta) | Deeper-fork scope (broader cmdlet libs, net/fetch bridge; 5–10k LOC delta) | Blocked or out of scope |
 |---|---|---|---|---|---|
 | Parse a PowerShell script into an AST | — | ✔ — `Parser.ParseInput` is pure managed code | — | — | — |
 | Evaluate `2 + 2` / `"hello".ToUpper()` | — | ✔ — via `ScriptBlock.InvokeReturnAsIs` on a minimal Runspace | — | — | — |
@@ -43,7 +43,7 @@ Three scope words pinned before the analysis:
 
 **Bottom line:** a useful PowerShell-on-Carbide story is **feasible**, and costs Carbide **three concrete additions** (§7). The critical enabler — PowerShell's engine having a built-in interpreter (`LightCompiler`) that doesn't need IL emission — is already in the `lib/pwsh` tree. Most of the difficulty is *not* the engine; it's slicing away the non-portable cmdlet libraries and building a Carbide-shaped host.
 
-⚠ **Effort estimate revised (§14.6):** v1 of this report claimed "1–3 months" to reach Tier 2. The independent review's "medium-to-large subproject, not a spike" framing is better-calibrated. Realistic effort is **4–6 months of focused work** once the understated Expression.Compile surface (23 sites, not 8), the persistent-session host requirement, the threading-model collapse, and the out-of-SMA cmdlet surface are properly accounted for. The feasibility verdict does not change; the timeline does.
+⚠ **Effort sizing revised (§14.6):** v1 of this report framed Tier 2 as a small-scope effort. The independent review's "medium-to-large subproject, not a spike" framing is better-calibrated. Realistic new-surface is materially larger than the v1 sketch — the Expression.Compile surface is 23 sites across 13 files (not 8), plus a persistent-session host, plus threading-model collapse patches, plus the out-of-SMA cmdlet surface. The feasibility verdict does not change; the scope does. See §14.6 for the revised phasing.
 
 ⚠ **Two distinct feasibility questions (§14.1):** "runtime-hosting feasibility" (can Carbide's Mono-WASM run a prebuilt subset DLL?) and "source-build feasibility" (can Carbide itself build the fork?) have different answers. The runtime story is easier and lands first; the source-build story is a follow-up, not a day-one requirement. The first Carbide contact should be a **prebuilt managed DLL loaded via `carbide run --ref pwsh-lite.dll`**, not a `carbide build --project SMA.csproj` chain.
 
@@ -153,7 +153,7 @@ For Carbide's fork, we force `CompileInterpretChoice.NeverCompile` at the decisi
 
 ## 5. A tiered useful subset
 
-### 5.1 Tier 1 — "expression evaluator" (1–2 weeks)
+### 5.1 Tier 1 — "expression evaluator" (smallest new surface)
 
 The minimum viable demo. Forked SMA fork builds + loads via Carbide. Users can do:
 
@@ -177,7 +177,7 @@ Scope exclusions: no cmdlets beyond intrinsics.
 
 ⚠ **Correction (§14.3):** v1 of this report claimed `Write-Output`, `Out-String`, `Where-Object`, `ForEach-Object`, `Select-Object` are all "handled by the engine directly." That was wrong on every count except two. Only `ForEach-Object` and `Where-Object` live in SMA proper (`engine/InternalCommands.cs`). `Select-Object`, `Write-Output`, `Out-String`, `Sort-Object`, `Group-Object`, `Measure-Object`, `ConvertTo-Json`, `ConvertFrom-Json`, `Write-Host`, and the rest of the user-facing surface live in `Microsoft.PowerShell.Commands.Utility`. **Tier 1 therefore gets pipelines, but a Tier 1 demo without the utility assembly has a very thin cmdlet surface — essentially just `ForEach-Object` and `Where-Object`.** The Tier 2 story still stands; Tier 1 has to include a bit of `Microsoft.PowerShell.Commands.Utility` (or a trimmed substitute) to demo anything beyond pure expression evaluation.
 
-### 5.2 Tier 2 — "useful scripting shell" (1–3 months)
+### 5.2 Tier 2 — "useful scripting shell" (moderate new surface)
 
 Tier 1 plus most of `Microsoft.PowerShell.Commands.Utility`:
 
@@ -201,12 +201,12 @@ $people | Format-Table -AutoSize
 ```
 
 What's needed beyond Tier 1:
-- Fork `Microsoft.PowerShell.Commands.Utility` with the 4–6 problematic files removed (§3.2).
+- Fork `Microsoft.PowerShell.Commands.Utility` with 4–6 problematic files removed (§3.2).
 - Implement `Get-Content` / `Set-Content` / `Out-File` against a Carbide-side VFS (§8.3).
 - A minimal `FormatAndOutput` pipeline (already in utility but depends on a `PSHost` — implement the shim).
 - Possibly patch `Add-Type` to refuse cleanly (or — more ambitious — re-use Carbide's own Roslyn to compile `Add-Type` input inline).
 
-### 5.3 Tier 3 — "usefully embeddable" (3–6 months)
+### 5.3 Tier 3 — "usefully embeddable" (large new surface)
 
 Tier 2 plus:
 
@@ -416,18 +416,18 @@ Numbered for easy reference.
 | R9 | Deep Roslyn integration in `Add-Type` — recursive C# compilation | Low | Low | Skip `Add-Type` for MVP. A follow-up could wire it to Carbide's own session: have `Add-Type` call out to `CarbideSession.createProject + build + addReference`. Cool if you get there. |
 | R10 | Licensing | Very low | Critical | PowerShell is MIT-licensed. Forking + patching is explicitly allowed. Preserve attribution headers in `lib/pwsh/src/*` files; ship the LICENSE from `lib/pwsh/LICENSE.txt` alongside our fork. |
 
-## 10. Estimated effort
+## 10. Estimated new-surface sizing
 
 Rough, for planning purposes:
 
-| Phase | Duration | Deliverable |
+| Phase | New-surface size (indicative) | Deliverable |
 |---|---|---|
-| **P0 — Vertical slice** | 1–2 weeks | `carbide run --project CarbidePwshHost.csproj -- '2 + 2'` prints `4`. Parser, engine, basic script execution through Invoke-Script pipeline intrinsics. |
-| **P1 — Useful scripting** | 4–8 weeks | Tier 2 scope: pipelines, utility cmdlets (`Select-Object`, `Where-Object`, `ForEach-Object`, `ConvertTo-Json`, etc.), hashtable/array literals, classes, try/catch, regex. |
-| **P2 — VFS + net** | 4–8 weeks | `Get-Content`/`Set-Content` over a VFS. `Invoke-RestMethod` over `fetch`. Advanced parameter attributes. |
-| **P3 — Polish** | 2–4 weeks | Argument completion, help files, error messages aligned with upstream. |
+| **P0 — Vertical slice** | 1 forked SMA csproj with `<Compile Remove>` globs excluding `engine/remoting/*`, `Interop/Windows/*`, `ComInterop/*`, etc.; ~3–5 source patches; 1 new host csproj + ~200 LOC C#. | `carbide run --project CarbidePwshHost.csproj -- '2 + 2'` prints `4`. Parser, engine, basic script execution through Invoke-Script pipeline intrinsics. |
+| **P1 — Useful scripting** | Forked `Microsoft.PowerShell.Commands.Utility` with ~4–6 files removed; ~15–25 source patches across SMA; persistent-session host; ~1.5–3k LOC delta. | Tier 2 scope: pipelines, utility cmdlets (`Select-Object`, `Where-Object`, `ForEach-Object`, `ConvertTo-Json`, etc.), hashtable/array literals, classes, try/catch, regex. |
+| **P2 — VFS + net** | VFS provider (~500–1000 LOC C#); `WebRequestPSCmdlet` patch + `fetch`/`undici` bridge (~200–400 LOC C#); advanced parameter attributes wiring. | `Get-Content`/`Set-Content` over a VFS. `Invoke-RestMethod` over `fetch`. Advanced parameter attributes. |
+| **P3 — Polish** | Argument-completion fixture set (~100–300 LOC); help-file ingestion; error-message alignment. | Argument completion, help files, error messages aligned with upstream. |
 
-Total to a genuinely useful state: **~3 months of focused work**, probably 4–5 months wall-clock with a single implementor. P0 is the right first gate.
+Total new-surface to a genuinely useful state is material — indicatively ~3–6k LOC net delta across the fork plus host plus bridges. P0 is the right first gate.
 
 ## 11. What would break the plan
 
@@ -597,19 +597,19 @@ For v1 through Tier 2, "fail cleanly" is the right answer.
 
 `lib/pwsh/PowerShell.Common.props` targets `net9.0`. Carbide's reference-pack is `@carbide/refs-net10.0`. v1 listed "version-lock drop" in §6.2 as a one-liner patch; the independent report correctly calls this out as a deliberate, visible change users of the fork will notice. The fork's `csproj` must explicitly set `<TargetFramework>net10.0</TargetFramework>` and not import `PowerShell.Common.props`. This is straightforward in a fresh forked csproj; the v1 patch enumeration should have flagged it more prominently.
 
-### 14.9 Effort estimate — too optimistic
+### 14.9 Effort sizing — too optimistic
 
-v1 §10 said "~3 months of focused work" to reach a genuinely useful state. Given §14.2–§14.7 above, the realistic timeline is more like:
+v1 §10 framed a genuinely useful state as a small effort. Given §14.2–§14.7 above, the realistic new-surface is materially larger:
 
-| Phase | v1 estimate | Revised estimate |
+| Phase | v1 sizing | Revised sizing |
 |---|---|---|
-| P0: parse + eval `2 + 2` outside Carbide (normal `dotnet`) | 1–2 weeks | **2–3 weeks** — Expression.Compile audit alone is a few days; `CoreAdapter.DynamicMethod` patch adds more. |
-| P1: same demo running inside Carbide (prebuilt DLL) | — | **1–2 weeks** — new phase the independent report surfaces; mostly loading plumbing. |
-| P2: Tier 2 usefulness (pipelines, utility cmdlets, basic providers, persistent session via the interop bridge) | 4–8 weeks | **2–3 months** — threading collapse, persistent-session host, in-SMA-vs-utility cmdlet cherry-pick, InitialSessionState curation, NativeCommand refusal. |
-| P3: VFS + network + completion + polish | 4–8 weeks | **2–3 months** — VFS bridge, `Invoke-RestMethod` on `fetch`, argument attributes, error-message alignment. |
-| Total to genuinely useful state | **~3 months** | **~5–7 months** |
+| P0: parse + eval `2 + 2` outside Carbide (normal `dotnet`) | small (forked csproj + a few patches) | **moderate** — the Expression.Compile audit surface is 23 sites across 13 files; `CoreAdapter.DynamicMethod` + `EventManager.AssemblyBuilder` add at least 2 more source patches requiring reflection-based substitutes. |
+| P1: same demo running inside Carbide (prebuilt DLL) | — | **small-to-moderate** — new phase the independent report surfaces; mostly loading plumbing. |
+| P2: Tier 2 usefulness (pipelines, utility cmdlets, basic providers, persistent session via the interop bridge) | moderate | **large** — threading collapse patches, persistent-session host (new Carbide-side surface), in-SMA-vs-utility cmdlet cherry-pick, InitialSessionState curation, NativeCommand refusal. |
+| P3: VFS + network + completion + polish | moderate | **large** — VFS bridge (~500–1000 LOC), `Invoke-RestMethod` on `fetch` (~200–400 LOC bridge), argument attributes wiring, error-message alignment. |
+| Total to genuinely useful state | "~3–6k LOC" (v1 subtotal) | **more than doubled** — indicatively ~8–15k LOC net delta across the fork + host + bridges when the P1 split, P2 threading collapse, P2 persistent-session host, and P3 VFS + fetch bridges are all accounted for. |
 
-The independent report's "medium-to-large subproject, not a spike" framing is closer to correct than mine. I'm revising my total estimate upward and splitting P0 into two phases (outside-Carbide prototype + inside-Carbide hosting).
+The independent report's "medium-to-large subproject, not a spike" framing is closer to correct than mine. I'm revising my total sizing upward and splitting P0 into two phases (outside-Carbide prototype + inside-Carbide hosting).
 
 ### 14.10 Points where v1 holds up after review
 
