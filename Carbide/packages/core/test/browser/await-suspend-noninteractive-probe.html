@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>T2.1 Option F probe — non-interactive project.run path</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          `using System;
+using System.Threading.Tasks;
+
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        Console.WriteLine("explicit Main boot");
+        Console.WriteLine("SC=" + (System.Threading.SynchronizationContext.Current?.GetType().Name ?? "<null>"));
+        // Test 1: ThreadPool.UnsafeQueueUserWorkItem — does the work item fire?
+        Console.WriteLine("before QUWI");
+        try
+        {
+            var signaled = false;
+            System.Threading.ThreadPool.UnsafeQueueUserWorkItem(_ => signaled = true, null);
+            Console.WriteLine("QUWI enqueued; signaled=" + signaled);
+        }
+        catch (Exception ex) { Console.WriteLine("QUWI FAILED: " + ex.GetType().Name + ": " + ex.Message); }
+
+        // Test 2: explicit TCS, no Task.Delay.
+        Console.WriteLine("before TCS-never await");
+        try
+        {
+            var tcs = new TaskCompletionSource(TaskCreationOptions.None);
+            tcs.SetResult();
+            await tcs.Task;
+            Console.WriteLine("TCS-pre-completed OK");
+        }
+        catch (Exception ex) { Console.WriteLine("TCS-pre-completed FAILED: " + ex.GetType().Name + ": " + ex.Message); }
+
+        // Test 3: the repro — await Task.Delay.
+        Console.WriteLine("before Task.Delay(50)");
+        try { await Task.Delay(50); Console.WriteLine("Task.Delay OK"); }
+        catch (Exception ex) { Console.WriteLine("Task.Delay FAILED: " + ex.GetType().Name + ": " + ex.Message); }
+        Console.WriteLine("done");
+    }
+}
+`,
+        );
+        const result = await project.run();
+        return { result };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.result.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

@@ -577,12 +577,9 @@ internal sealed class ProjectCompiler
         var inputState = TerminalInputState.Create(projectId);
         using var _inputStateDisposer = new InputStateDisposer(inputState);
 
-        // T2 — Install a single-threaded SynchronizationContext so Task continuations
-        // (incl. those from user-code TaskCompletionSource, CancellationToken.Register,
-        // and Task.Delay) have a usable scheduling path. Mono-WASM browser has no
-        // thread pool, so without a context the default scheduler trips
-        // `PlatformNotSupportedException: Cannot wait on monitors`. Restore whatever
-        // was in place (usually null) when the run exits.
+        // T2 — install CarbideSyncContext. T2.1 Option F experiment removed this and
+        // empirically confirmed it did not fix the Assembly.Load-plus-await trap;
+        // restored.
         var oldSyncContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
 
@@ -685,14 +682,8 @@ internal sealed class ProjectCompiler
         // — preserving the pre-T3 contract for plain `Project.run` programs.
         AppContext.SetData("Carbide.InteractiveBridge", true);
 
-        // T3.1 — re-install the SynchronizationContext RIGHT HERE, immediately before
-        // invoking user code. The T2-era install at line 587 above runs before the
-        // compilation await. On Mono-WASM browser, `ConfigureAwait(false)` after that await
-        // (inside `TryGetErrorFreeCompilationAsync` and the C# compiler's internal awaits)
-        // clears `SynchronizationContext.Current` back to null on resumption — so by the
-        // time we reach `reflectedEntry.Invoke(...)`, user code sees a null SC and its
-        // first `await` trips "Cannot wait on monitors". Setting it twice is cheap and
-        // robust against whatever the compiler's internal scheduling does.
+        // T3.1 defensive — re-install before user-code invoke in case the intervening
+        // Roslyn await cleared the SC.
         SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
 
         int exitCode = 0;

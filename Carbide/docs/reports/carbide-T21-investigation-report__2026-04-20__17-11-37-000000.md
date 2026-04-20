@@ -227,3 +227,34 @@ These changes were made during T2.1 investigation and should be kept or reverted
 - Attach a Chromium debugger to the browser running Carbide. Break on `throw` inside the generated state machine. Walk the frames upward from the PNS throw site to find the exact BCL frame. My best guess: it's inside `ThreadPool.UnsafeQueueUserWorkItemInternal` or `ManualResetEventSlim.Wait` during `AsyncStateMachineBox`'s first-suspension allocation, but I did not confirm this in-runtime.
 - Compare Carbide's single-threaded boot to a minimal repro project that uses `dotnet new wasmbrowser` + a trivial `await Task.Delay(50)`. If the minimal project **also** trips, confirm upstream Mono-WASM's single-threaded mode legitimately does not support real suspension, and file a runtime-level bug referencing this report.
 - Revisit `FEATURE_WASM_MANAGED_THREADS` + the COOP/COEP constraint with Carbide's actual embedding targets. If all real consumers are under Vladimir's control, Option B becomes dramatically more attractive.
+
+## 10. Appendix — empirical follow-up after the prior-art research report
+
+After the prior-art research report (`carbide-T21-prior-art-research__2026-04-20__17-40-00-000000.md`) landed and pointed at the 2022 kg/stephentoub exchange on [dotnet/runtime#69409](https://github.com/dotnet/runtime/issues/69409) — which claimed that merely installing a custom `SynchronizationContext` reroutes all await continuations through `SC.Post` and bypasses the inline-completion fast path that stock single-threaded Blazor WASM relies on — we added the "Option F" hypothesis to this report and tested it empirically.
+
+**Tests run** (all against HEAD = 446d0ec58 + incremental experimental changes, reverted at the end):
+
+1. **Remove all three `CarbideSyncContext` install sites** (at `CompilationInterop.InitAsync`, at `ProjectCompiler.RunInteractiveAsync:587`, and at the T3.1 re-install). Confirmed via diagnostic `Console.WriteLine` in user code that `SynchronizationContext.Current` is genuinely `null` at the await site. **Result: `await Task.Delay(50)` still trips `Cannot wait on monitors`.**
+2. **Call `runtime.runMain(mainAssemblyName, [])` from `boot.ts`** after `InitAsync` to prime the runtime's single-threaded scheduling pump. `runMain` returned exit 0. **Result: same trip.**
+3. **Run the exact same `await Task.Delay(50)` test from Carbide.Core's *own* `Main` method** (not from Assembly.Load'd user code, but from the main assembly directly, invoked through `runMain`). Probe result stashed via `AppContext.SetData` and read back through a JSExport. **Result: `Direct=OK`. Task.Delay works from the main assembly's Main — but fails from user code loaded via `Assembly.Load(byte[])`.**
+4. **Keep Main alive forever** with an `await someTcs.Task` that never resolves, and fire user-code runs from JSExport while Main is still suspended. **Result: user code still trips. Main being alive does not keep the pump alive for JSExport-driven work.**
+5. **Use explicit `public static async Task Main` vs top-level statements in user code.** **Result: no difference, both trip.**
+6. **Add `[assembly: SupportedOSPlatform("browser")]` to user compilation.** **Result: no difference.**
+7. **Probe `ThreadPool.UnsafeQueueUserWorkItem` from user code.** **Result: accepted but never fires** (`signaled=False` both pre- and post-call). Mono-WASM's single-threaded `ThreadPool.QueueUserWorkItem` queues to a pump that runs between `setTimeout` ticks; in user-code context that pump evidently does not tick, which is consistent with the "pump is only live during `runMain`'s scope" hypothesis but doesn't tell us *why*.
+8. **Pre-completed `TaskCompletionSource` await** from user code. **Result: works**, same as before.
+
+**Conclusion from the empirical round**
+
+The prior-art report's Option F theory ("just remove the custom SC") is **necessary but not sufficient**. Stock single-threaded Blazor's "await just works" property is tied to *running inside `runMain`'s scope*, not to the absence of a custom SC. User code loaded via `Assembly.Load(byte[])` and invoked via `MethodInfo.Invoke` from a JSExport runs *outside* whatever runMain-rooted scheduler state Mono-WASM single-threaded mode relies on. Even with SC removed, `runMain` called, and Main kept alive via an infinite TCS, user-code awaits that suspend still trip `Monitor.Wait(INFINITE)`.
+
+This narrows the real fix to one of:
+
+- **F.next** — figure out exactly what runMain-scope state is missing for `Assembly.Load`'d code and replicate it from JSExport entry. This is an open question; the next investigator would need to (a) attach a Chromium debugger with Mono-WASM debug symbols and break at the `Monitor.Wait` throw to read the stack, and (b) cross-reference against a working Blazor WASM app's stack at the same moment to find the diverging frame.
+- **B** (multi-threaded wasm via `WasmEnableThreads=true` + COOP/COEP) — still the most reliable escape hatch; sidesteps the whole problem.
+- **A** (rewrite Carbide's run path to never genuinely suspend) — still a fallback for plain-ESM embedding scenarios.
+
+Options C, D, E remain as-described in §6.
+
+**State of the branch after this appendix**
+
+All experimental changes have been reverted. `CarbideSyncContext` is re-installed at both `InitAsync` and `RunInteractiveAsync` entry, matching the T2/T3 stable state. The `DelayCallback` JSImport is kept (it's cleaner than the Promise-marshaled variant even though it doesn't by itself fix T2.1). The two probe fixtures (`packages/core/test/browser/interactive-await-suspend-probe.html`, `await-suspend-noninteractive-probe.html`) are kept as-is for whoever picks up "F.next".

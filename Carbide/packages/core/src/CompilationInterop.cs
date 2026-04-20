@@ -20,12 +20,9 @@ public static partial class CompilationInterop
         var logger = Host.Services.GetService<ILogger<SessionSolutions>>();
         logger.LogInformation("Carbide initialising with {Count} assembly urls.", assemblyUrls.Length);
         // T2 — install a single-threaded SynchronizationContext on the Mono-WASM main
-        // thread. Without one, Task continuations from TCS / Task.Delay / CT callbacks
-        // fall through to an absent thread pool and throw
-        // `PlatformNotSupportedException: Cannot wait on monitors on this runtime`.
-        // Done here (rather than at RunInteractiveAsync entry) so JSExport calls that
-        // re-enter C# from JS (DeliverStdIn / NotifyResize / DeliverSignal) also see
-        // the context without each one having to reinstall.
+        // thread. Removing it (T2.1 Option F experiment) was empirically shown to NOT
+        // fix the "Cannot wait on monitors" trip on Assembly.Load'd user code; restored
+        // as the stable T2 behaviour until a real fix lands.
         if (System.Threading.SynchronizationContext.Current is null)
         {
             System.Threading.SynchronizationContext.SetSynchronizationContext(
