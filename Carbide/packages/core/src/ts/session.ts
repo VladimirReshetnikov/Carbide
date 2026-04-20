@@ -32,7 +32,7 @@ export class CarbideSession {
     private shutdownStarted = false;
 
     private constructor(
-        private readonly adapter: HostAdapter,
+        /** @internal */ readonly adapter: HostAdapter,
         /** @internal */ readonly interop: CarbideInteropExports,
         /** @internal */ readonly sessionId: string,
     ) {}
@@ -62,7 +62,7 @@ export class CarbideSession {
             defineConstants: options.defineConstants ?? null,
         };
         const projectId = this.interop.CreateProject(this.sessionId, JSON.stringify(request));
-        return new Project(this.interop, projectId, this.sessionId);
+        return new Project(this.interop, projectId, this.sessionId, this.adapter);
     }
 
     /**

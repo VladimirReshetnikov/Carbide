@@ -1,8 +1,8 @@
 import type { HostAdapter } from "../host/adapter.js";
 import type {
     CarbideInteropExports,
-    DotnetHostBuilder,
     DotnetModule,
+    EmscriptenModuleOverlays,
     MonoConfig,
     RuntimeAPI,
 } from "./dotnet-types.js";
@@ -40,20 +40,53 @@ export async function bootRuntime(options: BootOptions): Promise<BootResult> {
     // Dynamic import keeps the runtime out of the static dependency graph so bundlers that
     // don't know how to handle the .NET-shipped dotnet.js don't get confused.
     const module = (await import(/* @vite-ignore */ dotnetJsUrl)) as DotnetModule;
-    const builder = module.dotnet as DotnetHostBuilder | undefined;
-    if (!builder || typeof builder.withConfig !== "function") {
-        throw new Error(
-            `dotnet.js did not export the expected host-builder shape (got ${typeof builder}). Was the module fetched from the correct URL '${dotnetJsUrl}'?`,
-        );
-    }
 
-    const runtime = await builder
-        .withConfig({
-            debugLevel: options.debugLevel ?? 0,
-            diagnosticTracing: options.enableDiagnosticTracing ?? false,
-            disableIntegrityCheck: true,
-        })
-        .create();
+    // T1 — host adapters can supply emscripten-level `print` / `printErr` overrides (and
+    // other Module-level fields in future) via `resolveRuntimeConfigOverlays`. The browser
+    // adapter uses this to route native-side writes into the interactive terminal bridge
+    // when one is attached. Two boot paths exist:
+    //
+    //  * Factory path (`module.default({ config, print, printErr, ... })`): accepts a full
+    //    `DotnetModuleConfig` including emscripten-level overlays. Used whenever the adapter
+    //    advertises overlays so `Console.OpenStandardOutput()` bytes reach the bridge.
+    //  * Builder path (`module.dotnet.withConfig(...).create()`): the chain-API, but
+    //    `withConfig` only accepts `MonoConfig` fields and silently drops `print`/`printErr`.
+    //    Used as the no-overlay fast path so existing callers (incl. every Node code path)
+    //    see byte-identical boot behaviour.
+    const overlays: EmscriptenModuleOverlays = options.hostAdapter.resolveRuntimeConfigOverlays
+        ? await options.hostAdapter.resolveRuntimeConfigOverlays()
+        : {};
+    const hasOverlays = typeof overlays.print === "function" || typeof overlays.printErr === "function";
+
+    const monoConfig: Partial<MonoConfig> = {
+        debugLevel: options.debugLevel ?? 0,
+        diagnosticTracing: options.enableDiagnosticTracing ?? false,
+        disableIntegrityCheck: true,
+    };
+
+    let runtime: RuntimeAPI;
+    if (hasOverlays) {
+        if (typeof module.default !== "function") {
+            throw new Error(
+                `dotnet.js did not export the expected runtime factory (got ${typeof module.default}). ` +
+                    `Was the module fetched from the correct URL '${dotnetJsUrl}'?`,
+            );
+        }
+        runtime = await module.default({
+            config: monoConfig as MonoConfig,
+            print: overlays.print,
+            printErr: overlays.printErr,
+        });
+    } else {
+        const builder = module.dotnet;
+        if (!builder || typeof builder.withConfig !== "function") {
+            throw new Error(
+                `dotnet.js did not export the expected host-builder shape (got ${typeof builder}). ` +
+                    `Was the module fetched from the correct URL '${dotnetJsUrl}'?`,
+            );
+        }
+        runtime = await builder.withConfig(monoConfig).create();
+    }
 
     const config = runtime.getConfig();
     const mainAssemblyName = config.mainAssemblyName;

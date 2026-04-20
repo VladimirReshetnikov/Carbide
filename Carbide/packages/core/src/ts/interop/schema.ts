@@ -9,7 +9,9 @@
 // 2; new TS clients always send 2.
 // U2: bumped to 3 when RunAsync gained argv + stdin forwarding (`RunOptionsRequest`). The
 // C# side accepts 2 or 3; new TS clients always send 3.
-export const SCHEMA_VERSION = 3 as const;
+// T1: bumped to 4 when the interactive terminal path (`RunInteractiveAsync` + bridge-mediated
+// streaming output) landed. The C# side accepts 1/2/3/4; new TS clients always send 4.
+export const SCHEMA_VERSION = 4 as const;
 
 export interface ProjectOptionsRequest {
     schemaVersion: number;
@@ -33,6 +35,21 @@ export interface RunOptionsRequest {
     stdin?: string | null;
 }
 
+/**
+ * T1 — optional knobs for {@link import("../project.js").Project.runInteractive}. Unlike
+ * {@link RunOptionsRequest}, an interactive run always goes through the JSON payload — the
+ * empty-string fast-path is not a shape `runInteractive` ever takes.
+ */
+export interface RunInteractiveOptionsRequest {
+    schemaVersion: number;
+    args?: string[];
+    /**
+     * SGR style applied (on the C# side) around each stderr flush chunk before it reaches
+     * the bridge. `"plain"` — no wrap. `"dim"` — `\x1b[2m…\x1b[22m`. `"red"` — `\x1b[31m…\x1b[39m`.
+     */
+    stderrStyle?: "plain" | "dim" | "red";
+}
+
 export class CarbideSchemaError extends Error {
     constructor(public readonly payload: string, public readonly expected: number, public readonly got: unknown) {
         super(`Carbide JSON schema mismatch: expected schemaVersion ${expected}, got ${JSON.stringify(got)}.`);
@@ -48,11 +65,24 @@ export function parseDiagnostics(json: string): import("../types.js").Diagnostic
     return parsed as import("../types.js").Diagnostic[];
 }
 
+/**
+ * Versions accepted by the TS-side parsers during T1's bring-up transition. Matches the C#
+ * validator's own "accept N-1 or N" policy (see `CompilationInterop.ValidateSchemaVersion`).
+ * TS clients always emit `SCHEMA_VERSION` on outbound payloads; parsers tolerate one minor
+ * back-version so a partially-rebuilt tree (TS bumped, C# publish not refreshed yet) fails
+ * loudly on real mismatches, not on the one-step transition.
+ */
+const ACCEPTED_INBOUND_SCHEMAS: readonly number[] = [SCHEMA_VERSION - 1, SCHEMA_VERSION];
+
+function checkSchema(json: string, got: unknown): void {
+    if (typeof got !== "number" || !ACCEPTED_INBOUND_SCHEMAS.includes(got)) {
+        throw new CarbideSchemaError(json, SCHEMA_VERSION, got);
+    }
+}
+
 export function parseRunResult(json: string): import("../types.js").RunResult {
     const parsed = JSON.parse(json) as import("../types.js").RunResult & { schemaVersion?: unknown };
-    if (parsed.schemaVersion !== SCHEMA_VERSION) {
-        throw new CarbideSchemaError(json, SCHEMA_VERSION, parsed.schemaVersion);
-    }
+    checkSchema(json, parsed.schemaVersion);
     return parsed;
 }
 
@@ -68,11 +98,9 @@ interface BuildResultWire {
 
 export function parseBuildResult(json: string): import("../types.js").BuildResult {
     const parsed = JSON.parse(json) as BuildResultWire & { schemaVersion?: unknown };
-    if (parsed.schemaVersion !== SCHEMA_VERSION) {
-        throw new CarbideSchemaError(json, SCHEMA_VERSION, parsed.schemaVersion);
-    }
+    checkSchema(json, parsed.schemaVersion);
     return {
-        schemaVersion: parsed.schemaVersion,
+        schemaVersion: parsed.schemaVersion as number,
         success: parsed.success,
         pe: decodeBase64(parsed.peBase64),
         pdb: decodeBase64(parsed.pdbBase64),

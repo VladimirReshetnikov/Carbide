@@ -1,0 +1,82 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive-terminal smoke: hello</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    // T1 browser fixtures use a mock Terminal that records every `write(text)` call. The
+    // test's job is to verify Carbide's streaming bridge routes bytes to `terminal.write`
+    // unchanged — ANSI rendering is xterm.js's concern, already tested upstream.
+    function makeMockTerminal() {
+      const chunks = [];
+      return {
+        write(data) {
+          // `data` may be string or Uint8Array per the xterm API. T1 always passes string.
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        getChunks() { return chunks; },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeMockTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          'for (int i = 0; i < 10; i++) Console.WriteLine($"line {i}");',
+        );
+        const handle = project.runInteractive({ terminal });
+        const runResult = await handle.exitPromise;
+        return {
+          runResult,
+          chunks: terminal.getChunks(),
+          fullText: terminal.getFullText(),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

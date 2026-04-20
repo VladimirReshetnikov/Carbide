@@ -30,15 +30,56 @@ export interface AssemblyExports {
 }
 
 export interface DotnetHostBuilder {
-    withConfig(config: Partial<MonoConfig>): DotnetHostBuilder;
+    /**
+     * Accepts `MonoConfig` fields plus emscripten Module overlays (see
+     * {@link EmscriptenModuleOverlays}). The real dotnet.js is permissive about extra keys;
+     * the widened type lets Carbide pass `print` / `printErr` through the same call.
+     */
+    withConfig(config: Partial<MonoConfig> & EmscriptenModuleOverlays): DotnetHostBuilder;
     withDiagnosticTracing(enabled: boolean): DotnetHostBuilder;
     withDebugging(level: number): DotnetHostBuilder;
     create(): Promise<RuntimeAPI>;
 }
 
+/**
+ * The `DotnetModuleConfig` shape that dotnet.js's default export accepts. Public fields
+ * from upstream's dotnet.d.ts plus the emscripten-level `print` / `printErr` overlays we
+ * care about. The builder (`dotnet.withConfig(...).create()`) only accepts `MonoConfig`
+ * fields, so print/printErr have to travel through the factory path instead.
+ */
+export interface DotnetModuleConfig extends EmscriptenModuleOverlays {
+    config?: MonoConfig;
+    onConfigLoaded?: (config: MonoConfig) => void | Promise<void>;
+    onDotnetReady?: () => void | Promise<void>;
+    onDownloadResourceProgress?: (resourcesLoaded: number, totalResources: number) => void;
+}
+
+/** Signature of dotnet.js's default export — a factory that boots the runtime. */
+export type DotnetRuntimeFactory = (config: DotnetModuleConfig) => Promise<RuntimeAPI>;
+
 export interface DotnetModule {
+    /** Default export: a factory that accepts a full DotnetModuleConfig (incl. print/printErr). */
+    default: DotnetRuntimeFactory;
+    /** Fluent builder. Convenient for MonoConfig fields but can't set emscripten-level overrides. */
     dotnet: DotnetHostBuilder;
     exit?(code: number, reason?: unknown): void;
+}
+
+/**
+ * T1 — a subset of emscripten's Module fields that Carbide routes through the factory
+ * path into the boot. Host adapters return these through `resolveRuntimeConfigOverlays()`
+ * so runtime-side stdout/stderr writes (including bytes from `Console.OpenStandardOutput()`)
+ * reach the interactive terminal bridge instead of the browser devtools console.
+ *
+ * Emscripten calls `print(text)` once per line with the trailing newline stripped; `printErr`
+ * is the stderr counterpart. Both are absent by default and fall back to `console.log` /
+ * `console.error`. `DotnetHostBuilder.withConfig` silently ignores these fields (they
+ * aren't `MonoConfig` members), which is why Carbide boots via the factory path when a
+ * host adapter advertises overlays.
+ */
+export interface EmscriptenModuleOverlays {
+    print?(text: string): void;
+    printErr?(text: string): void;
 }
 
 export interface CarbideInteropExports {
@@ -66,4 +107,19 @@ export interface CarbideInteropExports {
      * stdin), which skips JSON parsing on the C# side.
      */
     RunAsync(projectId: string, runOptionsJson: string): Promise<string>;
+    /**
+     * T1 — interactive run path. `optionsJson` is a
+     * {@link import("../interop/schema.js").RunInteractiveOptionsRequest}-shaped JSON
+     * string. The C# side installs streaming `Console.Out`/`Console.Error` writers that push
+     * into `globalThis.Carbide.Terminal.{write,writeErr}` before invoking the entry point.
+     * Resolves with the same `RunResult` shape as `RunAsync` plus a final drain of pending
+     * output.
+     */
+    RunInteractiveAsync(projectId: string, optionsJson: string): Promise<string>;
+    /**
+     * T1 — signal the C# side that the interactive session is tearing down. The current T1
+     * implementation is a stub that records the teardown; T2 will extend it to unblock
+     * pending `ReadLineAsync` / `ReadKeyAsync` reads and unwire the input-side of the bridge.
+     */
+    DisposeTerminal(projectId: string): void;
 }

@@ -4,6 +4,7 @@
 // Upstream: https://github.com/JakeYallop/WasmSharp (Apache-2.0).
 
 using System.Collections.Concurrent;
+using Carbide.Terminal;
 using Microsoft.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 
@@ -152,6 +153,27 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
 
     public Task<RunResult> RunAsync(string projectId, string[]? args = null, string? stdin = null)
         => GetProject(projectId).RunAsync(args ?? Array.Empty<string>(), stdin);
+
+    /// <summary>
+    /// T1 — interactive run. Installs streaming stdout/stderr writers that push buffered
+    /// chunks to the JS terminal bridge (<c>globalThis.Carbide.Terminal.{write,writeErr}</c>)
+    /// during execution, then drains and restores on exit. Mirrors <see cref="RunAsync"/>
+    /// but without a stdin parameter — T1 is output-only; T2 wires input.
+    /// </summary>
+    public Task<RunResult> RunInteractiveAsync(string projectId, InteractiveOptions options)
+        => GetProject(projectId).RunInteractiveAsync(options);
+
+    /// <summary>
+    /// T1 — teardown stub. No-op in T1 because <see cref="ProjectCompiler.RunInteractiveAsync"/>
+    /// owns the drain+restore inside its own finally block. T2 extends this to unblock
+    /// pending async reads and tear down input-side state.
+    /// </summary>
+    public void DisposeInteractive(string projectId)
+    {
+        _ = projectId;
+        // T1 no-op; kept as a JSExport target so the TS side can signal teardown even
+        // though the current implementation doesn't need to act on it.
+    }
 
     private ProjectCompiler GetProject(string projectId)
     {

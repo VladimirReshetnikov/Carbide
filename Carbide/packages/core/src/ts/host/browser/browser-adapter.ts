@@ -1,4 +1,7 @@
 import type { HostAdapter } from "../adapter.js";
+import type { EmscriptenModuleOverlays } from "../../runtime/dotnet-types.js";
+import type { TerminalBridgeSink } from "../../terminal/bridge.js";
+import { uninstallBridge } from "../../terminal/bridge.js";
 
 export interface BrowserAdapterOptions {
     /**
@@ -14,13 +17,21 @@ export interface BrowserAdapterOptions {
 /**
  * Browser host adapter.
  *
- * Deliberately thin in M1: it only materialises the base URL for `_framework/`. Stdout
- * capture is owned by the running C# program through Console.SetOut redirection, so the
- * adapter does not currently inject anything into the browser's console.
+ * In T1 the adapter grew a terminal-sink slot and the emscripten `print`/`printErr` overlay
+ * that routes native-side writes (including bytes from `Console.OpenStandardOutput()`) into
+ * the active interactive terminal's bridge when one is attached, and to `console.log` /
+ * `console.error` otherwise.
  */
 export class BrowserHostAdapter implements HostAdapter {
     public readonly hostKind = "browser" as const;
     private readonly baseUrl: string;
+    /**
+     * Non-null while an interactive terminal session is live. The emscripten `print` /
+     * `printErr` multiplexers consult this slot on each invocation; switching sessions is
+     * a matter of calling {@link attachTerminalSink} / {@link detachTerminalSink} rather
+     * than re-configuring the runtime (which can't happen after boot).
+     */
+    private _terminalSink: TerminalBridgeSink | null = null;
 
     constructor(options: BrowserAdapterOptions = {}) {
         if (options.frameworkAssetsBaseUrl) {
@@ -44,7 +55,58 @@ export class BrowserHostAdapter implements HostAdapter {
         return Promise.resolve(this.baseUrl);
     }
 
+    /**
+     * T1 — returns `print` / `printErr` multiplexers that route to the active terminal
+     * sink when one is attached, or to `console.log` / `console.error` otherwise.
+     * Emscripten calls `print(line)` / `printErr(line)` per line with the trailing newline
+     * stripped; the multiplexer re-appends `\n` so the xterm buffer sees consistent line
+     * structure.
+     */
+    resolveRuntimeConfigOverlays(): Promise<EmscriptenModuleOverlays> {
+        const self = this;
+        return Promise.resolve({
+            print(text: string): void {
+                const sink = self._terminalSink;
+                if (sink) {
+                    sink.writeStdOut(text + "\n");
+                } else {
+                    // eslint-disable-next-line no-console
+                    console.log(text);
+                }
+            },
+            printErr(text: string): void {
+                const sink = self._terminalSink;
+                if (sink) {
+                    sink.writeStdErr(text + "\n");
+                } else {
+                    // eslint-disable-next-line no-console
+                    console.error(text);
+                }
+            },
+        });
+    }
+
+    /**
+     * T1 — bind an interactive session's terminal sink so native-side writes reach xterm.
+     * Called by {@link import("../../terminal/session.js").startInteractiveSession} at the
+     * top of each interactive run.
+     */
+    attachTerminalSink(sink: TerminalBridgeSink): void {
+        this._terminalSink = sink;
+    }
+
+    /** T1 — release the terminal sink. Called by the session shell's teardown. */
+    detachTerminalSink(): void {
+        this._terminalSink = null;
+    }
+
     dispose(): Promise<void> {
+        // Belt-and-suspenders: if the caller shuts down mid-interactive-run without
+        // explicitly calling `session.dispose()` first, make sure the `globalThis.Carbide.Terminal`
+        // pointer doesn't linger past this adapter's lifetime. `uninstallBridge` is idempotent
+        // so calling it when no session is live is a no-op.
+        this._terminalSink = null;
+        uninstallBridge();
         return Promise.resolve();
     }
 }

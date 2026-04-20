@@ -212,6 +212,9 @@ This is the key architectural distinction:
 | Webcil | Not implemented | `<WasmEnableWebcil>false</WasmEnableWebcil>` |
 | Source generators / analyzers | Not implemented | Analyzer-bearing packages are refused |
 | Program argv/stdin | Not wired through yet | The CLI parser understands `--`, but the runtime run path still invokes `Main` with an empty string array |
+| Interactive browser terminal (T1) | Supported (T1) | `Project.runInteractive({ terminal })` streams stdout/stderr into an xterm.js-shaped `Terminal` while the program runs. Browser adapter only; Node-backed sessions throw. ANSI passthrough is unchanged. `Console.OpenStandardOutput()` writes now route to the terminal via the emscripten `print` overlay rather than the devtools console. |
+| Interactive stdin / `CarbideConsole.*Async` | Not implemented (T2) | Line-mode `ReadLineAsync`, key-mode `ReadKeyAsync`, `ForegroundColor`, `SetCursorPosition`, `WindowWidth`, `Title`, `Clear`, Ctrl+C all arrive in T2. T1 is output-only. |
+| Pre-compiled-library `Console.*` parity | Not implemented (T3) | `System.Console.ReadKey` / `ForegroundColor` / `WindowWidth` still throw PNS on browser. T3 ships a forked `System.Console.dll` in `_framework/` that replaces the stock one. Until then, libraries that call those APIs directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, …) don't work unmodified in interactive mode. |
 
 ## Notable Implementation Details
 
@@ -259,6 +262,19 @@ When a project runs:
 4. The emitted assembly is loaded and invoked in-process.
 
 This is why repeated runs in one session do not provide AppDomain-style isolation.
+
+### Interactive terminal (T1)
+
+`Project.runInteractive({ terminal, args?, stderrStyle? })` is a browser-only sibling of `Project.run()` that streams stdout and stderr into an xterm.js-shaped `Terminal` while the program runs, rather than buffering the entire transcript for end-of-run retrieval.
+
+- The `terminal` is structural: any object with `write(data: string | Uint8Array): void` satisfies `XtermTerminalLike`. `@carbide/core` never imports `@xterm/xterm` — the host page picks its xterm version and Carbide stays framework-agnostic.
+- The C# run path installs `StreamingStdOutWriter` instances on `Console.Out` / `Console.Error`. Each writer buffers into a pooled `char[]` and flushes on a 4 KB / 32 ms trigger (whichever trips first), then a final drain runs before `exitPromise` resolves. Small writes coalesce into one cross-boundary call per flush.
+- Flushed chunks go through `[JSImport("globalThis.Carbide.Terminal.write")]` / `.writeErr`, which the TS side points at the caller's `terminal.write`. Stderr is SGR-wrapped on the JS-bound path only (`"plain"`, `"dim"`, `"red"`); the C# tee captures raw bytes so `RunResult.stdErr` matches what user code wrote.
+- `BrowserHostAdapter.resolveRuntimeConfigOverlays()` returns `print` / `printErr` multiplexers merged into `DotnetHostBuilder.withConfig(...)` at boot. When a session is attached, `print(text)` re-appends `\n` and calls `terminal.write(text + "\n")`. When none is attached, it falls back to `console.log`. The multiplexer is installed once per runtime and does not require a reboot to switch sessions.
+- The `print` overlay closes the pre-T1 `Console.OpenStandardOutput()` bypass for interactive mode specifically: bytes written through the handle-level stdout stream reach the terminal instead of the browser devtools console. `project.run()` is unchanged — no sink is attached during non-interactive runs, so emscripten's defaults apply.
+- Input is disconnected in T1. `Console.ReadLine()` / `Console.ReadKey()` throw or return empty the same way they do in `project.run()` when no `stdin` option is passed. Line-mode, key-mode, color API, cursor API, and window-size all arrive in T2; pre-compiled-library parity arrives in T3.
+- Teardown order: drain flush → `Console.SetOut(old)` / `Console.SetError(old)` restore → detach the host-adapter terminal sink → `delete globalThis.Carbide.Terminal`. `TerminalSession.dispose()` is idempotent and safe to call mid-run.
+- One active interactive session per project at a time. A second concurrent `runInteractive` call throws synchronously. Non-browser sessions throw synchronously too — Node adapter callers get a clear "interactive terminals require the browser host adapter" message.
 
 ## Known Limitations And Differences
 

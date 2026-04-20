@@ -87,3 +87,59 @@ export interface RunOptions {
      */
     stdin?: string | null;
 }
+
+/**
+ * T1 — options for {@link Project.runInteractive}. Requires a caller-supplied xterm.js
+ * `Terminal` instance; the host page owns xterm's DOM lifecycle, Carbide owns the bridge.
+ *
+ * The `Terminal` dependency is structural — Carbide never imports `@xterm/xterm` directly
+ * so the core package stays framework-agnostic and the host page picks the xterm version.
+ * Any object implementing the methods Carbide actually uses (`write`, `dispose`) works at
+ * runtime; the `XtermTerminalLike` type below names that minimal contract.
+ */
+export interface InteractiveRunOptions {
+    /**
+     * An xterm.js Terminal instance the host page constructed and already `open()`ed into a
+     * DOM node. Carbide only calls `terminal.write(...)` on it (T1); T2 extends usage to
+     * `onData`, `onResize`, etc.
+     */
+    terminal: XtermTerminalLike;
+    /**
+     * Program arguments — same shape as {@link RunOptions.args}. Forwarded to the entry
+     * point's `Main(string[] args)` parameter.
+     */
+    args?: readonly string[];
+    /**
+     * SGR style wrapped around each stderr flush chunk before writing to xterm. `"plain"`
+     * (default) emits bytes unchanged. `"dim"` wraps with `\x1b[2m…\x1b[22m`. `"red"` wraps
+     * with `\x1b[31m…\x1b[39m`.
+     */
+    stderrStyle?: "plain" | "dim" | "red";
+}
+
+/**
+ * Minimal subset of xterm.js's `Terminal` API that Carbide T1 depends on. Declared
+ * structurally so `@carbide/core` doesn't pull in `@xterm/xterm` at compile time. The host
+ * page is responsible for matching this contract at runtime.
+ */
+export interface XtermTerminalLike {
+    write(data: string | Uint8Array): void;
+}
+
+/**
+ * T1 — handle returned by {@link Project.runInteractive}. Resolves via {@link exitPromise}
+ * when the user program's entry point returns, throws, or the session is disposed.
+ */
+export interface TerminalSession {
+    /**
+     * Resolves when the user program exits. Never rejects — uncaught user exceptions surface
+     * as `RunResult.success === false` with a populated `stdErr`.
+     */
+    readonly exitPromise: Promise<RunResult>;
+    /**
+     * Tear down the terminal bridge. Idempotent. Safe to call mid-run; the C# side observes
+     * the teardown signal on the next flush attempt and unwinds cleanly. Awaits the
+     * in-flight run to finish (or its drain flush to complete) before resolving.
+     */
+    dispose(): Promise<void>;
+}

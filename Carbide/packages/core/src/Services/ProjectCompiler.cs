@@ -14,6 +14,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
 using Carbide.Core.Hosting;
+using Carbide.Terminal;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -541,5 +542,171 @@ internal sealed class ProjectCompiler
     {
         var field = ResolveConsoleInField();
         field?.SetValue(null, value);
+    }
+
+    /// <summary>
+    /// T1 — compile and run interactively. Mirrors <see cref="RunAsync(string[], string?)"/>
+    /// but installs <see cref="Carbide.Terminal.StreamingStdOutWriter"/> instances that push
+    /// buffered chunks through <see cref="Carbide.Terminal.CarbideTerminalInterop"/> into
+    /// the JS terminal bridge while the program runs. Bytes are teed into a
+    /// <see cref="StringBuilder"/> so the returned <see cref="RunResult"/> still carries the
+    /// full transcript (parity with <c>project.run()</c>'s return shape). Stderr bytes are
+    /// SGR-wrapped per <see cref="Carbide.Terminal.InteractiveOptions.StderrStyle"/> on
+    /// their way to the bridge, but the tee captures unwrapped text. T1 is output-only;
+    /// <see cref="Console.In"/> stays disconnected — stdin lands in T2.
+    /// </summary>
+    public async Task<RunResult> RunInteractiveAsync(InteractiveOptions options)
+    {
+        var sw = Stopwatch.StartNew();
+        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.ConsoleApplication).ConfigureAwait(false);
+        if (compilation is null)
+        {
+            return RunResult.CompileFailure(preEmitDiagnostics, sw.Elapsed.TotalMilliseconds);
+        }
+
+        var (peBytes, _, emitDiagnostics) = EmitPeAndPdb(compilation);
+        if (peBytes is null)
+        {
+            return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
+        }
+
+        var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
+            ?? throw new InvalidOperationException("No entry point discovered in compilation.");
+
+        // Reference pre-load and AssemblyResolve wiring — mirrors RunAsync. The duplication
+        // is intentional: keeping the two run paths independent is cheaper than factoring
+        // out a shared helper that has to carry the entire instance surface (_attachedReferenceIds,
+        // _referenceRegistry, _logger). If a third run path lands, revisit the refactor.
+        var loadedReferences = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+        foreach (var refId in _attachedReferenceIds)
+        {
+            if (!_referenceRegistry.TryGetBytes(refId, out var refBytes))
+            {
+                continue;
+            }
+            try
+            {
+                var refAssembly = LoadAssembly(refBytes);
+                var simpleName = refAssembly.GetName().Name;
+                if (!string.IsNullOrEmpty(simpleName))
+                {
+                    loadedReferences[simpleName] = refAssembly;
+                }
+            }
+            catch (Exception ex) when (ex is FileLoadException or BadImageFormatException)
+            {
+                _logger.LogWarning(
+                    "Attached reference '{Id}' could not be loaded into the AppDomain: {Message}",
+                    refId, ex.Message);
+            }
+        }
+
+        ResolveEventHandler resolveHandler = (sender, args) =>
+        {
+            var simpleName = new AssemblyName(args.Name).Name;
+            return simpleName is not null && loadedReferences.TryGetValue(simpleName, out var found)
+                ? found
+                : null;
+        };
+        AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
+
+        var assembly = LoadAssembly(peBytes);
+        var reflectedEntry = assembly.EntryPoint
+            ?? throw new InvalidOperationException(
+                $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
+
+        // Tee each flushed chunk into a StringBuilder (for the RunResult trailer) while also
+        // pushing it through the JS bridge. Stderr gets its SGR wrap on the JS-bound path
+        // only, so the tee captures raw text (matches what user code wrote).
+        var stdOutTee = new StringBuilder();
+        var stdErrTee = new StringBuilder();
+        var stdOutSink = (string text) =>
+        {
+            stdOutTee.Append(text);
+            CarbideTerminalInterop.WriteStdOut(text);
+        };
+        var stdErrJsSink = StderrSink.Wrap(
+            static text => CarbideTerminalInterop.WriteStdErr(text),
+            options.StderrStyle);
+        var stdErrSink = (string text) =>
+        {
+            stdErrTee.Append(text);
+            stdErrJsSink(text);
+        };
+
+        using var stdOutWriter = new StreamingStdOutWriter(stdOutSink);
+        using var stdErrWriter = new StreamingStdOutWriter(stdErrSink);
+
+        var oldOut = Console.Out;
+        var oldError = Console.Error;
+        Console.SetOut(stdOutWriter);
+        Console.SetError(stdErrWriter);
+
+        int exitCode = 0;
+        string? uncaught = null;
+
+        try
+        {
+            var parameters = reflectedEntry.GetParameters();
+            var invocationArgs = parameters.Length == 0
+                ? Array.Empty<object?>()
+                : new object?[] { options.Args };
+
+            object? result;
+            try
+            {
+                result = reflectedEntry.Invoke(null, invocationArgs);
+            }
+            catch (TargetInvocationException tie) when (tie.InnerException is not null)
+            {
+                throw tie.InnerException;
+            }
+
+            switch (result)
+            {
+                case Task<int> taskInt:
+                    exitCode = await taskInt.ConfigureAwait(false);
+                    break;
+                case Task task:
+                    await task.ConfigureAwait(false);
+                    break;
+                case int i:
+                    exitCode = i;
+                    break;
+                case ValueTask<int> vti:
+                    exitCode = await vti.ConfigureAwait(false);
+                    break;
+                case ValueTask vt:
+                    await vt.ConfigureAwait(false);
+                    break;
+            }
+        }
+#pragma warning disable CA1031 // Do not catch general exception types
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            uncaught = ex.ToString();
+            await stdErrWriter.WriteLineAsync(uncaught).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Drain order: flush the writers first so in-buffer bytes make it to the bridge,
+            // then restore Console.{Out,Error} to their previous values, then detach the
+            // AssemblyResolve handler. Writers are also disposed by the `using` block, which
+            // flushes again defensively.
+            stdOutWriter.FlushNow();
+            stdErrWriter.FlushNow();
+            Console.SetOut(oldOut);
+            Console.SetError(oldError);
+            AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
+        }
+
+        sw.Stop();
+        var stdOut = stdOutTee.ToString();
+        var stdErr = stdErrTee.ToString();
+
+        return uncaught is null
+            ? RunResult.Success_(stdOut, stdErr, exitCode, sw.Elapsed.TotalMilliseconds)
+            : RunResult.Uncaught(stdOut, stdErr, uncaught, sw.Elapsed.TotalMilliseconds);
     }
 }

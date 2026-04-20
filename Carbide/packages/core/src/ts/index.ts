@@ -8,6 +8,9 @@ export type {
     BuildResult,
     ProjectOptions,
     ReferenceHandle,
+    InteractiveRunOptions,
+    TerminalSession,
+    XtermTerminalLike,
 } from "./types.js";
 export { CARBIDE_VERSION } from "./version.js";
 export { BrowserHostAdapter, type BrowserAdapterOptions } from "./host/browser/browser-adapter.js";

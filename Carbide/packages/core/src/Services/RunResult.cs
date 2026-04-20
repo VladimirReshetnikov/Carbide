@@ -9,8 +9,9 @@ public sealed class RunResult
     // See interop/schema.ts: SCHEMA_VERSION is a single number spanning all Carbide JSON
     // payloads. M5 bumped it to 2 when ProjectOptions gained defineConstants. U2 bumped to
     // 3 when RunAsync gained argv + stdin; RunResult's shape didn't change but it travels
-    // through the same boundary.
-    public int SchemaVersion { get; init; } = 3;
+    // through the same boundary. T1 bumped to 4 when RunInteractiveAsync landed — same
+    // RunResult shape travels through both the non-interactive and interactive paths.
+    public int SchemaVersion { get; init; } = 4;
     public bool Success { get; init; }
     public int? ExitCode { get; init; }
     public string StdOut { get; init; } = string.Empty;

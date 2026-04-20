@@ -5,8 +5,10 @@ import { parseRunResult } from "../../dist/interop/schema.js";
 
 test("SCHEMA_VERSION is exported and pinned to the current wire version", () => {
     assert.equal(typeof SCHEMA_VERSION, "number");
-    // M5 bumped the wire schema from 1 to 2 when ProjectOptions gained defineConstants.
-    assert.equal(SCHEMA_VERSION, 2);
+    // M5: 1 → 2 (ProjectOptions.defineConstants). U2: 2 → 3 (RunOptionsRequest).
+    // T1: 3 → 4 (RunInteractiveOptionsRequest + interactive JSExports).
+    // Keep the assertion pinned so accidental drift in schema.ts trips this guard.
+    assert.equal(SCHEMA_VERSION, 4);
 });
 
 test("parseRunResult rejects a mismatched schemaVersion", () => {

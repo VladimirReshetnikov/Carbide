@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Carbide.Core.Hosting;
 using Carbide.Core.Services;
+using Carbide.Terminal;
 using Microsoft.Extensions.Logging;
 
 namespace Carbide.Core;
@@ -141,6 +142,32 @@ public static partial class CompilationInterop
         return JsonSerializer.Serialize(result, CarbideJsonContext.Default.RunResult);
     }
 
+    /// <summary>
+    /// T1 — interactive run. <paramref name="optionsJson"/> is a
+    /// <c>RunInteractiveOptionsRequest</c>-shaped JSON string. The C# side installs
+    /// streaming <see cref="Console.Out"/> / <see cref="Console.Error"/> writers that push
+    /// each buffered chunk into <c>globalThis.Carbide.Terminal.{write,writeErr}</c> before
+    /// invoking the entry point. Resolves with the usual <see cref="RunResult"/> shape once
+    /// the program exits and the drain flush completes.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> RunInteractiveAsync(string projectId, string optionsJson)
+    {
+        var options = ParseInteractiveOptions(optionsJson);
+        var result = await Host.Dispatch(s => s.RunInteractiveAsync(projectId, options)).ConfigureAwait(false);
+        return JsonSerializer.Serialize(result, CarbideJsonContext.Default.RunResult);
+    }
+
+    /// <summary>
+    /// T1 — signal the C# side that the interactive session is tearing down. Current T1
+    /// implementation is a stub (the drain flush runs inside <c>RunInteractiveAsync</c>'s
+    /// own finally block before resolving). T2 will extend this to unblock pending async
+    /// reads and unwire the input-side of the bridge.
+    /// </summary>
+    [JSExport]
+    public static void DisposeTerminal(string projectId)
+        => Host.Dispatch(s => s.DisposeInteractive(projectId));
+
     private static (string[] Args, string? Stdin) ParseRunOptions(string? runOptionsJson)
     {
         if (string.IsNullOrWhiteSpace(runOptionsJson))
@@ -155,14 +182,33 @@ public static partial class CompilationInterop
         return (args, stdin);
     }
 
+    private static InteractiveOptions ParseInteractiveOptions(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson))
+        {
+            return InteractiveOptions.Default;
+        }
+        var dto = JsonSerializer.Deserialize(optionsJson, CarbideJsonContext.Default.RunInteractiveOptionsDto);
+        ValidateSchemaVersion(dto?.SchemaVersion, "RunInteractiveOptions");
+        var args = dto?.Args ?? Array.Empty<string>();
+        var style = (dto?.StderrStyle ?? "plain").ToLowerInvariant() switch
+        {
+            "dim" => StderrStyle.Dim,
+            "red" => StderrStyle.Red,
+            _ => StderrStyle.Plain,
+        };
+        return new InteractiveOptions(args, style);
+    }
+
     private static void ValidateSchemaVersion(int? schemaVersion, string name)
     {
-        // M5 bumped the schema to 2. U2 bumped to 3 when RunOptionsRequest landed. Accept
-        // 1 / 2 / 3 so pre-U2 clients keep working; higher numbers are a definite mismatch.
-        if (schemaVersion is not null and not 1 and not 2 and not 3)
+        // M5 bumped the schema to 2. U2 bumped to 3 when RunOptionsRequest landed. T1
+        // bumped to 4 when the interactive terminal path landed. Accept 1 / 2 / 3 / 4 so
+        // pre-T1 clients keep working; higher numbers are a definite mismatch.
+        if (schemaVersion is not null and not 1 and not 2 and not 3 and not 4)
         {
             throw new InvalidOperationException(
-                $"Unsupported {name} schemaVersion: expected 1, 2, or 3, got {schemaVersion}.");
+                $"Unsupported {name} schemaVersion: expected 1, 2, 3, or 4, got {schemaVersion}.");
         }
     }
 
@@ -221,7 +267,7 @@ internal sealed class ProjectOptionsDto
 /// </summary>
 internal sealed class BuildResultDto
 {
-    public int SchemaVersion { get; set; } = 3;
+    public int SchemaVersion { get; set; } = 4;
     public bool Success { get; set; }
     public string? PeBase64 { get; set; }
     public string? PdbBase64 { get; set; }
@@ -240,6 +286,19 @@ internal sealed class RunOptionsDto
     public string? Stdin { get; set; }
 }
 
+/// <summary>
+/// T1 — wire shape of <c>RunInteractiveOptionsRequest</c>. Parsed from the second argument
+/// of the <c>RunInteractiveAsync</c> JSExport. Unlike <see cref="RunOptionsDto"/>, the
+/// interactive path always carries a JSON payload; no empty-string fast path exists.
+/// </summary>
+internal sealed class RunInteractiveOptionsDto
+{
+    public int? SchemaVersion { get; set; } = 4;
+    public string[]? Args { get; set; }
+    /// <summary>One of "plain", "dim", "red"; case-insensitive. Default: "plain".</summary>
+    public string? StderrStyle { get; set; }
+}
+
 [JsonSourceGenerationOptions(
     GenerationMode = JsonSourceGenerationMode.Metadata,
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -252,6 +311,7 @@ internal sealed class RunOptionsDto
 [JsonSerializable(typeof(BuildResultDto))]
 [JsonSerializable(typeof(ProjectOptionsDto))]
 [JsonSerializable(typeof(RunOptionsDto))]
+[JsonSerializable(typeof(RunInteractiveOptionsDto))]
 internal sealed partial class CarbideJsonContext : JsonSerializerContext
 {
 }

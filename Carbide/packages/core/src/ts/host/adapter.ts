@@ -36,6 +36,21 @@ export interface HostAdapter {
      */
     resolveReferencePack?(): Promise<ReferencePackDescriptor | null>;
 
+    /**
+     * T1 — optional emscripten-level Module field overlays merged into
+     * `DotnetHostBuilder.withConfig(...)` at boot time. Currently used by the browser
+     * adapter to install `print`/`printErr` multiplexers that route native-side writes
+     * (e.g. bytes emitted via `Console.OpenStandardOutput()`) into the active interactive
+     * terminal's bridge when one is attached, and to the browser devtools console
+     * otherwise. Non-browser adapters typically return `{}` or omit the method.
+     *
+     * The returned object is consulted once per runtime boot; the multiplexer pattern
+     * supports dynamic routing without re-booting.
+     */
+    resolveRuntimeConfigOverlays?(): Promise<
+        import("../runtime/dotnet-types.js").EmscriptenModuleOverlays
+    >;
+
     /** Release any resources acquired by the adapter (HTTP server sockets, buffered captures). */
     dispose(): Promise<void>;
 }

@@ -1,13 +1,32 @@
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import type { BuildResult, Diagnostic, ReferenceHandle, RunOptions, RunResult } from "./types.js";
+import type {
+    BuildResult,
+    Diagnostic,
+    InteractiveRunOptions,
+    ReferenceHandle,
+    RunOptions,
+    RunResult,
+    TerminalSession,
+} from "./types.js";
 import { parseBuildResult, parseDiagnostics, parseRunResult, SCHEMA_VERSION } from "./interop/schema.js";
+import type { HostAdapter } from "./host/adapter.js";
+import type { BrowserHostAdapter } from "./host/browser/browser-adapter.js";
+import { startInteractiveSession } from "./terminal/session.js";
 
 export class Project {
+    /**
+     * Tracks the in-flight interactive session on this project, if any. Guards re-entrant
+     * `runInteractive` — a second call while one is live throws instead of silently racing.
+     * Cleared when `exitPromise` resolves (success or failure).
+     */
+    private _activeInteractive: TerminalSession | null = null;
+
     /** @internal */
     constructor(
         private readonly interop: CarbideInteropExports,
         public readonly id: string,
         /** @internal */ readonly sessionId: string,
+        /** @internal */ readonly adapter: HostAdapter,
     ) {}
 
     /**
@@ -84,6 +103,50 @@ export class Project {
         const optionsJson = serializeRunOptions(options);
         const json = await this.interop.RunAsync(this.id, optionsJson);
         return parseRunResult(json);
+    }
+
+    /**
+     * T1 — compile and run the project interactively, streaming stdout/stderr into the
+     * xterm.js `Terminal` supplied in {@link InteractiveRunOptions.terminal}. Returns a
+     * {@link TerminalSession} handle; `await session.exitPromise` waits for the program to
+     * exit.
+     *
+     * Only available on browser-backed sessions; throws synchronously on Node. Only one
+     * interactive run per project at a time; a second concurrent call throws.
+     */
+    runInteractive(options: InteractiveRunOptions): TerminalSession {
+        if (this.adapter.hostKind !== "browser") {
+            throw new Error(
+                "Project.runInteractive: interactive terminals require the browser host adapter " +
+                    `(got hostKind='${this.adapter.hostKind}').`,
+            );
+        }
+        if (this._activeInteractive) {
+            throw new Error(
+                `Project.runInteractive: project ${this.id} already has an active interactive session. ` +
+                    "Await its exitPromise or call session.dispose() before starting another.",
+            );
+        }
+        if (!options || !options.terminal) {
+            throw new Error("Project.runInteractive: options.terminal is required.");
+        }
+
+        const session = startInteractiveSession(
+            this.interop,
+            this.id,
+            this.adapter as BrowserHostAdapter,
+            options,
+        );
+        this._activeInteractive = session;
+        // Clear the slot when the run ends so a subsequent call can proceed. Use .finally
+        // rather than .then to cover both the success and failure branches; exitPromise is
+        // contractually never-reject so the `catch` variant isn't strictly needed.
+        void session.exitPromise.finally(() => {
+            if (this._activeInteractive === session) {
+                this._activeInteractive = null;
+            }
+        });
+        return session;
     }
 }
 

@@ -144,6 +144,66 @@ When omitted, Carbide auto-picks a host adapter:
 - `getDiagnostics()`
 - `build()` -> `{ success, pe?, pdb?, diagnostics, durationMs }`
 - `run()` -> `{ success, stdOut, stdErr, exitCode?, diagnostics, durationMs, ... }`
+- `runInteractive(options)` -> `TerminalSession` (browser only; see "Browser interactive terminal")
+
+## Browser interactive terminal
+
+T1 — `project.runInteractive(options)` streams stdout/stderr into an xterm.js-shaped
+`Terminal` while the program runs, instead of buffering the whole transcript for
+end-of-run retrieval. It's a sibling of `project.run()`, not a mode flag on it —
+`run()` keeps its existing buffered semantics unchanged.
+
+```ts
+import { Terminal } from "@xterm/xterm";
+import { CarbideSession, BrowserHostAdapter } from "@carbide/core";
+import "@xterm/xterm/css/xterm.css";
+
+const adapter = new BrowserHostAdapter({
+    frameworkAssetsBaseUrl: "/path/to/_framework/",
+});
+const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+const project = session.createProject({ assemblyName: "Demo" });
+
+project.addSource(
+    "Program.cs",
+    'Console.WriteLine("\\x1b[1;33mhello\\x1b[0m from Carbide");',
+);
+
+const terminal = new Terminal({ cols: 80, rows: 24 });
+terminal.open(document.getElementById("term")!);
+
+const run = project.runInteractive({ terminal });
+const result = await run.exitPromise;       // exitCode, stdOut, stdErr, diagnostics
+console.log("program exited with", result.exitCode);
+
+await session.shutdown();
+```
+
+Options:
+
+- `terminal` (required) — any object implementing `write(data: string | Uint8Array)`.
+  The xterm.js `Terminal` class satisfies this; tests often pass a lightweight mock.
+- `args` — forwarded to the entry point's `Main(string[])`, same shape as
+  `RunOptions.args`.
+- `stderrStyle` — `"plain"` (default), `"dim"`, or `"red"`. Applied as an SGR wrap
+  around each stderr flush chunk before it reaches `terminal.write`.
+
+`runInteractive` returns a `TerminalSession` with:
+
+- `exitPromise: Promise<RunResult>` — resolves when the user program exits. Never
+  rejects; crashes surface as `success: false` with populated `stdErr`.
+- `dispose(): Promise<void>` — idempotent teardown; safe to call mid-run.
+
+Supported in T1: streaming stdout/stderr, ANSI passthrough, SGR stderr wrap,
+`Console.OpenStandardOutput()` routes to the terminal via the `print` overlay
+(previously went to the browser devtools console — see the T1 drift entry).
+
+Out of scope for T1: stdin (`Console.ReadLine`, `Console.ReadKey`), color / cursor
+/ window-size API parity, Ctrl+C. All of that lands in T2 via `CarbideConsole.*Async`.
+
+Not available on the Node adapter — `project.runInteractive` throws if called on a
+Node-backed session. The CLI has no `--interactive` flag; interactive terminals are
+a browser-only feature.
 
 ## Host adapters
 
