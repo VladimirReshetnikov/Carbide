@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>T2.1 diagnostic — inspect what actually throws</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+
+    window.addEventListener("error", (e) => { if (resultEl.dataset.status == null) { resultEl.textContent = "UNCAUGHT: " + e.message; resultEl.dataset.status = "error"; }});
+    window.addEventListener("unhandledrejection", (e) => { if (resultEl.dataset.status == null) { const r = e.reason; resultEl.textContent = "UNHANDLED: " + (r?.stack ?? r); resultEl.dataset.status = "error"; }});
+
+    function makeTerm() {
+      const chunks = [];
+      return {
+        cols: 80, rows: 24,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { return { dispose() {} }; },
+        onResize(cb) { return { dispose() {} }; },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL("/src/bin/Release/net10.0/publish/wwwroot/_framework/", window.location.origin).toString(),
+      });
+      const terminal = makeTerm();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          `using System;
+using System.Threading.Tasks;
+Console.WriteLine("before await");
+Console.Out.Flush();
+try
+{
+    await Task.Delay(50);
+    Console.WriteLine("after await OK");
+}
+catch (Exception ex)
+{
+    Console.WriteLine("FAILED at user-try: " + ex.GetType().FullName + ": " + ex.Message);
+    Console.WriteLine("STACK: " + ex.StackTrace);
+    for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+    {
+        Console.WriteLine("-- inner: " + inner.GetType().FullName + ": " + inner.Message);
+        Console.WriteLine("-- stack: " + inner.StackTrace);
+    }
+}`,
+        );
+        const handle = project.runInteractive({ terminal });
+        const runResult = await handle.exitPromise;
+        return { runResult, text: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    run()
+      .then((payload) => { resultEl.textContent = JSON.stringify(payload); resultEl.dataset.status = payload.runResult?.success ? "ok" : "fail"; })
+      .catch((err) => { resultEl.textContent = "ERR: " + (err?.stack ?? err); resultEl.dataset.status = "error"; });
+  </script>
+</body>
+</html>

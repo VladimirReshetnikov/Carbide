@@ -6,6 +6,11 @@
 // The context is installed at `ProjectCompiler.RunInteractiveAsync` entry and uninstalled
 // in the finally block. It simply invokes `Post` callbacks inline (single-threaded is
 // effectively the same as "same thread" on this runtime). `Send` is synchronous too.
+//
+// T2.1 note: a Blazor-style `RendererSynchronizationContext` clone (Task-queue-chained
+// Post with `ConfigureAwaitOptions.ForceYielding`) was tried here and did NOT fix the
+// Assembly.Load-plus-suspended-await trap. See
+// `docs/reports/carbide-T21-dispatcher-experiment__...md` for the experimental record.
 
 using System.Threading;
 

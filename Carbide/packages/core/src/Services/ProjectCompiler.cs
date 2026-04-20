@@ -706,13 +706,10 @@ internal sealed class ProjectCompiler
                 throw tie.InnerException;
             }
 
-            // T3.1 — Do NOT use `ConfigureAwait(false)` here. Mono-WASM browser's default
-            // `TaskScheduler` dispatches to an absent thread pool, and the `await`
-            // continuation trips "Cannot wait on monitors" when it tries to queue there.
-            // Keeping the default context-capture means the continuation resumes on the
-            // `CarbideSyncContext` we installed above (which runs callbacks inline), which
-            // is the only scheduling path that works on browser-wasm for user tasks that
-            // suspend on an uncompleted TCS.
+            // T3.1 defensive — Do NOT use `ConfigureAwait(false)` here. Mono-WASM browser's
+            // default `TaskScheduler` dispatches to an absent thread pool; keeping the
+            // captured context (our inline-Post `CarbideSyncContext`) avoids that fall-
+            // through. Does not on its own fix T2.1 for suspended-completion awaits.
             switch (result)
             {
                 case Task<int> taskInt:
