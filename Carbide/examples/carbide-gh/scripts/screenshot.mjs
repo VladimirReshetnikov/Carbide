@@ -15,8 +15,8 @@ try {
         () => document.getElementById("status")?.dataset.state === "ready",
         { timeout: 180_000 },
     );
-    // Wait a few seconds for user-code output to accumulate.
-    await page.waitForTimeout(5000);
+    // Wait a while for user-code output to accumulate.
+    await page.waitForTimeout(10000);
     await page.screenshot({ path: out, fullPage: true });
     console.log(`screenshot: saved ${out}`);
 } finally {

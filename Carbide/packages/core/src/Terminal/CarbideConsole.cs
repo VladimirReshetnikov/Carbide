@@ -315,32 +315,32 @@ public static class CarbideConsole
 
     /// <summary>
     /// Async delay that works on Mono-WASM browser. Plain <see cref="Task.Delay(int)"/>
-    /// throws <c>PlatformNotSupportedException: Cannot wait on monitors</c> on this runtime
-    /// because the task scheduler falls through to an absent thread pool. This routes via
-    /// a <c>setTimeout</c>-backed JSImport instead, which is the canonical Mono-WASM
-    /// async-delay pattern.
+    /// trips <c>PlatformNotSupportedException: Cannot wait on monitors</c> because the
+    /// task scheduler falls through to an absent thread pool. T2.1: this routes via a
+    /// callback-based JSImport (<see cref="CarbideTerminalInterop.DelayCallback"/>) that
+    /// completes a locally-owned TCS with <see cref="TaskCreationOptions.None"/> — so the
+    /// user-code await continuation runs synchronously on the setTimeout tick instead of
+    /// queuing via ThreadPool. Earlier (broken) T2 version used the JSImport's
+    /// Promise-to-Task marshaler, which forces async continuations via
+    /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>.
     /// </summary>
     public static Task DelayAsync(int milliseconds, CancellationToken ct = default)
     {
         RequireState(nameof(DelayAsync));
         if (milliseconds < 0) throw new ArgumentOutOfRangeException(nameof(milliseconds));
         if (ct.IsCancellationRequested) return Task.FromCanceled(ct);
-        if (!ct.CanBeCanceled) return CarbideTerminalInterop.DelayAsync(milliseconds);
 
-        // Cancellable delay: race the JS setTimeout against a TCS the CT callback
-        // completes. Whichever fires first wins. On JS-timer fire we complete the TCS
-        // with the positive outcome; on CT trip we cancel. Matches what Task.Delay would
-        // do if Task.Delay worked on Mono-WASM browser.
         var tcs = new TaskCompletionSource(TaskCreationOptions.None);
-        var reg = ct.Register(static s => ((TaskCompletionSource)s!).TrySetCanceled(), tcs);
-        CarbideTerminalInterop.DelayAsync(milliseconds).ContinueWith(
-            static (_, s) =>
-            {
-                var (t, r) = ((TaskCompletionSource, CancellationTokenRegistration))s!;
-                r.Dispose();
-                t.TrySetResult();
-            },
-            (tcs, reg));
+        CancellationTokenRegistration reg = default;
+        if (ct.CanBeCanceled)
+        {
+            reg = ct.Register(static s => ((TaskCompletionSource)s!).TrySetCanceled(), tcs);
+        }
+        CarbideTerminalInterop.DelayCallback(milliseconds, () =>
+        {
+            reg.Dispose();
+            tcs.TrySetResult();
+        });
         return tcs.Task;
     }
 

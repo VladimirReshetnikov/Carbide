@@ -1,10 +1,6 @@
 using System;
-using System.Threading.Tasks;
 
-Console.WriteLine("[DEBUG] boot");
-
-Console.WriteLine("[DEBUG] awaiting CarbideConsole.DelayAsync(200)");
-await Carbide.Terminal.CarbideConsole.DelayAsync(200);
-Console.WriteLine("[DEBUG] delay returned ok");
-
+Console.WriteLine("[DEBUG] boot (sync, no awaits)");
+Console.WriteLine("[DEBUG] test 1: basic string");
+Console.WriteLine("[DEBUG] test 2: " + (1 + 2));
 Console.WriteLine("[DEBUG] done");

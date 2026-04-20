@@ -51,14 +51,18 @@ internal static partial class CarbideTerminalInterop
     internal static partial void NotifyTreatControlCAsInput(bool value);
 
     /// <summary>
-    /// JSImport into <c>globalThis.Carbide.Terminal.delay</c>. Returns a JS Promise that
-    /// resolves after <paramref name="milliseconds"/> via <c>setTimeout</c>. Marshalled as
-    /// a Task on the C# side. Used by <see cref="CarbideConsole.DelayAsync"/> because
-    /// <see cref="Task.Delay(int)"/> throws <c>PlatformNotSupportedException: Cannot wait
-    /// on monitors</c> on Mono-WASM browser without an installed SynchronizationContext.
+    /// T2.1 — callback-based delay. Replaces an earlier Promise-returning JSImport. The
+    /// Mono-WASM Promise-to-Task marshaler forces continuations through the ThreadPool
+    /// (via <c>TaskCreationOptions.RunContinuationsAsynchronously</c> on the bridging
+    /// TCS it constructs in
+    /// <c>JSMarshalerArgument.Task.cs:55</c>), and on single-threaded browser-wasm the
+    /// ThreadPool blocks on <c>Monitor.Wait(INFINITE)</c> and trips
+    /// "Cannot wait on monitors". The callback pattern lets us complete a locally-owned
+    /// TCS synchronously from the setTimeout tick, so user-code awaits resume inline
+    /// through <see cref="CarbideSyncContext"/> without a scheduler hop.
     /// </summary>
-    [JSImport("globalThis.Carbide.Terminal.delay")]
-    internal static partial Task DelayAsync(int milliseconds);
+    [JSImport("globalThis.Carbide.Terminal.delayCallback")]
+    internal static partial void DelayCallback(int milliseconds, [JSMarshalAs<JSType.Function>] Action callback);
 
     // ---- JSExports (JS → C#) move to Carbide.Core.CompilationInterop so the TS-side
     // `locateInterop` (which resolves `exportsRoot.Carbide.Core.CompilationInterop`) sees

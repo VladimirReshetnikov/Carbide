@@ -83,13 +83,30 @@ export function installBridge(
         setTreatControlCAsInput: sink.setTreatControlCAsInput,
         getCols: sink.getCols,
         getRows: sink.getRows,
-        // T2 — `CarbideConsole.DelayAsync` routes through this setTimeout-backed Promise.
-        // `Task.Delay(int)` on Mono-WASM browser throws on unsatisfiable sync-context
-        // continuation scheduling, so Carbide exposes a JS-native async delay instead.
-        delay: (ms: number) =>
-            new Promise<void>((resolve) => {
-                setTimeout(resolve, Math.max(0, ms));
-            }),
+        // T2.1 — Callback-based delay. Earlier T2 exposed a Promise-returning `delay`;
+        // Mono-WASM's JSImport Promise-to-Task marshaler wraps such results in a TCS
+        // with `TaskCreationOptions.RunContinuationsAsynchronously`, which forces every
+        // await-continuation through the ThreadPool — which on single-threaded browser-
+        // wasm falls back to `Monitor.Wait(INFINITE)` and trips "Cannot wait on monitors".
+        // The callback variant hands the completion through a local TCS the C# side
+        // constructs with `TaskCreationOptions.None`, so continuations run synchronously
+        // inline on the main thread when setTimeout fires.
+        delayCallback: (ms: number, callback: () => void) => {
+            setTimeout(() => {
+                try { callback(); } catch { /* swallow */ }
+            }, Math.max(0, ms));
+        },
+        // T2.1 — CarbideSyncContext's Post path enqueues via `setTimeout(cb, 0)` to actually
+        // yield to the JS event loop between continuations. Previously CarbideSyncContext.Post
+        // ran inline, which meant `Task.Yield()` + other micro-yield patterns never yielded
+        // control and any setTimeout-backed await (DelayAsync, Promise-based JSImports) never
+        // got a chance to fire. With macrotask-based Post we pay one microtask queue hop per
+        // continuation but browser event loop actually advances.
+        scheduleMacrotask: (callback: () => void) => {
+            setTimeout(() => {
+                try { callback(); } catch { /* swallow */ }
+            }, 0);
+        },
     };
     return sink;
 }
