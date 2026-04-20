@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-20T16:09:06Z
-Repository HEAD: 8c224d6b64e38c5ec1edf4792b0ccecb188e1c99
+Updated (UTC): 2026-04-20T18:23:55Z
+Repository HEAD: e4e53b7638153472a3db0e2115b9345cb6e84283
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -10,6 +10,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
 - [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
+- [Carbide T2.1 follow-up research report](reports/carbide-T21-follow-up-research-report__2026-04-20__18-20-09__6554172dc064.md) — reassessment of the browser interactive-async roadblock, including fresh local repros, upstream web research, git history, and updated recommendations.
 - [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
 - [Feasibility: browser-hosted interactive C# console apps in Carbide via xterm.js](reports/carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — feasibility analysis for an xterm.js-backed browser terminal runner and the runtime work required for substantial `System.Console` parity.
 - [Carbide — vision](carbide-vision__2026-04-17__16-16-47-000000.md) — what Carbide is, who it's for, what it does and does not try to do, tiered goals, success criteria.
