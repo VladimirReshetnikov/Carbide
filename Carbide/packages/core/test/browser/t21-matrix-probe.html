@@ -1,0 +1,224 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>T2.1 follow-up — parametric probe</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    function makeInteractiveTerminal(cols = 80, rows = 24) {
+      const chunks = [];
+      const listeners = new Set();
+      const resizeListeners = new Set();
+      return {
+        cols, rows,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        onResize(cb) { resizeListeners.add(cb); return { dispose() { resizeListeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        deliverResize(c, r) {
+          this.cols = c; this.rows = r;
+          for (const cb of Array.from(resizeListeners)) cb({ cols: c, rows: r });
+        },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function waitForText(terminal, needle, timeoutMs = 30000) {
+      const start = Date.now();
+      while (!terminal.getFullText().includes(needle)) {
+        if (Date.now() - start > timeoutMs) throw new Error(`timeout waiting for ${JSON.stringify(needle)}`);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    const qs = new URLSearchParams(window.location.search);
+    const probeName = qs.get("probe") ?? "baseline";
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal(80, 24);
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        const probeSource = window.__T21_PROBES__[probeName];
+        if (!probeSource) {
+          throw new Error("unknown probe: " + probeName + "; available: " + Object.keys(window.__T21_PROBES__).join(","));
+        }
+        project.addSource("Program.cs", probeSource.source);
+        const handle = project.runInteractive({ terminal });
+        const waitMode = probeSource.waitMode ?? "ready"; // "ready" | "raf2" | "none"
+        if (waitMode === "ready") {
+          await waitForText(terminal, "ready\n");
+        } else if (waitMode === "raf2") {
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        }
+        if (probeSource.action) {
+          await probeSource.action(terminal);
+        }
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    // Probe catalog — each entry: { source: C# code, action: async (terminal) => {} }
+    window.__T21_PROBES__ = {
+      // P1: The known-working shape — ReadLineAsync via Console.In.
+      "P1-readline-direct": {
+        source: `using System;
+using System.Threading.Tasks;
+Console.WriteLine("ready");
+var line = await Console.In.ReadLineAsync();
+Console.WriteLine("got: " + line);`,
+        action: async (t) => { t.deliverKeys("hello\r"); },
+      },
+      // P1b: same source, but deliver BEFORE await suspends (match interactive-readline.html's
+      // pattern of 2 rAF ticks + deliverKeys, no "ready" wait).
+      "P1b-readline-early": {
+        source: `using System;
+using System.Threading.Tasks;
+Console.Write("name? ");
+var line = await Console.In.ReadLineAsync();
+Console.WriteLine("got: [" + line + "]");`,
+        waitMode: "raf2",
+        action: async (t) => { t.deliverKeys("hello\r"); },
+      },
+      // P2: Plain TCS<string> completed by JSExport-delivered keystroke.
+      // Uses CarbideConsole.ReadLineAsync which creates a TCS internally.
+      "P2-readline-CarbideConsole": {
+        source: `using System;
+using System.Threading.Tasks;
+using Carbide.Terminal;
+Console.WriteLine("ready");
+var line = await CarbideConsole.ReadLineAsync();
+Console.WriteLine("got: " + (line ?? "<null>"));`,
+        action: async (t) => { t.deliverKeys("hello\r"); },
+      },
+      // P3: Plain Task.Delay (no JSExport intermediary — completes via runtime timer).
+      "P3-task-delay": {
+        source: `using System;
+using System.Threading.Tasks;
+Console.WriteLine("ready");
+await Task.Delay(50);
+Console.WriteLine("done");`,
+        action: async () => {},
+      },
+      // P4: WaitForResizeAsync — TCS completed via event-handler chain from JSExport.
+      "P4-wait-for-resize": {
+        source: `using System;
+using System.Threading.Tasks;
+using Carbide.Terminal;
+Console.WriteLine("ready");
+await CarbideConsole.WaitForResizeAsync();
+Console.WriteLine("done");`,
+        action: async (t) => { t.deliverResize(120, 40); },
+      },
+      // P5: Plain TCS<string> that the user creates locally. Complete via CarbideConsole.
+      // side channel (also TCS internally). This approximates what the user would do
+      // if they rolled their own await-a-TCS pattern.
+      "P5-user-owned-tcs-via-readline": {
+        source: `using System;
+using System.Threading.Tasks;
+using Carbide.Terminal;
+Console.WriteLine("ready");
+var userTcs = new TaskCompletionSource<string>(TaskCreationOptions.None);
+_ = CarbideConsole.ReadLineAsync().ContinueWith(t => userTcs.TrySetResult(t.Result ?? ""));
+var got = await userTcs.Task;
+Console.WriteLine("got: " + got);`,
+        action: async (t) => { t.deliverKeys("hello\r"); },
+      },
+
+      // --- Timing-controlled pairs ---------------------------------------------------
+      // Each pair: same C# source, different JS-side delivery timing.
+      // "early" = deliver BEFORE await suspends (rAF2 wait). "late" = after "ready\n".
+
+      // PAIR A: raw Console.In.ReadLineAsync
+      "PAIR-A-early": {
+        source: `using System; using System.Threading.Tasks;
+Console.WriteLine("ready");
+var line = await Console.In.ReadLineAsync();
+Console.WriteLine("got: " + line);`,
+        waitMode: "raf2",
+        action: async (t) => { t.deliverKeys("hello\r"); },
+      },
+      "PAIR-A-late": {
+        source: `using System; using System.Threading.Tasks;
+Console.WriteLine("ready");
+var line = await Console.In.ReadLineAsync();
+Console.WriteLine("got: " + line);`,
+        waitMode: "ready",
+        action: async (t) => { await new Promise(r => setTimeout(r, 100)); t.deliverKeys("hello\r"); },
+      },
+
+      // PAIR B: user-owned TaskCompletionSource<bool>, completed from a Timer or similar.
+      // Completion source = Task.Delay. If Task.Delay ever resumes, this works.
+      "PAIR-B-early-preset": {
+        source: `using System; using System.Threading.Tasks;
+Console.WriteLine("ready");
+var tcs = new TaskCompletionSource<int>(TaskCreationOptions.None);
+tcs.SetResult(42);  // completed BEFORE await
+await tcs.Task;
+Console.WriteLine("got: " + 42);`,
+        waitMode: "ready",
+        action: async () => {},
+      },
+      "PAIR-B-late-timer": {
+        source: `using System; using System.Threading.Tasks;
+Console.WriteLine("ready");
+var tcs = new TaskCompletionSource<int>(TaskCreationOptions.None);
+_ = Task.Delay(50).ContinueWith(_ => tcs.TrySetResult(42));  // completes AFTER
+await tcs.Task;
+Console.WriteLine("got: 42");`,
+        waitMode: "ready",
+        action: async () => {},
+      },
+
+      // PAIR C: nothing to wait on; plain async/await with yield.
+      "PAIR-C-yield": {
+        source: `using System; using System.Threading.Tasks;
+Console.WriteLine("ready");
+await Task.Yield();
+Console.WriteLine("got: yield");`,
+        waitMode: "ready",
+        action: async () => {},
+      },
+    };
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>
