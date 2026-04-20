@@ -1,20 +1,23 @@
 # Carbide — xterm.js interactive console plan (Phases T1–T4)
 
 - Created (UTC): 2026-04-19T23:34:41Z
+- Revised (UTC): 2026-04-19T23:50:00Z
 - Repository HEAD: e9e9e23e1e146a2509a6e1cf7dc0b61b81090977
 
-Status: parent implementation plan for the xterm.js-backed interactive browser terminal feature. Written on top of the two feasibility reports that established the verdict and scope ceiling:
+Status: parent implementation plan for the xterm.js-backed interactive browser terminal feature. **All four phases (T1, T2, T3, T4) are committed deliverables.** Written on top of the two feasibility reports that established the verdict and the T3 fork-the-BCL direction:
 
 - [`reports/carbide-xterm-interactive-console-feasibility`](../reports/carbide-xterm-interactive-console-feasibility__2026-04-19__21-55-15-000000.md) — primary feasibility evaluation (mine).
-- [`reports/carbide-browser-xterm-console-feasibility`](../reports/carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — independent second opinion; primary source for the T3 "fork `System.Console.dll`" path and the third-party-DLL scope ceiling that bounds T2.
+- [`reports/carbide-browser-xterm-console-feasibility`](../reports/carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — independent second opinion; primary source for the T3 "fork `System.Console.dll`" path that T2's `CarbideConsole.*Async` cannot cover.
 
 Read the feasibility report first. This plan assumes the reader knows the `Console.SetOut`/`Console.SetError` work but `Console.SetIn` throws on browser (Carbide already reflection-patches it); that `ConsolePal.Browser.cs` throws PNS for most interactive APIs; that `Console.WriteLine` bytes already transit through a `TextWriter` we own; and that xterm.js is a pure byte-pipe plus ANSI parser on the JS side.
 
 Audience: repository owner Vladimir, and future contributors picking up phases.
 
-Scope: extend `src/Carbide` so browser-hosted C# console programs can drive an embedded xterm.js terminal with behavior that approximates `conhost.exe` on modern Windows (VT-enabled) — including live stdout/stderr streaming, ANSI passthrough, line-mode stdin, key-mode stdin, `Console.ForegroundColor` et al., `Console.WindowWidth`, `Console.SetCursorPosition`, `Console.Title`, `Console.Clear`, and Ctrl+C semantics. Phases T1–T2 cover the fast path; T3 is the runtime workstream that buys pre-compiled-library compatibility; T4 is compat-test hardening.
+Scope: extend `src/Carbide` so browser-hosted C# console programs can drive an embedded xterm.js terminal with behavior that approximates `conhost.exe` on modern Windows (VT-enabled) — including live stdout/stderr streaming, ANSI passthrough, line-mode stdin, key-mode stdin, `Console.ForegroundColor` et al., `Console.WindowWidth`, `Console.SetCursorPosition`, `Console.Title`, `Console.Clear`, and Ctrl+C semantics. **Pre-compiled NuGet libraries that call these APIs directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, Sharprompt, ConsoleTables, …) must work unmodified** — that's T3's deliverable and sets the overall scope of the feature.
 
-Band labelling: T1 and T2 are Band A (additive surface in `@carbide/core`, no runtime fork). T3 is Band C (runtime workstream — a new sibling BCL csproj inside Carbide's `_framework/` ship). T4 is Band A-to-B depending on what T3 scope lands.
+Phase staging: T1 and T2 are additive stepping stones in `@carbide/core` (stdout streaming, `CarbideConsole.*Async` for Carbide-compiled source). T3 is the runtime workstream that delivers the pre-compiled-library target by forking `System.Console.dll` inside Carbide's `_framework/` ship. T4 is the compat-test and hardening phase that proves T3's deliverable against the real-world library set.
+
+Band labelling: T1 and T2 are Band A (additive surface in `@carbide/core`, no runtime fork). T3 is Band C (runtime workstream — a new sibling BCL csproj inside Carbide's `_framework/` ship). T4 is Band B (compat-test infrastructure around T3's fork).
 
 ## 1. Context
 
@@ -23,14 +26,14 @@ Band labelling: T1 and T2 are Band A (additive surface in `@carbide/core`, no ru
 - **xterm.js is not the limiting factor.** It already provides VT parsing, SGR, alt screen, mouse, cursor, resize, scrollback, and parser hooks. Carbide is a byte pipe; xterm.js does the rendering.
 - **Mono-WASM browser `System.Console` is.** `ConsolePal.Browser.cs` throws PNS for `Console.In`, `ReadKey`, `TreatControlCAsInput`, `ForegroundColor`/`BackgroundColor`/`ResetColor`, `CursorSize`/`CursorVisible`/`GetCursorPosition`/`SetCursorPosition`, `Title`, `Beep`, `BufferWidth`/`Height`, `WindowWidth`/`Height`, `SetBufferSize`, `SetWindowSize`, `SetWindowPosition`, `InputEncoding` getter. `Console.SetOut` / `Console.SetError` are clean; `Console.SetIn` is PNS-guarded but Carbide already reflection-patches `s_in`/`_in`.
 - **Mono-WASM main-thread single-threaded model is the central execution constraint.** Synchronous blocking reads (`Console.ReadLine()`, `Console.ReadKey()`) on the main thread deadlock the xterm event pump. Workarounds in increasing order of infrastructure cost: (a) cooperative async — user code `await`s a Carbide reader; (b) Mono-WASM's `[JSImport]` + `Task<T>` (same mechanism as (a), with the asyncify unwind hidden behind the await); (c) worker-hosted Mono-WASM + `SharedArrayBuffer` + `Atomics.wait` (needs COOP/COEP host-page headers).
-- **Tier 2 has a scope ceiling.** `CarbideConsole.*Async` only reaches code Carbide compiles from source. Pre-compiled NuGet libraries (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, …) call `Console.ReadKey` / `Console.ForegroundColor` directly from their own IL, and a sibling `CarbideConsole` static can't intercept that. The honest answer to "arbitrary console libraries work" is a forked `System.Console.dll` — Phase T3.
-- **Carbide already ships `System.Console.dll`** as a standalone managed assembly in `packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/`. Replacing it with a VT-first fork that reuses `ConsolePal.Unix` + `KeyParser` + `StdInReader` + `TerminalFormatStrings` is strictly cleaner than an IL weaver over user assemblies.
+- **Pre-compiled libraries call `System.Console` directly.** Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, Sharprompt, ConsoleTables, and similar packages hit `Console.ReadKey` / `Console.ForegroundColor` / `Console.WindowWidth` from their own IL; a sibling `CarbideConsole` static can't intercept that. The answer is a forked `System.Console.dll` — the core of Phase T3.
+- **Carbide already ships `System.Console.dll`** as a standalone managed assembly in `packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/`. Replacing it with a VT-first fork that reuses `ConsolePal.Unix` + `KeyParser` + `StdInReader` + `TerminalFormatStrings` is strictly cleaner than an IL weaver over user assemblies. T3 is this fork.
 
 ### 1.2 Relationship to existing Carbide phases
 
 - Builds on **U1** (CLI UX sharpening — verbosity, sentinel-framed output, error taxonomy) and **U2** (program argv/stdin forwarding). U2's `RunOptions { args, stdin }` and the `Console.In` reflection-patch are the exact seams T1/T2 extend.
 - Independent of **M10–M12** (Band C stretch). Source generators / analyzers / Webcil are not required for T1–T3; T4 may touch compat-test packaging but doesn't depend on M10+.
-- **`System.Console.dll` fork in T3** is a new Band C entry. Treat as an M-series-scale effort; the plan calls it T3 because it belongs to the terminal feature's phasing rather than to the independent roadmap sequence.
+- **`System.Console.dll` fork in T3** is a new Band C deliverable. It's the centerpiece of the terminal feature — T1 and T2 exist partly as stepping stones that de-risk the JS bridge, the key parser, and the window-size plumbing before the fork swaps in.
 
 ### 1.3 Shape of the work
 
@@ -47,7 +50,7 @@ Band labelling: T1 and T2 are Band A (additive surface in `@carbide/core`, no ru
   │  Resize + Ctrl+C + Clear + color.  │
   └───────────┬────────────────────────┘
               ▼
-  ┌───────────── Phase T3 ─────────────┐  (optional, conditional on scope)
+  ┌───────────── Phase T3 ─────────────┐
   │  Forked System.Console.dll for     │
   │  browser-wasm. Reuse ConsolePal.   │
   │  Unix. Pre-compiled-library parity. │
@@ -61,7 +64,7 @@ Band labelling: T1 and T2 are Band A (additive surface in `@carbide/core`, no ru
   └────────────────────────────────────┘
 ```
 
-T1 and T2 can land on the trunk independently of T3/T4. The T2 → T3 decision is deferred to a phase-0 gate (§3.0 below) — if pre-compiled-library coverage is not in scope, T3 is skipped, T4 runs at reduced compat-fixture scope, and the plan ends there.
+T1 and T2 can land on the trunk independently of T3, but T3 is a committed deliverable: without it the pre-compiled-library target isn't met, and the feature falls short of the stated scope. T4 runs the full compat-fixture set against the T3 fork.
 
 ## 2. Invariants (hold across all phases)
 
@@ -75,28 +78,17 @@ These are the non-negotiables that every phase preserves; each phase's acceptanc
 - **T-I6. `Console.OpenStandardOutput()` stops being a bypass.** Starting in T1, the emscripten `print`/`printErr` overrides catch runtime-side writes; user code that calls `Console.OpenStandardOutput()` and writes bytes reaches the same terminal as `Console.WriteLine`. (This also closes U1's stdout-bypass footnote for free inside interactive mode.)
 - **T-I7. Ctrl+C is a first-class input signal.** User programs get a policy knob (byte vs event delivery) that matches conhost: `TreatControlCAsInput == true` → bytes in stdin; otherwise → `CancelKeyPress` fires and the run's `CancellationToken` trips.
 - **T-I8. Teardown is deterministic.** Disposing a `TerminalSession` unwires JS bridges, restores `Console.Out`/`Console.Error`/`Console.In`, and removes `print`/`printErr` overrides in a fixed order. No "await the GC" pattern.
-- **T-I9. No `System.Console.dll` fork until T3 explicitly lands.** T1/T2 only touch `Carbide.Core.csproj` and the TS side; the stock published `System.Console.dll` stays intact. When T3 lands, it's a separate sibling csproj whose output replaces `System.Console.dll` in `_framework/` at publish time.
+- **T-I9. No `System.Console.dll` fork until T3 lands.** T1/T2 only touch `Carbide.Core.csproj` and the TS side; the stock published `System.Console.dll` stays intact through T1 and T2. T3 introduces a sibling csproj whose output replaces `System.Console.dll` in `_framework/` at publish time, and every phase after T3 runs against the forked BCL.
 - **T-I10. xterm.js is a peer dependency, never a direct dependency.** The host page chooses versions; Carbide's `package.json` lists `@xterm/xterm` as a peer so bundlers don't double-resolve.
 
-## 3. Phase gates and dependencies
-
-### 3.0 Phase-0 decision (before any phase starts)
-
-Non-engineering decision, owner-call. Documented as a single line in `drift/README.md` at the start of work:
-
-> Does the terminal feature need to work transparently with pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` / `Console.WindowWidth` directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, etc.)?
-
-- **If no** → T1 + T2 is the full ship. T3 is deferred indefinitely. T4 runs with the tier-2 compat set (original user source only).
-- **If yes** → T1 + T2 are stepping stones; T3 is the real deliverable. T4 runs with the full compat set (tier-2 + pre-compiled-library fixtures).
-
-Both branches of this gate are valid; there is no "correct" answer. The decision only affects the stop point.
+## 3. Phase dependencies
 
 ### 3.1 Inter-phase dependencies
 
 - T1 depends on: none inside this plan.
 - T2 depends on: T1's `TerminalSession` API, `StreamingStdOutWriter`, and `[JSImport]` surface. The T2 reader consumes the `[JSImport]`-backed bridge T1 establishes.
-- T3 depends on: T1 (JS bridge exists) + T2 (key parser, line editor, resize cache all feed the forked ConsolePal). Can start in parallel with T2's later half only if the forked `System.Console.dll` is kept behind a feature flag (`CARBIDE_TERMINAL_FORKED_BCL=1`) during bring-up.
-- T4 depends on: all prior phases that landed.
+- T3 depends on: T1 (JS bridge exists) + T2 (key parser, line editor, resize cache all feed the forked ConsolePal). T3 work can begin in parallel with T2's later sub-phases; during the overlap the fork ships behind a feature flag (`CARBIDE_TERMINAL_FORKED_BCL=1`) so trunk stays on the stock `System.Console.dll` until T3's own acceptance closes. The flag is removed at T3 close and the fork becomes the default publish target.
+- T4 depends on: all prior phases.
 
 ## 4. Phase T1 — streaming output + terminal session API
 
@@ -219,7 +211,7 @@ Both branches of this gate are valid; there is no "correct" answer. The decision
 
 ## 5. Phase T2 — cooperative async input + `CarbideConsole`
 
-**Goal.** Make interactive terminals actually interactive. Line-mode `ReadLine`, key-mode `ReadKey`, color, cursor, window-size, title, clear, Ctrl+C. All via `CarbideConsole.*Async` and a `BrowserTerminalReader`. Covers original user source; pre-compiled libraries remain a T3 concern.
+**Goal.** Make interactive terminals actually interactive for code Carbide compiles from source. Line-mode `ReadLine`, key-mode `ReadKey`, color, cursor, window-size, title, clear, Ctrl+C — all via `CarbideConsole.*Async` and a `BrowserTerminalReader`. T2 de-risks the JS bridge, the key-parser port, the resize cache, and the line-editor UX before T3 reuses them under the forked BCL. Pre-compiled libraries are out of scope for T2 specifically (they land under T3), but the infrastructure T2 builds is exactly what the fork will consume.
 
 ### 5.1 Acceptance
 
@@ -336,7 +328,7 @@ Both branches of this gate are valid; there is no "correct" answer. The decision
 - **DT-9. The line editor lives in JS, not C#.** Keyboard latency must be invisible; each keystroke round-tripping to C# for echo would cost ~1–2 ms in practice. JS-side local echo stays sub-frame. C# only sees the committed line.
 - **DT-10. `KeyParser` is ported verbatim from upstream.** Reinventing xterm/VT key-escape decoding is a bug factory; the upstream implementation has years of production hardening and an excellent test set. Port + translate `TerminalFormatStrings` inputs; keep the algorithm intact.
 - **DT-11. Window size is cached on the C# side, not queried live per access.** `CarbideConsole.WindowWidth` is a hot read in tight `while (width > 0)` loops. Caching + `[JSExport] NotifyResize` updates gives O(1) reads with bounded staleness (one update per real resize event).
-- **DT-12. `GetCursorPosition` is best-effort, not required for T2 acceptance.** DSR `\x1b[6n` reply interleaves with user stdin and needs a pre-filter that intercepts `\x1b[<row>;<col>R` before it reaches `DeliverStdIn`. Implementable in T2 but non-trivial; if the DSR pre-filter doesn't land cleanly, ship `GetCursorPosition` throwing `NotSupportedException` and defer to T3.
+- **DT-12. `GetCursorPosition` may slip from T2 into T3.** DSR `\x1b[6n` reply interleaves with user stdin and needs a pre-filter that intercepts `\x1b[<row>;<col>R` before it reaches `DeliverStdIn`. Implementable in T2 but non-trivial; the cleanest home is T3's forked `StdInReader` (which already has the machinery for escape-reply matching). Either ship the pre-filter in T2 or ship `CarbideConsole.GetCursorPosition` throwing `NotSupportedException` through T2 and land the real implementation as part of T3's ConsolePal fork.
 - **DT-13. `TreatControlCAsInput` default is `false`.** Matches .NET on Windows and Unix. Programs written for a console get the event, not the byte, unless they opt in.
 - **DT-14. `CancelKeyPress` is synchronous.** Matches the .NET BCL contract. The JS `DeliverSignal` call is fire-and-forget from JS's perspective; C# runs the handler chain synchronously on its current continuation.
 - **DT-15. History ring is flag-gated.** Small-value feature that can bloat the line-editor scope if done generically. Default: no history. Flag: `{ lineEditor: { history: N } }` — simple integer ring size.
@@ -365,11 +357,11 @@ Both branches of this gate are valid; there is no "correct" answer. The decision
 | Alt-screen + mouse fixtures | T4 (user code can already do it via `WriteRaw`). |
 | `Console.Beep` — no convenient browser equivalent | Dropped; document. |
 
-## 6. Phase T3 — forked `System.Console.dll` (conditional)
+## 6. Phase T3 — forked `System.Console.dll`
 
-**Goal.** `Console.ReadKey`, `Console.ForegroundColor`, `Console.WindowWidth`, `Console.SetCursorPosition`, `Console.Title`, `Console.Clear`, `Console.CancelKeyPress` all work on pre-compiled libraries that Carbide never sees source for. Strict parity for the supported subset. Optional worker + SAB for true-sync `ReadKey` behind a capability flag.
+**Goal.** `Console.ReadKey`, `Console.ForegroundColor`, `Console.WindowWidth`, `Console.SetCursorPosition`, `Console.Title`, `Console.Clear`, `Console.CancelKeyPress` all work on **pre-compiled libraries that Carbide never sees source for** (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, Sharprompt, ConsoleTables, …). Strict parity for the supported subset. Optional worker + SAB for true-sync `ReadKey` behind a capability flag (COOP/COEP-gated; default off).
 
-**Conditional.** Skipped entirely if the §3.0 gate decides pre-compiled-library coverage is not in scope.
+T3 is the committed deliverable the whole plan points at. T1 and T2 exist partly as stepping stones that bring the JS bridge, key parser, line editor, resize cache, and SGR helpers to the state T3 consumes.
 
 ### 6.1 Acceptance
 
@@ -508,7 +500,7 @@ These fixtures depend on Carbide's NuGet allow-list accepting these packages or 
 
 ## 7. Phase T4 — hardening and compat tests
 
-**Goal.** A regression net. If T3 didn't land, T4 runs at reduced scope against tier-2 source; if T3 did land, T4 is the compat-fixture stress phase.
+**Goal.** A regression net around the T3 deliverable. T4 is the compat-fixture stress phase: it runs the full third-party library matrix against the forked BCL and establishes a lifecycle/isolation contract for long-running interactive sessions.
 
 ### 7.1 Acceptance
 
@@ -519,7 +511,7 @@ These fixtures depend on Carbide's NuGet allow-list accepting these packages or 
 
 ### 7.2 Execution order
 
-**T4.1 — Compat-fixture inventory.** Enumerate the required fixtures from T1 + T2 + (optionally) T3; cross-check against scenarios in the usability report.
+**T4.1 — Compat-fixture inventory.** Enumerate the required fixtures across T1, T2, and T3; cross-check against scenarios in the usability report.
 
 **T4.2 — Isolation + lifecycle contract.** Document the "recreate the session between interactive runs" rule as a first-class contract in the current-state guide. Investigate Mono-WASM `AssemblyLoadContext` collectibility for a future removal of the rule; if collectibility works on interpreter mode, pull it into the `TerminalRun` teardown.
 
@@ -553,7 +545,7 @@ Bumps, chronologically:
 - After U2: `SCHEMA_VERSION = 3` (the baseline this plan starts from).
 - T1: `SCHEMA_VERSION = 4`. Adds `RunInteractiveAsync` JSExport; adds `{write, writeErr, DisposeTerminal}` bridge shape.
 - T2: `SCHEMA_VERSION = 5`. Adds `{DeliverStdIn, NotifyResize, DeliverSignal, SetKeyMode}` JSExports.
-- T3: `SCHEMA_VERSION = 6`. Widens the bridge with read/write primitives the forked BCL consumes. Only bumps if T3 lands.
+- T3: `SCHEMA_VERSION = 6`. Widens the bridge with the read/write primitives the forked BCL consumes (byte-granularity reads from xterm's `onData`, byte-granularity writes to `terminal.write`).
 
 Each bump keeps the previous version accepted by the C# validator for one subsequent phase — a phase-N TS client against a phase-(N-1) C# side is the only transition we permit, and both sides must move to phase N before phase N+1 ships.
 
@@ -630,4 +622,4 @@ interface HostAdapter {
 
 ---
 
-Vladimir — the staging is: land T1 for the immediate demo and the free stdout-bypass fix; decide the §3.0 gate before T2 closes; run T2 behind the new `CarbideConsole.*` surface to unlock real interactive work on your own source; then either stop (if the gate says no pre-compiled-library coverage) or go into T3 for the forked `System.Console.dll`. T4 is the net underneath whichever tier is the final deliverable. Every piece of the plan has a precedent in the existing Carbide phasing (Hosting adapters, reflection-patched `Console.*`, JSExport/JSImport surface evolution, schema bumps with transition windows) — nothing here asks Carbide to grow a new category of capability.
+Vladimir — the staging is: land T1 for the immediate demo and the free stdout-bypass fix; build T2's `CarbideConsole.*` on top so we have a working `ReadLineAsync`/`ReadKeyAsync`/color/cursor/resize surface against code Carbide compiles from source; then ship T3 — the forked `System.Console.dll` — which is the point of the whole feature and is what gives Spectre.Console et al. their coverage. T4 is the compat-test net underneath T3. Every piece of the plan has a precedent in the existing Carbide phasing (host adapters, reflection-patched `Console.*`, JSExport/JSImport surface evolution, schema bumps with transition windows) — nothing here asks Carbide to grow a new category of capability.
