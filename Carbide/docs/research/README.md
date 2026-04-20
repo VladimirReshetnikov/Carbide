@@ -1,8 +1,8 @@
 # Carbide — research reports
 
 - Created (UTC): 2026-04-19T00:47:03Z
-- Updated (UTC): 2026-04-19T20:29:04Z
-- Repository HEAD: b27148c824028d42a26852cdff6db1bd0cebfcb3
+- Updated (UTC): 2026-04-20T01:25:40Z
+- Repository HEAD: f704d10238980f1fcfbda8577ba51a844919e068
 
 This directory holds Carbide-specific research, feasibility reports, and independent verification reports that directly inform the project-local design documents in [`src/Carbide/docs/`](../README.md).
 
@@ -22,3 +22,7 @@ This directory holds Carbide-specific research, feasibility reports, and indepen
 
 - [Feasibility: running a useful `lib/pwsh` subset on Carbide in Node.js](powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — feasibility analysis of a PowerShell-derived scripting subset hosted by Carbide, including separate verdicts for runtime-hosting and source-build-on-Carbide.
 - [Feasibility: forking a useful PowerShell subset from `lib/pwsh` to run under Carbide on Node.js](pwsh/carbide-pwsh-subset-feasibility__2026-04-19__10-30-00-000000__a7c3d4e9f1b2.md) — scope, dependency analysis, risk assessment, and tiered effort estimate for an in-process PowerShell evaluator built on top of Carbide M9 + M11. **Revised 2026-04-19T21:00Z** after review of the independent report above; see §14 for the deltas (compile-site count, cmdlet locations, threading model, persistent-session host requirement, and a revised effort estimate).
+
+### PE parsing and rewriting libraries on Carbide
+
+- [Feasibility: running major PE parsing and rewriting libraries on `src/Carbide`](pe-libraries/carbide-pe-parsing-rewriting-libraries-feasibility__2026-04-20__01-07-50-000000__272fdc1dd683.md) — evidence-backed evaluation of Mono.Cecil, AsmResolver, dnlib, and the lower-level SRM fallback on Carbide, with separate verdicts for direct DLL references, current `PackageReference` ingestion, and source-tree buildability.
