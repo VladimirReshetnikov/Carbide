@@ -8,6 +8,8 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Carbide.Terminal;
 
@@ -112,6 +114,66 @@ internal sealed class StreamingStdOutWriter : TextWriter
     }
 
     public override void Flush() => FlushNow();
+
+    /// <summary>
+    /// Override the default <see cref="TextWriter.FlushAsync()"/> implementation which
+    /// dispatches to <see cref="System.Threading.Tasks.TaskScheduler.Default"/> (the
+    /// thread pool). On single-threaded Mono-WASM browser there's no thread pool, so
+    /// the default impl throws <c>PlatformNotSupportedException: Cannot wait on monitors
+    /// on this runtime</c>. Flushing is synchronous here anyway — the buffer is in-process.
+    /// </summary>
+    public override Task FlushAsync()
+    {
+        try
+        {
+            FlushNow();
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            return Task.FromException(ex);
+        }
+    }
+
+    /// <inheritdoc />
+    public override Task FlushAsync(CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+        return FlushAsync();
+    }
+
+    // Additional async overrides so `Console.Out.WriteLineAsync("...")` and friends
+    // complete synchronously on Mono-WASM browser instead of dispatching to an absent
+    // thread pool. Writing is already in-memory + buffered; no threadpool hop is useful.
+
+    public override Task WriteAsync(char value) { Write(value); return Task.CompletedTask; }
+    public override Task WriteAsync(string? value) { Write(value); return Task.CompletedTask; }
+    public override Task WriteAsync(char[] buffer, int index, int count) { Write(buffer, index, count); return Task.CompletedTask; }
+    public override Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+        Write(buffer.Span);
+        return Task.CompletedTask;
+    }
+    public override Task WriteLineAsync() { WriteLine(); return Task.CompletedTask; }
+    public override Task WriteLineAsync(char value) { Write(value); WriteLine(); return Task.CompletedTask; }
+    public override Task WriteLineAsync(string? value) { WriteLine(value); return Task.CompletedTask; }
+    public override Task WriteLineAsync(char[] buffer, int index, int count)
+    {
+        Write(buffer, index, count);
+        WriteLine();
+        return Task.CompletedTask;
+    }
+    public override Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested) return Task.FromCanceled(cancellationToken);
+        Write(buffer.Span);
+        WriteLine();
+        return Task.CompletedTask;
+    }
 
     /// <summary>
     /// Forcibly drain the buffer now, even if neither the size nor the time threshold has

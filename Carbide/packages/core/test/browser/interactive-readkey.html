@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive-terminal smoke: ReadKeyAsync</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 80,
+        rows: 24,
+        write(data) {
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        onData(cb) {
+          listeners.add(cb);
+          return { dispose() { listeners.delete(cb); } };
+        },
+        deliverKeys(s) {
+          for (const cb of Array.from(listeners)) cb(s);
+        },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        // Read four keys: printable 'a', Up arrow, F1, Backspace — then print a summary.
+        project.addSource(
+          "Program.cs",
+          'using Carbide.Terminal;\n' +
+            'var k1 = await CarbideConsole.ReadKeyAsync(intercept: true);\n' +
+            'var k2 = await CarbideConsole.ReadKeyAsync(intercept: true);\n' +
+            'var k3 = await CarbideConsole.ReadKeyAsync(intercept: true);\n' +
+            'var k4 = await CarbideConsole.ReadKeyAsync(intercept: true);\n' +
+            'Console.WriteLine($"k1={k1.Key} k2={k2.Key} k3={k3.Key} k4={k4.Key}");\n',
+        );
+        const handle = project.runInteractive({ terminal });
+
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        // "a" -> ConsoleKey.A
+        terminal.deliverKeys("a");
+        await new Promise((r) => setTimeout(r, 50));
+        // Up arrow CSI
+        terminal.deliverKeys("\x1b[A");
+        await new Promise((r) => setTimeout(r, 50));
+        // F1 SS3
+        terminal.deliverKeys("\x1bOP");
+        await new Promise((r) => setTimeout(r, 50));
+        // Backspace (DEL)
+        terminal.deliverKeys("\x7f");
+
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

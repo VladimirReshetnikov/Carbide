@@ -1,11 +1,14 @@
-// T1 — JSImport / JSExport surface for the interactive terminal bridge.
+// T1+T2 — JSImport / JSExport surface for the interactive terminal bridge.
 //
-// The JSImport targets resolve against globalThis.Carbide.Terminal.*, which the TS side
-// installs before calling RunInteractiveAsync and clears on dispose. By construction these
-// imports are never called outside an active interactive run (the only callers are the
-// StreamingStdOutWriter instances installed by ProjectCompiler.RunInteractiveAsync and the
-// emscripten print/printErr overlays, both of which are wired and unwired in lockstep with
-// the bridge), so the JS side can rely on the bridge being live when these imports fire.
+// T1 introduced WriteStdOut / WriteStdErr (C# → JS) for streaming output. T2 adds the
+// return path: DeliverStdIn / NotifyResize / DeliverSignal / SetKeyMode (JS → C#) that
+// route input, resize, and Ctrl+C signals into the active TerminalInputState.
+//
+// JSImport targets resolve against globalThis.Carbide.Terminal.*, which the TS side
+// installs before calling RunInteractiveAsync and clears on dispose. JSExports are callable
+// by the TS side anytime the runtime is alive; guards on each export check for the
+// project's input state and silently no-op if the state isn't present (e.g. late DeliverStdIn
+// after teardown).
 
 using System.Runtime.InteropServices.JavaScript;
 
@@ -13,6 +16,8 @@ namespace Carbide.Terminal;
 
 internal static partial class CarbideTerminalInterop
 {
+    // ---- JSImports (C# → JS) ------------------------------------------------------------
+
     /// <summary>
     /// JSImport into <c>globalThis.Carbide.Terminal.write</c>. Called by
     /// <see cref="StreamingStdOutWriter"/>'s flush path with a batched chunk of stdout text.
@@ -27,4 +32,72 @@ internal static partial class CarbideTerminalInterop
     /// </summary>
     [JSImport("globalThis.Carbide.Terminal.writeErr")]
     internal static partial void WriteStdErr(string text);
+
+    /// <summary>
+    /// JSImport into <c>globalThis.Carbide.Terminal.setKeyMode</c>. Called by
+    /// <see cref="CarbideConsole.ReadKeyAsync"/> at await-start (true) and await-end (false)
+    /// so the JS line editor knows whether to run its local-echo loop or forward raw bytes.
+    /// </summary>
+    [JSImport("globalThis.Carbide.Terminal.setKeyMode")]
+    internal static partial void NotifyKeyMode(bool enabled);
+
+    /// <summary>
+    /// JSImport into <c>globalThis.Carbide.Terminal.setTreatControlCAsInput</c>. Called by
+    /// <see cref="CarbideConsole.TreatControlCAsInput"/>'s setter; the JS side tracks the
+    /// flag locally so the line editor can decide whether a <c>\x03</c> becomes a byte
+    /// delivery or a signal delivery without a round-trip per keystroke.
+    /// </summary>
+    [JSImport("globalThis.Carbide.Terminal.setTreatControlCAsInput")]
+    internal static partial void NotifyTreatControlCAsInput(bool value);
+
+    /// <summary>
+    /// JSImport into <c>globalThis.Carbide.Terminal.delay</c>. Returns a JS Promise that
+    /// resolves after <paramref name="milliseconds"/> via <c>setTimeout</c>. Marshalled as
+    /// a Task on the C# side. Used by <see cref="CarbideConsole.DelayAsync"/> because
+    /// <see cref="Task.Delay(int)"/> throws <c>PlatformNotSupportedException: Cannot wait
+    /// on monitors</c> on Mono-WASM browser without an installed SynchronizationContext.
+    /// </summary>
+    [JSImport("globalThis.Carbide.Terminal.delay")]
+    internal static partial Task DelayAsync(int milliseconds);
+
+    // ---- JSExports (JS → C#) move to Carbide.Core.CompilationInterop so the TS-side
+    // `locateInterop` (which resolves `exportsRoot.Carbide.Core.CompilationInterop`) sees
+    // them on the same interop object it already uses for RunAsync / BuildAsync / etc.
+
+    // ---- Internal entry points used by CompilationInterop's JSExport wrappers -----------
+
+    internal static void RouteStdIn(string projectId, bool isKeyMode, string data)
+    {
+        var state = TerminalInputState.TryGet(projectId);
+        if (state is null) return;
+        if (isKeyMode)
+        {
+            state.Reader.EnqueueRaw(data);
+        }
+        else
+        {
+            state.Reader.EnqueueLine(data);
+        }
+    }
+
+    internal static void RouteResize(string projectId, int cols, int rows)
+    {
+        TerminalInputState.TryGet(projectId)?.ApplyResize(cols, rows);
+    }
+
+    internal static void RouteSignal(string projectId, string signalName)
+    {
+        var state = TerminalInputState.TryGet(projectId);
+        if (state is null) return;
+        if (signalName == "SIGINT")
+        {
+            state.FireCancelKeyPress();
+        }
+    }
+
+    internal static void RouteTreatControlCAsInput(string projectId, bool value)
+    {
+        var state = TerminalInputState.TryGet(projectId);
+        if (state is not null) state.TreatControlCAsInput = value;
+    }
 }

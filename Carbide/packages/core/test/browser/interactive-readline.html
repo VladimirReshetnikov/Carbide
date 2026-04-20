@@ -1,0 +1,106 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive-terminal smoke: ReadLineAsync</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    // T2 fixtures use a mock Terminal that supports both `write` (output) and `onData`
+    // (simulated user keystrokes). The test drives input via `deliverKeys(...)`.
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      const resizeListeners = new Set();
+      return {
+        cols: 80,
+        rows: 24,
+        write(data) {
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        onData(cb) {
+          listeners.add(cb);
+          return { dispose() { listeners.delete(cb); } };
+        },
+        onResize(cb) {
+          resizeListeners.add(cb);
+          return { dispose() { resizeListeners.delete(cb); } };
+        },
+        deliverKeys(s) {
+          for (const cb of Array.from(listeners)) cb(s);
+        },
+        deliverResize(cols, rows) {
+          this.cols = cols;
+          this.rows = rows;
+          for (const cb of Array.from(resizeListeners)) cb({ cols, rows });
+        },
+        getChunks() { return chunks; },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          'using Carbide.Terminal;\n' +
+            'Console.Write("name? ");\n' +
+            'var line = await CarbideConsole.ReadLineAsync();\n' +
+            'Console.WriteLine($"got: [{line}]");\n',
+        );
+        const handle = project.runInteractive({ terminal });
+
+        // Let Carbide fire `Console.Write("name? ")` and the await to begin. Two rAF ticks
+        // is plenty on a headless Chromium.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        // Simulate typing "abc" then Enter.
+        terminal.deliverKeys("abc\r");
+
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

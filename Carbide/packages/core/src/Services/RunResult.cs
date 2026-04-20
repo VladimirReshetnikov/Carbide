@@ -11,7 +11,9 @@ public sealed class RunResult
     // 3 when RunAsync gained argv + stdin; RunResult's shape didn't change but it travels
     // through the same boundary. T1 bumped to 4 when RunInteractiveAsync landed — same
     // RunResult shape travels through both the non-interactive and interactive paths.
-    public int SchemaVersion { get; init; } = 4;
+    // T2 bumped to 5 when the input-side JSExports (DeliverStdIn / NotifyResize / etc.)
+    // landed.
+    public int SchemaVersion { get; init; } = 5;
     public bool Success { get; init; }
     public int? ExitCode { get; init; }
     public string StdOut { get; init; } = string.Empty;

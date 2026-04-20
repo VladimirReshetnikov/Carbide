@@ -8,8 +8,9 @@ public sealed class BuildResult
 {
     // See interop/schema.ts: single SCHEMA_VERSION across all Carbide payloads. M5 = 2;
     // U2 = 3 (bumped when RunAsync's request shape gained args/stdin); T1 = 4 (bumped when
-    // the interactive terminal path landed).
-    public int SchemaVersion { get; init; } = 4;
+    // the interactive terminal path landed); T2 = 5 (bumped when the input-side bridge
+    // exports landed).
+    public int SchemaVersion { get; init; } = 5;
     public bool Success { get; init; }
     public byte[]? Pe { get; init; }
     public byte[]? Pdb { get; init; }

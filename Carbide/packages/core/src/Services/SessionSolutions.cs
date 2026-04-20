@@ -157,11 +157,14 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     /// <summary>
     /// T1 — interactive run. Installs streaming stdout/stderr writers that push buffered
     /// chunks to the JS terminal bridge (<c>globalThis.Carbide.Terminal.{write,writeErr}</c>)
-    /// during execution, then drains and restores on exit. Mirrors <see cref="RunAsync"/>
-    /// but without a stdin parameter — T1 is output-only; T2 wires input.
+    /// during execution, then drains and restores on exit. T2 extends the same entry point
+    /// to install a <see cref="Carbide.Terminal.BrowserTerminalReader"/> into
+    /// <c>Console.In</c> and bind a <see cref="Carbide.Terminal.TerminalInputState"/> keyed
+    /// by <paramref name="projectId"/> so JSExports can route DeliverStdIn / NotifyResize /
+    /// DeliverSignal calls to this run.
     /// </summary>
     public Task<RunResult> RunInteractiveAsync(string projectId, InteractiveOptions options)
-        => GetProject(projectId).RunInteractiveAsync(options);
+        => GetProject(projectId).RunInteractiveAsync(projectId, options);
 
     /// <summary>
     /// T1 — teardown stub. No-op in T1 because <see cref="ProjectCompiler.RunInteractiveAsync"/>

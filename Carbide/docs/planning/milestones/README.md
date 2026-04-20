@@ -20,3 +20,4 @@ This directory groups the detailed implementation plans for individual Carbide m
 - [U3 — detailed plan (introspection + csproj polish)](carbide-U3-detailed-plan__2026-04-19__08-00-00-000000.md)
 - [M11 — detailed plan (Partial MSBuild evaluator)](carbide-M11-detailed-plan__2026-04-19__09-00-00-000000.md)
 - [T1 — detailed plan (streaming output + terminal session API)](carbide-T1-detailed-plan__2026-04-20__00-16-33-000000.md) — first phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).
+- [T2 — detailed plan (cooperative async input + `CarbideConsole`)](carbide-T2-detailed-plan__2026-04-20__03-09-57-000000.md) — second phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).

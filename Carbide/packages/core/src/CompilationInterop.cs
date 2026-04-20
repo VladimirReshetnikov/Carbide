@@ -19,6 +19,18 @@ public static partial class CompilationInterop
     {
         var logger = Host.Services.GetService<ILogger<SessionSolutions>>();
         logger.LogInformation("Carbide initialising with {Count} assembly urls.", assemblyUrls.Length);
+        // T2 — install a single-threaded SynchronizationContext on the Mono-WASM main
+        // thread. Without one, Task continuations from TCS / Task.Delay / CT callbacks
+        // fall through to an absent thread pool and throw
+        // `PlatformNotSupportedException: Cannot wait on monitors on this runtime`.
+        // Done here (rather than at RunInteractiveAsync entry) so JSExport calls that
+        // re-enter C# from JS (DeliverStdIn / NotifyResize / DeliverSignal) also see
+        // the context without each one having to reinstall.
+        if (System.Threading.SynchronizationContext.Current is null)
+        {
+            System.Threading.SynchronizationContext.SetSynchronizationContext(
+                Carbide.Terminal.CarbideSyncContext.Instance);
+        }
         return Host.Dispatch(s => s.InitializeReferencesAsync(assemblyUrls));
     }
 
@@ -168,6 +180,43 @@ public static partial class CompilationInterop
     public static void DisposeTerminal(string projectId)
         => Host.Dispatch(s => s.DisposeInteractive(projectId));
 
+    // ---- T2: input-side JSExports (JS → C#) --------------------------------------------
+
+    /// <summary>
+    /// T2 — deliver stdin from the JS bridge. <paramref name="isKeyMode"/> distinguishes
+    /// the line-editor's committed-line path (false) from the raw byte pass-through path
+    /// (true). Routes into the project's <see cref="Carbide.Terminal.BrowserTerminalReader"/>.
+    /// </summary>
+    [JSExport]
+    public static void DeliverStdIn(string projectId, bool isKeyMode, string data)
+        => CarbideTerminalInterop.RouteStdIn(projectId, isKeyMode, data);
+
+    /// <summary>
+    /// T2 — xterm resize notification. Updates the project's cached window geometry and
+    /// fires the <see cref="Carbide.Terminal.CarbideConsole.TerminalResized"/> event.
+    /// </summary>
+    [JSExport]
+    public static void NotifyResize(string projectId, int cols, int rows)
+        => CarbideTerminalInterop.RouteResize(projectId, cols, rows);
+
+    /// <summary>
+    /// T2 — signal delivery from the JS bridge. T2 honors <c>"SIGINT"</c> (Ctrl+C); other
+    /// names are silently ignored so the TS side can forward more signals in future without
+    /// a lockstep schema bump.
+    /// </summary>
+    [JSExport]
+    public static void DeliverSignal(string projectId, string signalName)
+        => CarbideTerminalInterop.RouteSignal(projectId, signalName);
+
+    /// <summary>
+    /// T2 — propagate C#-side <see cref="Carbide.Terminal.CarbideConsole.TreatControlCAsInput"/>
+    /// changes to the JS line editor. The JS side mirrors the flag so <c>\x03</c> routes
+    /// correctly (byte delivery vs signal) without a round-trip per keystroke.
+    /// </summary>
+    [JSExport]
+    public static void SetTreatControlCAsInput(string projectId, bool value)
+        => CarbideTerminalInterop.RouteTreatControlCAsInput(projectId, value);
+
     private static (string[] Args, string? Stdin) ParseRunOptions(string? runOptionsJson)
     {
         if (string.IsNullOrWhiteSpace(runOptionsJson))
@@ -203,12 +252,14 @@ public static partial class CompilationInterop
     private static void ValidateSchemaVersion(int? schemaVersion, string name)
     {
         // M5 bumped the schema to 2. U2 bumped to 3 when RunOptionsRequest landed. T1
-        // bumped to 4 when the interactive terminal path landed. Accept 1 / 2 / 3 / 4 so
-        // pre-T1 clients keep working; higher numbers are a definite mismatch.
-        if (schemaVersion is not null and not 1 and not 2 and not 3 and not 4)
+        // bumped to 4 when the interactive terminal path landed. T2 bumped to 5 when the
+        // input-side JSExports (DeliverStdIn / NotifyResize / DeliverSignal /
+        // SetTreatControlCAsInput) landed. Accept 1 / 2 / 3 / 4 / 5 so pre-T2 clients keep
+        // working; higher numbers are a definite mismatch.
+        if (schemaVersion is not null and not 1 and not 2 and not 3 and not 4 and not 5)
         {
             throw new InvalidOperationException(
-                $"Unsupported {name} schemaVersion: expected 1, 2, 3, or 4, got {schemaVersion}.");
+                $"Unsupported {name} schemaVersion: expected 1, 2, 3, 4, or 5, got {schemaVersion}.");
         }
     }
 
@@ -267,7 +318,7 @@ internal sealed class ProjectOptionsDto
 /// </summary>
 internal sealed class BuildResultDto
 {
-    public int SchemaVersion { get; set; } = 4;
+    public int SchemaVersion { get; set; } = 5;
     public bool Success { get; set; }
     public string? PeBase64 { get; set; }
     public string? PdbBase64 { get; set; }
@@ -293,7 +344,7 @@ internal sealed class RunOptionsDto
 /// </summary>
 internal sealed class RunInteractiveOptionsDto
 {
-    public int? SchemaVersion { get; set; } = 4;
+    public int? SchemaVersion { get; set; } = 5;
     public string[]? Args { get; set; }
     /// <summary>One of "plain", "dim", "red"; case-insensitive. Default: "plain".</summary>
     public string? StderrStyle { get; set; }

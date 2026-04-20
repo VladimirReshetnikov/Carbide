@@ -11,7 +11,10 @@
 // C# side accepts 2 or 3; new TS clients always send 3.
 // T1: bumped to 4 when the interactive terminal path (`RunInteractiveAsync` + bridge-mediated
 // streaming output) landed. The C# side accepts 1/2/3/4; new TS clients always send 4.
-export const SCHEMA_VERSION = 4 as const;
+// T2: bumped to 5 when the input-side bridge exports (DeliverStdIn, NotifyResize,
+// DeliverSignal, SetTreatControlCAsInput) landed. The C# side accepts 1/2/3/4/5; new TS
+// clients always send 5.
+export const SCHEMA_VERSION = 5 as const;
 
 export interface ProjectOptionsRequest {
     schemaVersion: number;

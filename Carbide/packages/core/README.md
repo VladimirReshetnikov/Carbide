@@ -198,8 +198,56 @@ Supported in T1: streaming stdout/stderr, ANSI passthrough, SGR stderr wrap,
 `Console.OpenStandardOutput()` routes to the terminal via the `print` overlay
 (previously went to the browser devtools console — see the T1 drift entry).
 
-Out of scope for T1: stdin (`Console.ReadLine`, `Console.ReadKey`), color / cursor
-/ window-size API parity, Ctrl+C. All of that lands in T2 via `CarbideConsole.*Async`.
+**T2** — `CarbideConsole` cooperative-async input + SGR/cursor/clear API. Available on
+code Carbide compiles from source; pre-compiled NuGet libraries that call `Console.ReadKey`
+directly still PNS on browser-wasm — that's T3's forked-BCL deliverable.
+
+```csharp
+using Carbide.Terminal;
+
+CarbideConsole.ForegroundColor = ConsoleColor.Green;
+Console.Write("name? ");
+CarbideConsole.ResetColor();
+var name = await CarbideConsole.ReadLineAsync();   // or: Console.In.ReadLineAsync()
+Console.WriteLine($"hello, {name}!");
+
+CarbideConsole.SetCursorPosition(0, 10);
+CarbideConsole.Title = "demo";
+CarbideConsole.Clear();
+
+Console.WriteLine($"{CarbideConsole.WindowWidth}x{CarbideConsole.WindowHeight}");
+CarbideConsole.TerminalResized += (_, e) => Console.WriteLine($"now {e.Cols}x{e.Rows}");
+
+CarbideConsole.CancelKeyPress += (_, e) => { e.Cancel = true; /* keep running */ };
+```
+
+Full T2 surface:
+
+| Method / property | What it does |
+|---|---|
+| `ReadLineAsync(ct?)` | Awaits the next line from the JS line editor (Enter-committed). |
+| `ReadKeyAsync(intercept, ct?)` | Awaits one key; decoded via the ported `KeyParser`. |
+| `ForegroundColor` / `BackgroundColor` / `ResetColor()` | Emits ANSI SGR on `Console.Out`. |
+| `SetCursorPosition(x, y)` | Emits CUP (`\x1b[y+1;x+1H`). |
+| `CursorVisible` | Emits DECTCEM (`\x1b[?25l/h`). |
+| `WindowWidth` / `WindowHeight` / `BufferWidth` / `BufferHeight` | Cached from xterm's `cols`/`rows` + `onResize`. |
+| `Title` (setter) | Emits OSC 0 (`\x1b]0;title\x07`). |
+| `Clear()` | Emits ED + CUP home (`\x1b[2J\x1b[H`). |
+| `TreatControlCAsInput` | When false (default), `\x03` fires `CancelKeyPress`; when true, delivered as stdin byte. |
+| `CancelKeyPress` event | `ConsoleCancelEventHandler`-shaped; matches `System.Console.CancelKeyPress`. |
+| `RunCancellationToken` | Trips when Ctrl+C fires without a handler's `Cancel = true`. |
+| `TerminalResized` event | Fires once per xterm `onResize` with `(Cols, Rows)`. |
+| `DelayAsync(ms, ct?)` | JS-setTimeout-backed delay (`Task.Delay` throws PNS on browser-wasm). |
+| `WaitForResizeAsync(ct?)` | Awaits the next resize event. |
+| `WriteRaw(sequence)` | Escape hatch for VT sequences Carbide doesn't wrap. |
+
+Synchronous `Console.In.ReadLine()` / `.Read()` / `.ReadToEnd()` throw `NotSupportedException`
+with a pointed message pointing at the async variants — blocking the single-threaded
+Mono-WASM main thread would deadlock the xterm event pump.
+
+Out of scope for T2: pre-compiled-library `Console.ReadKey` / `Console.ForegroundColor`
+parity (T3), DSR-based `GetCursorPosition` (T3), worker + SharedArrayBuffer for truly
+synchronous reads (T3 optional), line-editor history ring (follow-up).
 
 Not available on the Node adapter — `project.runInteractive` throws if called on a
 Node-backed session. The CLI has no `--interactive` flag; interactive terminals are

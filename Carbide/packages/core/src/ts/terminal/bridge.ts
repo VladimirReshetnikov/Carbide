@@ -1,24 +1,41 @@
-// T1 — installs the JS-side half of the interactive terminal bridge on
+// T1+T2 — installs the JS-side half of the interactive terminal bridge on
 // `globalThis.Carbide.Terminal`. The C# side reaches this via
-// `[JSImport("globalThis.Carbide.Terminal.write")]` / `.writeErr`. One active session at a
-// time; `startInteractiveSession` enforces exclusivity on the JS side so a stray xterm
-// instance can't clobber another session's bindings mid-run.
+// `[JSImport("globalThis.Carbide.Terminal.{write|writeErr|setKeyMode|setTreatControlCAsInput}")]`.
+// T1 wires the output side (write/writeErr). T2 adds setKeyMode and setTreatControlCAsInput
+// so the line editor can be toggled + the Ctrl+C policy can be propagated from C# → JS
+// without a round-trip per keystroke.
 
 import type { XtermTerminalLike } from "../types.js";
 
 export interface TerminalBridgeSink {
     writeStdOut(text: string): void;
     writeStdErr(text: string): void;
-    /** Dispose hook for T2 — clears any bridge-side subscriptions (`onData`, `onResize`). */
+    /** Flip the line editor into key mode (raw pass-through) or back to line mode. */
+    setKeyMode(enabled: boolean): void;
+    /** Propagate `CarbideConsole.TreatControlCAsInput` to the line editor's local flag. */
+    setTreatControlCAsInput(value: boolean): void;
+    /** Dispose hook — clears bridge-side subscriptions and pointers. */
     dispose(): void;
 }
 
 /**
- * Route Carbide-side writes to the given xterm instance. Installs the `{write, writeErr}`
- * globals the C# bridge imports resolve against; those globals point to the returned sink's
- * functions for the life of the session.
+ * Controller vended alongside the sink so the session shell can forward key-mode /
+ * TreatCtrlC updates to the line editor. Supplied by the session; null when no editor is
+ * attached (no line mode, e.g. pure output-only sessions).
  */
-export function installBridge(terminal: XtermTerminalLike): TerminalBridgeSink {
+export interface LineEditorHandle {
+    setKeyMode(enabled: boolean): void;
+    setTreatControlCAsInput(value: boolean): void;
+}
+
+/**
+ * Route Carbide-side writes to the given xterm instance. Installs the `{write, writeErr,
+ * setKeyMode, setTreatControlCAsInput}` globals the C# JSImports resolve against.
+ */
+export function installBridge(
+    terminal: XtermTerminalLike,
+    editor: LineEditorHandle | null,
+): TerminalBridgeSink {
     const sink: TerminalBridgeSink = {
         writeStdOut(text) {
             terminal.write(text);
@@ -29,18 +46,31 @@ export function installBridge(terminal: XtermTerminalLike): TerminalBridgeSink {
             // is unavoidable at a single-buffer terminal and matches conhost/cmd behaviour.
             terminal.write(text);
         },
+        setKeyMode(enabled) {
+            editor?.setKeyMode(enabled);
+        },
+        setTreatControlCAsInput(value) {
+            editor?.setTreatControlCAsInput(value);
+        },
         dispose() {
-            // T1 holds no subscriptions. The actual uninstall happens in `uninstallBridge`.
+            // T2 editor disposal is handled by the session shell which owns the editor's
+            // lifecycle; the bridge just holds the pointer.
         },
     };
 
-    // Unscoped globalThis.Carbide.Terminal is the resolve target for the C# JSImports. We
-    // don't try to run two sessions concurrently; the session shell guards that case and
-    // this function is only called inside its mutex.
     const carbide = ((globalThis as Record<string, unknown>).Carbide ??= {}) as Record<string, unknown>;
     carbide.Terminal = {
         write: sink.writeStdOut,
         writeErr: sink.writeStdErr,
+        setKeyMode: sink.setKeyMode,
+        setTreatControlCAsInput: sink.setTreatControlCAsInput,
+        // T2 — `CarbideConsole.DelayAsync` routes through this setTimeout-backed Promise.
+        // `Task.Delay(int)` on Mono-WASM browser throws on unsatisfiable sync-context
+        // continuation scheduling, so Carbide exposes a JS-native async delay instead.
+        delay: (ms: number) =>
+            new Promise<void>((resolve) => {
+                setTimeout(resolve, Math.max(0, ms));
+            }),
     };
     return sink;
 }

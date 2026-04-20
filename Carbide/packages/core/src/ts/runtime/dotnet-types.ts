@@ -118,8 +118,29 @@ export interface CarbideInteropExports {
     RunInteractiveAsync(projectId: string, optionsJson: string): Promise<string>;
     /**
      * T1 — signal the C# side that the interactive session is tearing down. The current T1
-     * implementation is a stub that records the teardown; T2 will extend it to unblock
-     * pending `ReadLineAsync` / `ReadKeyAsync` reads and unwire the input-side of the bridge.
+     * implementation is a stub that records the teardown; T2's `BrowserTerminalReader.Complete()`
+     * runs on state-disposal anyway (via `using InputStateDisposer`), so disposing the
+     * interop stays a low-cost signal rather than a required teardown step.
      */
     DisposeTerminal(projectId: string): void;
+    /**
+     * T2 — deliver stdin to the active interactive run. `isKeyMode` distinguishes between
+     * the line-editor's committed-line path (false) and the raw-byte key-mode path (true).
+     * The C# side routes into the project's `BrowserTerminalReader` and resolves any
+     * pending `ReadLineAsync` / `ReadKeyAsync`.
+     */
+    DeliverStdIn(projectId: string, isKeyMode: boolean, data: string): void;
+    /** T2 — xterm resize notification. Updates `CarbideConsole.WindowWidth/Height`. */
+    NotifyResize(projectId: string, cols: number, rows: number): void;
+    /**
+     * T2 — signal delivery. T2 honors `"SIGINT"` (Ctrl+C); unknown names are silently
+     * ignored so the TS side can future-proof.
+     */
+    DeliverSignal(projectId: string, signalName: string): void;
+    /**
+     * T2 — propagate C#-side `CarbideConsole.TreatControlCAsInput` changes to the JS line
+     * editor so Ctrl+C routes through the right path (byte vs signal) without a per-keystroke
+     * round-trip.
+     */
+    SetTreatControlCAsInput(projectId: string, value: boolean): void;
 }

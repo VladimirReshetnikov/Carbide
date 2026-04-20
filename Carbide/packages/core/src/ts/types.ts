@@ -118,12 +118,30 @@ export interface InteractiveRunOptions {
 }
 
 /**
- * Minimal subset of xterm.js's `Terminal` API that Carbide T1 depends on. Declared
+ * Minimal subset of xterm.js's `Terminal` API that Carbide T1/T2 depend on. Declared
  * structurally so `@carbide/core` doesn't pull in `@xterm/xterm` at compile time. The host
  * page is responsible for matching this contract at runtime.
+ *
+ * T2 adds `onData` (user keystrokes) and `onResize` (geometry changes) — both optional on
+ * the type so T1 callers with a reduced mock can still satisfy `XtermTerminalLike`, but
+ * absent at runtime means no input/resize plumbing is wired.
  */
 export interface XtermTerminalLike {
     write(data: string | Uint8Array): void;
+    /**
+     * Subscribe to user input. Carbide's line editor consumes the emitted strings. Returns
+     * an xterm-shaped disposable; T2 session teardown calls `.dispose()` on it.
+     */
+    onData?(listener: (data: string) => void): { dispose(): void };
+    /**
+     * Subscribe to resize events. Payload carries the new `{ cols, rows }`; Carbide pushes
+     * those through `NotifyResize` to refresh `CarbideConsole.WindowWidth` / `Height`.
+     */
+    onResize?(listener: (size: { cols: number; rows: number }) => void): { dispose(): void };
+    /** xterm's current column count. Used to prime `CarbideConsole.WindowWidth`. */
+    readonly cols?: number;
+    /** xterm's current row count. Used to prime `CarbideConsole.WindowHeight`. */
+    readonly rows?: number;
 }
 
 /**

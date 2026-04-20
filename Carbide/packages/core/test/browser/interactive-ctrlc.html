@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive-terminal smoke: Ctrl+C → CancelKeyPress</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 80, rows: 24,
+        write(data) {
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function waitForText(terminal, needle, timeoutMs = 30000) {
+      const start = Date.now();
+      while (!terminal.getFullText().includes(needle)) {
+        if (Date.now() - start > timeoutMs) throw new Error(`timeout waiting for ${JSON.stringify(needle)}`);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        // Program signals readiness BEFORE awaiting so the test can deterministically
+        // deliver Ctrl+C only after the handler is registered and the await is live.
+        project.addSource(
+          "Program.cs",
+          'using Carbide.Terminal;\n' +
+            'bool handled = false;\n' +
+            'CarbideConsole.CancelKeyPress += (s, e) => { handled = true; };\n' +
+            'Console.WriteLine("ready");\n' +
+            // Await DelayAsync (JS setTimeout-backed) to give the test a window to
+            // deliver Ctrl+C. The run cancellation token trips if the handler fires
+            // without `e.Cancel = true`, so the delay wakes early via OCE in that case.
+            'try { await CarbideConsole.DelayAsync(5000, CarbideConsole.RunCancellationToken); } ' +
+            'catch (OperationCanceledException) { }\n' +
+            'Console.WriteLine($"done handled={handled} cancelled={CarbideConsole.RunCancellationToken.IsCancellationRequested}");\n',
+        );
+        const handle = project.runInteractive({ terminal });
+
+        // Wait for the program to print "ready\n" before delivering Ctrl+C. Guarantees the
+        // handler is registered and the await is suspended when the signal arrives.
+        await waitForText(terminal, "ready\n");
+        terminal.deliverKeys("\x03");
+
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

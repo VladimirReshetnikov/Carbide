@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive-terminal smoke: SGR + cursor API</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeMockTerminal() {
+      const chunks = [];
+      return {
+        cols: 80, rows: 24,
+        write(data) {
+          chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data));
+        },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeMockTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          'using Carbide.Terminal;\n' +
+            'CarbideConsole.ForegroundColor = ConsoleColor.Red;\n' +
+            'Console.Write("R");\n' +
+            'CarbideConsole.BackgroundColor = ConsoleColor.DarkBlue;\n' +
+            'Console.Write("B");\n' +
+            'CarbideConsole.ResetColor();\n' +
+            'Console.Write("_");\n' +
+            'CarbideConsole.SetCursorPosition(5, 2);\n' +
+            'CarbideConsole.CursorVisible = false;\n' +
+            'CarbideConsole.Title = "t2";\n' +
+            'CarbideConsole.Clear();\n',
+        );
+        const handle = project.runInteractive({ terminal });
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText() };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

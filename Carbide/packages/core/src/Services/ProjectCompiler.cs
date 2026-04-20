@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using Carbide.Core.Hosting;
 using Carbide.Terminal;
 using Microsoft.CodeAnalysis;
@@ -545,6 +546,17 @@ internal sealed class ProjectCompiler
     }
 
     /// <summary>
+    /// RAII helper so <c>RunInteractiveAsync</c>'s `using` pattern unwinds the
+    /// <see cref="TerminalInputState"/> registry slot deterministically on both the
+    /// success and failure paths, without an explicit try/finally pair around the new
+    /// state lifetime.
+    /// </summary>
+    private sealed class InputStateDisposer(TerminalInputState state) : IDisposable
+    {
+        public void Dispose() => state.Dispose();
+    }
+
+    /// <summary>
     /// T1 — compile and run interactively. Mirrors <see cref="RunAsync(string[], string?)"/>
     /// but installs <see cref="Carbide.Terminal.StreamingStdOutWriter"/> instances that push
     /// buffered chunks through <see cref="Carbide.Terminal.CarbideTerminalInterop"/> into
@@ -555,8 +567,25 @@ internal sealed class ProjectCompiler
     /// their way to the bridge, but the tee captures unwrapped text. T1 is output-only;
     /// <see cref="Console.In"/> stays disconnected — stdin lands in T2.
     /// </summary>
-    public async Task<RunResult> RunInteractiveAsync(InteractiveOptions options)
+    public async Task<RunResult> RunInteractiveAsync(string projectId, InteractiveOptions options)
     {
+        ArgumentNullException.ThrowIfNull(projectId);
+        // T2 — Per-run input state: reader for Console.In, resize cache, Ctrl+C
+        // handlers, cancellation token. Dispose in the finally block to pull the state
+        // out of the projectId->state registry and close the reader (so a pending
+        // ReadLineAsync resolves to null/EOF).
+        var inputState = TerminalInputState.Create(projectId);
+        using var _inputStateDisposer = new InputStateDisposer(inputState);
+
+        // T2 — Install a single-threaded SynchronizationContext so Task continuations
+        // (incl. those from user-code TaskCompletionSource, CancellationToken.Register,
+        // and Task.Delay) have a usable scheduling path. Mono-WASM browser has no
+        // thread pool, so without a context the default scheduler trips
+        // `PlatformNotSupportedException: Cannot wait on monitors`. Restore whatever
+        // was in place (usually null) when the run exits.
+        var oldSyncContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
+
         var sw = Stopwatch.StartNew();
         var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.ConsoleApplication).ConfigureAwait(false);
         if (compilation is null)
@@ -642,6 +671,13 @@ internal sealed class ProjectCompiler
         Console.SetOut(stdOutWriter);
         Console.SetError(stdErrWriter);
 
+        // T2 — install the BrowserTerminalReader into Console._in via the U2 reflection path
+        // so Console.In.ReadLineAsync() resolves against the same queue CarbideConsole uses.
+        // Preserve whatever was in the slot before (null in the normal case) and restore in
+        // finally. `SetConsoleInField` is the same helper U2 uses for pre-seeded stdin.
+        var oldIn = GetConsoleInField();
+        SetConsoleInField(inputState.Reader);
+
         int exitCode = 0;
         string? uncaught = null;
 
@@ -685,20 +721,35 @@ internal sealed class ProjectCompiler
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            uncaught = ex.ToString();
+            // Walk inner exceptions so the stderr carries the full chain — useful for
+            // diagnosing Mono-WASM async failures where the outer wrapper hides the real
+            // throwing site (e.g. TaskSchedulerException -> PlatformNotSupportedException).
+            var chain = new StringBuilder();
+            for (var e = (Exception?)ex; e is not null; e = e.InnerException)
+            {
+                if (chain.Length > 0) chain.AppendLine().AppendLine("--- inner ---");
+                chain.Append(e.GetType().FullName).Append(": ").AppendLine(e.Message);
+                if (e.StackTrace is { } st) chain.AppendLine(st);
+            }
+            uncaught = chain.ToString();
             await stdErrWriter.WriteLineAsync(uncaught).ConfigureAwait(false);
         }
         finally
         {
             // Drain order: flush the writers first so in-buffer bytes make it to the bridge,
-            // then restore Console.{Out,Error} to their previous values, then detach the
-            // AssemblyResolve handler. Writers are also disposed by the `using` block, which
-            // flushes again defensively.
+            // then restore Console.{Out,Error,In} to their previous values, then detach the
+            // AssemblyResolve handler, then restore the SynchronizationContext. Writers are
+            // also disposed by the `using` block, which flushes again defensively. The
+            // `_inputStateDisposer` runs last (via `using`) so the BrowserTerminalReader
+            // completes (wakes a pending ReadLineAsync with EOF) only after Console.In no
+            // longer points at it.
             stdOutWriter.FlushNow();
             stdErrWriter.FlushNow();
             Console.SetOut(oldOut);
             Console.SetError(oldError);
+            SetConsoleInField(oldIn);
             AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
+            SynchronizationContext.SetSynchronizationContext(oldSyncContext);
         }
 
         sw.Stop();

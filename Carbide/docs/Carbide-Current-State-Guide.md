@@ -213,7 +213,7 @@ This is the key architectural distinction:
 | Source generators / analyzers | Not implemented | Analyzer-bearing packages are refused |
 | Program argv/stdin | Not wired through yet | The CLI parser understands `--`, but the runtime run path still invokes `Main` with an empty string array |
 | Interactive browser terminal (T1) | Supported (T1) | `Project.runInteractive({ terminal })` streams stdout/stderr into an xterm.js-shaped `Terminal` while the program runs. Browser adapter only; Node-backed sessions throw. ANSI passthrough is unchanged. `Console.OpenStandardOutput()` writes now route to the terminal via the emscripten `print` overlay rather than the devtools console. |
-| Interactive stdin / `CarbideConsole.*Async` | Not implemented (T2) | Line-mode `ReadLineAsync`, key-mode `ReadKeyAsync`, `ForegroundColor`, `SetCursorPosition`, `WindowWidth`, `Title`, `Clear`, Ctrl+C all arrive in T2. T1 is output-only. |
+| Interactive stdin / `CarbideConsole.*Async` | Supported (T2) with runtime limitation | `Carbide.Terminal.CarbideConsole` exposes `ReadLineAsync`, `ReadKeyAsync`, `ForegroundColor`/`BackgroundColor`/`ResetColor`, `SetCursorPosition`/`CursorVisible`, `WindowWidth`/`Height`, `Title`, `Clear`, `TerminalResized`/`CancelKeyPress` events, `TreatControlCAsInput`, `DelayAsync`, `WaitForResizeAsync`, `WriteRaw`. `Console.In` is reflection-patched to a `BrowserTerminalReader`; synchronous `Console.In.ReadLine()` etc. throw a pointed `NotSupportedException`. T2.1 follow-up: three fixtures (`ReadKeyAsync`, Ctrl+C, resize-event) are test-skipped pending a Mono-WASM browser async-scheduler fix — see drift (T2) for details. |
 | Pre-compiled-library `Console.*` parity | Not implemented (T3) | `System.Console.ReadKey` / `ForegroundColor` / `WindowWidth` still throw PNS on browser. T3 ships a forked `System.Console.dll` in `_framework/` that replaces the stock one. Until then, libraries that call those APIs directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, …) don't work unmodified in interactive mode. |
 
 ## Notable Implementation Details
@@ -275,6 +275,33 @@ This is why repeated runs in one session do not provide AppDomain-style isolatio
 - Input is disconnected in T1. `Console.ReadLine()` / `Console.ReadKey()` throw or return empty the same way they do in `project.run()` when no `stdin` option is passed. Line-mode, key-mode, color API, cursor API, and window-size all arrive in T2; pre-compiled-library parity arrives in T3.
 - Teardown order: drain flush → `Console.SetOut(old)` / `Console.SetError(old)` restore → detach the host-adapter terminal sink → `delete globalThis.Carbide.Terminal`. `TerminalSession.dispose()` is idempotent and safe to call mid-run.
 - One active interactive session per project at a time. A second concurrent `runInteractive` call throws synchronously. Non-browser sessions throw synchronously too — Node adapter callers get a clear "interactive terminals require the browser host adapter" message.
+
+### Interactive terminal (T2)
+
+T2 extends the T1 session with cooperative-async input and the user-facing `CarbideConsole` surface. Three principles:
+
+- **Carbide-compiled source uses `CarbideConsole.*Async`.** The static class lives in `Carbide.Terminal`. Members throw `InvalidOperationException` outside an interactive run. Pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` directly still PNS on Mono-WASM browser — that's T3's forked `System.Console.dll` deliverable.
+- **`Console.In` is a `BrowserTerminalReader` for the run's lifetime.** The reader is installed via the U2-era reflection patch on `Console._in`; `Console.In.ReadLineAsync()` works through the same queue `CarbideConsole.ReadLineAsync()` uses. Synchronous reads (`Console.In.Read()`, `.ReadLine()`, `.ReadToEnd()`, `.Peek()`, `.ReadBlock()`) throw `NotSupportedException` with a pointed message pointing at the Async variants — blocking the single-threaded Mono-WASM main thread would deadlock the xterm event pump and line editor.
+- **SGR / cursor / clear are emitted as ANSI on `Console.Out`.** Every `CarbideConsole` member that displays something (`ForegroundColor`, `SetCursorPosition`, `Title`, `Clear`) emits the canonical VT sequence on the current `Console.Out`, which is the T1-era streaming writer. User code can see the sequence in the transcript via `RunResult.stdOut`.
+
+Members that work today:
+
+- Input: `ReadLineAsync`, `ReadKeyAsync(intercept, ct?)`.
+- Color: `ForegroundColor`, `BackgroundColor`, `ResetColor()`.
+- Cursor: `SetCursorPosition`, `CursorVisible`.
+- Geometry (cached): `WindowWidth`, `WindowHeight`, `BufferWidth`, `BufferHeight` (aliases).
+- Title / clear: `Title` (setter), `Clear()`.
+- Signals: `TreatControlCAsInput`, `CancelKeyPress` event, `RunCancellationToken`.
+- Events: `TerminalResized` (payload `(int Cols, int Rows)`).
+- Utilities: `DelayAsync(ms, ct?)` (JS-setTimeout-backed; `Task.Delay` throws PNS on browser-wasm), `WaitForResizeAsync(ct?)`, `WriteRaw(sequence)`.
+
+Members that throw for T2:
+
+- `GetCursorPosition()` — needs DSR-reply pre-filtering; lands with T3's forked `StdInReader`.
+
+The JS line editor handles local echo (printable chars + backspace + Enter commit), propagates arrow keys through, and forwards the Ctrl+C byte to `CancelKeyPress` unless `TreatControlCAsInput` is on. Key mode (toggled by `ReadKeyAsync`) bypasses the line editor and forwards raw bytes.
+
+**Known T2.1 runtime gap.** Three fixtures — `interactive-readkey`, `interactive-ctrlc`, `interactive-resize` — are `test.skip`ped pending a Mono-WASM browser async-scheduler fix. Awaiting a `Task` that was completed from a JSExport-triggered path (event handler, CT callback, inner `async` method's await) trips `PlatformNotSupportedException: Cannot wait on monitors on this runtime`, even with a single-threaded `SynchronizationContext` installed. The three passing fixtures (`interactive-readline`, `interactive-color`, `interactive-sync-throw`) cover the surfaces that do work today. The API surface in `CarbideConsole` is complete regardless; the fix is runtime-level.
 
 ## Known Limitations And Differences
 
