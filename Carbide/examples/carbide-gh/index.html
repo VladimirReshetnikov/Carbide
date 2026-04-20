@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>carbide-gh — a Spectre.Console GitHub REPL in the browser</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+  <style>
+    :root { color-scheme: dark; }
+    html, body { margin: 0; padding: 0; background: #111; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
+    header { padding: 12px 16px; border-bottom: 1px solid #333; display: flex; gap: 16px; align-items: baseline; }
+    header h1 { font-size: 16px; margin: 0; color: #7cc; }
+    header .sub { color: #888; font-size: 12px; }
+    header .status { margin-left: auto; color: #aaa; font-size: 12px; font-family: ui-monospace, monospace; }
+    header .status[data-state="ready"] { color: #7c7; }
+    header .status[data-state="error"] { color: #e77; }
+    #term { height: calc(100vh - 46px); padding: 8px; }
+    .xterm-viewport::-webkit-scrollbar { width: 10px; }
+    .xterm-viewport::-webkit-scrollbar-thumb { background: #333; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>carbide-gh</h1>
+    <span class="sub">a Spectre.Console-powered GitHub REPL, compiled in the browser with Carbide</span>
+    <span id="status" class="status" data-state="init">booting\u2026</span>
+  </header>
+  <div id="term"></div>
+
+  <script type="module">
+    import { Terminal } from "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm";
+    import { FitAddon } from "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm";
+    import { CarbideSession, BrowserHostAdapter } from "/packages/core/dist/index.js";
+
+    const statusEl = document.getElementById("status");
+    const setStatus = (text, state) => {
+      statusEl.textContent = text;
+      if (state) statusEl.dataset.state = state;
+    };
+
+    const term = new Terminal({
+      fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+      fontSize: 13,
+      theme: {
+        background: "#111",
+        foreground: "#ddd",
+        cursor: "#7cc",
+      },
+      convertEol: true,
+      scrollback: 10000,
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(document.getElementById("term"));
+    fit.fit();
+    window.addEventListener("resize", () => fit.fit());
+    // Expose for smoke/debug scripts to inspect the buffer + post test input.
+    window.__term = term;
+    window.__dumpBuffer = () => {
+      const b = term.buffer.active;
+      const out = [];
+      for (let y = 0; y < b.length; y++) {
+        out.push(b.getLine(y)?.translateToString(true) ?? "");
+      }
+      return out.join("\n");
+    };
+
+    async function fetchBytes(url, label) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`failed to fetch ${label} @ ${url}: HTTP ${r.status}`);
+      return new Uint8Array(await r.arrayBuffer());
+    }
+
+    async function loadSources() {
+      // DEBUG: Program.cs only; skip the other files to isolate.
+      const names = ["Program.cs"];
+      const results = await Promise.all(
+        names.map(async (n) => [n, await (await fetch(`/examples/carbide-gh/src/${n}`)).text()]),
+      );
+      return results;
+    }
+
+    async function main() {
+      setStatus("initialising Carbide session\u2026");
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+
+      setStatus("vendoring Spectre.Console.dll\u2026");
+      const spectreBytes = await fetchBytes("/examples/carbide-gh/public/lib/Spectre.Console.dll", "Spectre.Console");
+      const spectreHandle = session.addReference(spectreBytes, "Spectre.Console");
+
+      setStatus("compiling REPL\u2026");
+      const project = session.createProject();
+      project.addReference(spectreHandle);
+      const sources = await loadSources();
+      for (const [name, body] of sources) {
+        project.addSource(name, body);
+      }
+
+      setStatus("running", "ready");
+      const handle = project.runInteractive({ terminal: term, stderrStyle: "red" });
+      const result = await handle.exitPromise;
+      setStatus(result.success ? `exit \u2713` : `exit \u2717 (${result.exitCode ?? "?"})`, result.success ? "ready" : "error");
+      await session.shutdown();
+    }
+
+    main().catch((err) => {
+      console.error(err);
+      setStatus(`error: ${err.message ?? err}`, "error");
+      term.write(`\r\n\x1b[31mbootstrap failed: ${String(err?.stack ?? err)}\x1b[0m\r\n`);
+    });
+  </script>
+</body>
+</html>

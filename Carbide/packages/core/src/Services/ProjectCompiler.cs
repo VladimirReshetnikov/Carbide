@@ -685,6 +685,16 @@ internal sealed class ProjectCompiler
         // — preserving the pre-T3 contract for plain `Project.run` programs.
         AppContext.SetData("Carbide.InteractiveBridge", true);
 
+        // T3.1 — re-install the SynchronizationContext RIGHT HERE, immediately before
+        // invoking user code. The T2-era install at line 587 above runs before the
+        // compilation await. On Mono-WASM browser, `ConfigureAwait(false)` after that await
+        // (inside `TryGetErrorFreeCompilationAsync` and the C# compiler's internal awaits)
+        // clears `SynchronizationContext.Current` back to null on resumption — so by the
+        // time we reach `reflectedEntry.Invoke(...)`, user code sees a null SC and its
+        // first `await` trips "Cannot wait on monitors". Setting it twice is cheap and
+        // robust against whatever the compiler's internal scheduling does.
+        SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
+
         int exitCode = 0;
         string? uncaught = null;
 
@@ -705,22 +715,29 @@ internal sealed class ProjectCompiler
                 throw tie.InnerException;
             }
 
+            // T3.1 — Do NOT use `ConfigureAwait(false)` here. Mono-WASM browser's default
+            // `TaskScheduler` dispatches to an absent thread pool, and the `await`
+            // continuation trips "Cannot wait on monitors" when it tries to queue there.
+            // Keeping the default context-capture means the continuation resumes on the
+            // `CarbideSyncContext` we installed above (which runs callbacks inline), which
+            // is the only scheduling path that works on browser-wasm for user tasks that
+            // suspend on an uncompleted TCS.
             switch (result)
             {
                 case Task<int> taskInt:
-                    exitCode = await taskInt.ConfigureAwait(false);
+                    exitCode = await taskInt;
                     break;
                 case Task task:
-                    await task.ConfigureAwait(false);
+                    await task;
                     break;
                 case int i:
                     exitCode = i;
                     break;
                 case ValueTask<int> vti:
-                    exitCode = await vti.ConfigureAwait(false);
+                    exitCode = await vti;
                     break;
                 case ValueTask vt:
-                    await vt.ConfigureAwait(false);
+                    await vt;
                     break;
             }
         }
