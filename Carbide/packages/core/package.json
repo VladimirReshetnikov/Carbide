@@ -28,10 +28,12 @@
     "build:ts": "tsc -p tsconfig.json",
     "build:test-fixtures": "node test/fixtures/helper-dll/build.mjs",
     "build": "npm run build:dotnet && npm run build:ts && npm run build:test-fixtures",
-    "test": "node --test --test-concurrency=1 test/smoke.node.test.mjs test/node/*.test.mjs",
-    "test:smoke": "node --test test/smoke.node.test.mjs",
-    "test:node": "node --test --test-concurrency=1 test/node/*.test.mjs",
+    "test": "node --test --test-force-exit --test-concurrency=2 test/smoke.node.test.mjs test/node/*.test.mjs",
+    "test:fast": "node --test --test-force-exit --test-concurrency=2 test/smoke.node.test.mjs test/node/hello.test.mjs test/node/build-emit.test.mjs test/node/top-level-vs-main.test.mjs test/node/asset-server.test.mjs test/node/json-schema.test.mjs test/node/syntax-error.test.mjs test/node/runtime-error.test.mjs",
+    "test:smoke": "node --test --test-force-exit test/smoke.node.test.mjs",
+    "test:node": "node --test --test-force-exit --test-concurrency=2 test/node/*.test.mjs",
     "test:browser": "playwright test",
+    "test:browser:fast": "playwright test hello interactive-hello interactive-readline interactive-beep interactive-dispose-midrun",
     "pack:core": "npm pack"
   },
   "keywords": [

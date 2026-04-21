@@ -94,6 +94,18 @@ export async function startAssetServer(
         void handle(req, res, rootDir, options.logNotice);
     });
 
+    // Shorten keep-alive so the *client* (Node's undici pool behind `globalThis.fetch`)
+    // sees the connection as terminated quickly after each response. Default is 5 s;
+    // a small positive value is enough to let pipelined reads complete while avoiding
+    // the ~100 s test-runner tail that Mono-WASM's 170-DLL boot used to incur — the
+    // Node test runner blocks exit on pooled undici sockets, and undici doesn't close
+    // them unless the server half signals it's done. `closeAllConnections()` on
+    // dispose isn't enough because undici may have already reclaimed the socket into
+    // its pool by then.
+    server.keepAliveTimeout = 1;
+    // `headersTimeout` must be >= keepAliveTimeout (validated by Node); set it small.
+    server.headersTimeout = 1000;
+
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
         server.listen(0, "127.0.0.1", () => resolve());
@@ -112,6 +124,13 @@ export async function startAssetServer(
         baseUrl,
         close: () =>
             new Promise<void>((resolve) => {
+                // `server.close()` alone only refuses *new* connections and waits for
+                // existing keep-alive sockets to idle out — that's what drove tests to
+                // ~100 s even with a 5 s body. Forcibly tear down every socket, then
+                // await the close callback. Node ≥18.2 exposes `closeAllConnections`.
+                if (typeof server.closeAllConnections === "function") {
+                    server.closeAllConnections();
+                }
                 server.close(() => resolve());
             }),
     };

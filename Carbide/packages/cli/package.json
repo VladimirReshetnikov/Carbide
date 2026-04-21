@@ -13,8 +13,8 @@
   "scripts": {
     "build:ts": "tsc -p tsconfig.json",
     "build": "npm run build:ts",
-    "test": "node --test --test-concurrency=1 test/*.test.mjs",
-    "test:live": "node --test --test-concurrency=1 test/integration/*.test.mjs"
+    "test": "node --test --test-force-exit --test-concurrency=1 test/*.test.mjs",
+    "test:live": "node --test --test-force-exit --test-concurrency=1 test/integration/*.test.mjs"
   },
   "keywords": [
     "carbide",
