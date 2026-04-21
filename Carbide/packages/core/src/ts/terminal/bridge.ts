@@ -144,6 +144,76 @@ export interface LineEditorHandle {
 }
 
 /**
+ * Boot-time default. Installs a `globalThis.Carbide.Terminal` with write/writeErr sinks
+ * that route to the host's default output (Node: `process.stdout`/`process.stderr`;
+ * browser: `console.log`/`console.error`) so code paths that resolve the JSImport at
+ * runtime (`CarbideBridge.WriteStdOut` in the forked System.Console's
+ * `CarbideStdWriteStream`) always have something to call, whether or not an interactive
+ * session is live. `installBridge` below overrides these sinks during an interactive
+ * run; `uninstallBridge` restores them.
+ *
+ * Without this, calling `Console.OpenStandardOutput().Write(...)` outside
+ * `runInteractive` raised `Carbide not found while looking up
+ * globalThis.Carbide.Terminal.write` — see R2-followup / `cli/test/advanced-usage`.
+ */
+export function installDefaultBridge(): void {
+    const carbide = ((globalThis as Record<string, unknown>).Carbide ??= {}) as Record<string, unknown>;
+    // If something's already there (idempotent boot, or an earlier installBridge), leave
+    // it. `installBridge` overrides these fields in place; `uninstallBridge` restores.
+    if (carbide.Terminal) return;
+    carbide.Terminal = buildDefaultTerminalBridge();
+}
+
+/**
+ * Construct the default Carbide.Terminal surface. Shared between `installDefaultBridge`
+ * and `uninstallBridge` (the latter must restore defaults rather than delete the
+ * Terminal object entirely, so deferred JSImports don't tear down mid-flight).
+ */
+function buildDefaultTerminalBridge(): Record<string, unknown> {
+    const writeOut = defaultStdoutSink();
+    const writeErr = defaultStderrSink();
+    return {
+        write: writeOut,
+        writeErr: writeErr,
+        setKeyMode: (_enabled: boolean) => { /* no line editor outside interactive runs */ },
+        setTreatControlCAsInput: (_value: boolean) => { /* no editor outside interactive runs */ },
+        getCols: () => 80,
+        getRows: () => 24,
+        delayCallback: (ms: number, callback: () => void) => {
+            setTimeout(() => { try { callback(); } catch { /* swallow */ } }, Math.max(0, ms));
+        },
+        scheduleMacrotask: (callback: () => void) => {
+            setTimeout(() => { try { callback(); } catch { /* swallow */ } }, 0);
+        },
+        beep,
+    };
+}
+
+function defaultStdoutSink(): (text: string) => void {
+    const proc = (globalThis as { process?: { stdout?: { write?: (s: string) => unknown } } }).process;
+    if (proc?.stdout?.write) {
+        // Node: write raw bytes (no extra newline). Matches how `Console.OpenStandardOutput`
+        // + `writer.Write("raw")` + `writer.Flush()` is expected to land in the parent CLI
+        // process's stdout, in line with the JSON-trailer-composability contract.
+        return (text: string) => { proc.stdout!.write!(text); };
+    }
+    // Browser fallback: `console.log` always exists and adds a newline, which would
+    // double-space multi-line payloads. Strip a single trailing `\n` so a caller that
+    // writes "hello\n" reads "hello" in the console without gaining a blank line.
+    // eslint-disable-next-line no-console
+    return (text: string) => { console.log(text.endsWith("\n") ? text.slice(0, -1) : text); };
+}
+
+function defaultStderrSink(): (text: string) => void {
+    const proc = (globalThis as { process?: { stderr?: { write?: (s: string) => unknown } } }).process;
+    if (proc?.stderr?.write) {
+        return (text: string) => { proc.stderr!.write!(text); };
+    }
+    // eslint-disable-next-line no-console
+    return (text: string) => { console.error(text.endsWith("\n") ? text.slice(0, -1) : text); };
+}
+
+/**
  * Route Carbide-side writes to the given xterm instance. Installs the `{write, writeErr,
  * setKeyMode, setTreatControlCAsInput}` globals the C# JSImports resolve against.
  */
@@ -225,12 +295,20 @@ export function installBridge(
     return sink;
 }
 
-/** Remove the `globalThis.Carbide.Terminal` pointer. Matches `installBridge`. Idempotent. */
+/**
+ * Restore the boot-time default Carbide.Terminal. Matches `installBridge`. Idempotent.
+ *
+ * Note: does NOT delete `globalThis.Carbide.Terminal` — the forked System.Console's
+ * `CarbideStdWriteStream` (and any other late-binding JSImport consumer) expects the
+ * surface to remain resolvable whether or not an interactive session is active.
+ * Pre-bridge behaviour (delete-on-teardown) caused non-interactive `project.run()`
+ * calls that touched `Console.OpenStandardOutput()` to throw with
+ * `Carbide not found while looking up globalThis.Carbide.Terminal.write`.
+ */
 export function uninstallBridge(): void {
     const carbide = (globalThis as Record<string, unknown>).Carbide as Record<string, unknown> | undefined;
-    if (carbide && "Terminal" in carbide) {
-        delete carbide.Terminal;
-    }
+    if (!carbide) return;
+    carbide.Terminal = buildDefaultTerminalBridge();
 }
 
 /**

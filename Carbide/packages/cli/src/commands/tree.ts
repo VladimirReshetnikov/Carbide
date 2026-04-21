@@ -42,7 +42,12 @@ export async function runTree(args: ParsedArgs): Promise<number> {
         return 3;
     }
 
-    const format = parseFormat(lastString(args, "format"));
+    // Unlike most CLI commands, `tree` defaults to human output — the help text has
+    // promised that since the command's introduction. `parseFormat` defaults to "json"
+    // to match the global CLI convention; use the explicit flag when present, otherwise
+    // fall through to "human".
+    const formatRaw = lastString(args, "format");
+    const format = formatRaw === undefined ? "human" : parseFormat(formatRaw);
     const logLevel = resolveLogLevel(args);
     const nugetOptions = extractNugetOptions(args, "tree");
 

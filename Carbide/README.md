@@ -42,8 +42,10 @@ dotnet publish -c Release src/Carbide.Core.csproj
 npm install
 npm run build:ts
 npm run build:test-fixtures   # builds MyHelper.dll for user-reference tests
-npm test                      # Node acceptance
-npm run test:browser          # headless Chromium acceptance via Playwright
+npm run test:fast             # ~30s: smoke + key invariants, suitable as a pre-commit gate
+npm test                      # full Node acceptance (~1 min)
+npm run test:browser:fast     # ~30s: a handful of Playwright fixtures
+npm run test:browser          # full headless Chromium suite (~2 min)
 
 # Helper packages that the CLI depends on.
 cd ../msbuild-lite
