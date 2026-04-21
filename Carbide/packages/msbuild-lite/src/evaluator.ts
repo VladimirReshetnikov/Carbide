@@ -294,6 +294,15 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
     if (!applyCondition(ctx, ig.attributes.Condition, "ItemGroup", filePath)) return;
 
     const projectDir = path.dirname(filePath);
+    // Review R2 §9 — property substitution (e.g. `Version="$(NewtonsoftVersion)"`) is
+    // applied to property values and conditions but was NOT being applied to item
+    // attributes before this point, so `<PackageReference Version="$(X)"/>` and
+    // `<Compile Include="$(Dir)/*.cs"/>` would be stored raw, causing downstream
+    // consumers to ship MSBuild-style literal placeholders. Thread the same helper
+    // through here.
+    const sub = (v: string | undefined | null): string | null =>
+        v ? substituteVars(v, ctx.conditionProps) : null;
+
     for (const item of ig.children) {
         if (!isElement(item)) continue;
         const tag = stripNamespace(item.name);
@@ -301,9 +310,9 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
         if (itemCondition && !applyCondition(ctx, itemCondition, `Item:${tag}`, filePath)) continue;
 
         if (tag === "PackageReference") {
-            const id = item.attributes.Include ?? item.attributes.Update;
+            const id = sub(item.attributes.Include) ?? sub(item.attributes.Update);
             if (!id) continue;
-            const version = item.attributes.Version ?? getChildText(item, "Version") ?? null;
+            const version = sub(item.attributes.Version) ?? sub(getChildText(item, "Version"));
             ctx.pkgRefs.push({ id, version });
             addWarning(
                 ctx,
@@ -313,7 +322,7 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
                 filePath,
             );
         } else if (tag === "ProjectReference") {
-            const include = item.attributes.Include;
+            const include = sub(item.attributes.Include);
             if (include) {
                 const resolved = path.resolve(projectDir, normaliseSlashes(include));
                 ctx.projRefs.push(resolved);
@@ -328,9 +337,9 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
                 );
             }
         } else if (tag === "Compile") {
-            const include = item.attributes.Include;
-            const remove = item.attributes.Remove;
-            const update = item.attributes.Update;
+            const include = sub(item.attributes.Include);
+            const remove = sub(item.attributes.Remove);
+            const update = sub(item.attributes.Update);
             if (include) {
                 for (const patt of include.split(";").map((p) => p.trim()).filter(Boolean)) {
                     ctx.compileOperations.push({ operation: "include", pattern: patt });

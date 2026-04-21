@@ -138,10 +138,23 @@ export function attachLineEditor(options: LineEditorOptions): LineEditorControll
         setKeyMode(enabled: boolean) {
             keyMode = enabled;
             // Symmetric flush on either mode transition: any bytes that accumulated in the
-            // wrong mode's buffer are forwarded to the new mode's consumer. Without the
-            // entering-key-mode branch, keystrokes delivered before the C# state machine
-            // reaches `ReadKeyAsync` (race with harnesses that deliver keys eagerly) get
-            // stranded in the line-mode buffer waiting for an Enter that never comes.
+            // line-mode buffer are forwarded to the key-mode consumer.
+            //
+            // Review R1 C2 flagged this flush as semantically wrong in one corner: if a
+            // real user types "hel" (line mode, no Enter yet) and the program then calls
+            // ReadKeyAsync, the typed chars route to the key consumer as three key presses
+            // instead of staying in the line buffer for the user's next Enter. That IS a
+            // trade-off. The competing win is the harness-race case: tests and
+            // integrations that pre-deliver keystrokes before the C# state machine reaches
+            // ReadKeyAsync — at that moment keyMode is still false, so the keys land in
+            // `buffer`, and without this flush `WaitForBytesAsync`'s TCS never resolves
+            // and the run hangs. We accept the trade-off: user programs that switch
+            // line→key mid-typed-line are rare in practice, while pre-delivery races are
+            // extremely common across Carbide's tests and headless drivers.
+            //
+            // On the exit transition (enabled=false) `buffer` is guaranteed empty by
+            // construction — key-mode onData bypasses `buffer` entirely — so this block
+            // is a no-op there. Kept symmetric to document the invariant.
             if (buffer.length > 0) {
                 deliverStdIn(projectId, true, buffer);
                 buffer = "";

@@ -232,6 +232,10 @@ async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number
                 }
             }
         } else {
+            // Review R1 M5 — the earlier `durationMs: root.model ? undefined : undefined`
+            // was a dead expression that always emitted `durationMs: undefined`, suggesting
+            // a partially-implemented schema. Omit the field until we actually track
+            // per-run wall time on the failure path.
             writeJson({
                 success: false,
                 assemblyName: root.assemblyName,
@@ -243,7 +247,6 @@ async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number
                     success: o.buildResult ? o.buildResult.success : false,
                     skipped: o.skipped,
                 })),
-                durationMs: root.model ? undefined : undefined,
             });
         }
         return 1;

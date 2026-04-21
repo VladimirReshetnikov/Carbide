@@ -52,9 +52,14 @@ async function handle(
     }
 
     const rel = pathname.replace(/^\/+/, "");
-    const abs = path.resolve(rootDir, rel);
     const rootAbs = path.resolve(rootDir);
-    if (!abs.startsWith(rootAbs)) {
+    const abs = path.resolve(rootAbs, rel);
+    // Separator-aware containment check. A plain `abs.startsWith(rootAbs)` lets sibling
+    // directories that share a prefix (e.g. `/tmp/root` vs `/tmp/root-evil`) through the
+    // guard. `path.relative` returns a path starting with `..` or an absolute path when
+    // `abs` is outside `rootAbs`; reject both shapes.
+    const relFromRoot = path.relative(rootAbs, abs);
+    if (relFromRoot === ".." || relFromRoot.startsWith(".." + path.sep) || path.isAbsolute(relFromRoot)) {
         res.writeHead(403);
         res.end("Forbidden");
         logNotice?.(`403 traversal: ${pathname}`);

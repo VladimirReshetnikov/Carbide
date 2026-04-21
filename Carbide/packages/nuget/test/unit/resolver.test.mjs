@@ -198,6 +198,28 @@ test("resolve: same-depth version tie triggers MSNUGET010 warning", async () => 
     assert.match(tieWarning.message, /Same-depth tie/);
 });
 
+// Regression for review R1 M2 / R2 §7 — the same-depth tie-break used to call
+// `localeCompare` on raw version strings, which orders `"2.10.0"` BEFORE `"2.9.0"`
+// lexicographically. Semantic comparison must pick the higher-minor version.
+test("resolve: same-depth tie uses semantic version compare (2.10.0 beats 2.9.0)", async () => {
+    const fc = new MockFlatContainer();
+    fc.add("A", "1.0.0", { groupedDeps: { "net10.0": [{ id: "B", versionRange: "2.9.0" }] } });
+    fc.add("C", "1.0.0", { groupedDeps: { "net10.0": [{ id: "B", versionRange: "2.10.0" }] } });
+    fc.add("B", "2.9.0");
+    fc.add("B", "2.10.0");
+
+    const graph = await resolve(
+        [
+            { id: "A", versionRange: "1.0.0" },
+            { id: "C", versionRange: "1.0.0" },
+        ],
+        { allowListMode: "off", flatContainer: fc, cacheDir: nextCacheDir() },
+    );
+    const byId = new Map(graph.packages.map((p) => [p.id, p]));
+    assert.equal(byId.get("B").version, "2.10.0",
+        "semver picks 2.10.0 over 2.9.0; lexicographic compare would incorrectly pick 2.9.0");
+});
+
 test("resolve: allow-list strict mode refuses unknown package", async () => {
     const fc = new MockFlatContainer();
     fc.add("NotAllowed.Pkg", "1.0.0");
@@ -393,5 +415,40 @@ test("resolve: lock replay throws on sha256 mismatch (MSNUGET040)", async () => 
                 lock,
             }),
         /Integrity mismatch.+MSNUGET040/,
+    );
+});
+
+// Regression for review R1 M1 / R2 §8 — earlier, lock replay short-circuited the allow-list
+// and safety gates. A lock generated under one policy could carry a disallowed package into
+// a stricter session and still land untouched (only the sha256 was verified). Under strict
+// mode the replay must reject a disallowed package ID.
+test("resolve: lock replay enforces allow-list under strict mode", async () => {
+    const fc = new MockFlatContainer();
+    const { sha256: notAllowedHash } = fc.add("NotAllowed.Pkg", "1.0.0");
+    const lock = {
+        schemaVersion: LOCK_SCHEMA_VERSION,
+        generator: "carbide",
+        generatedAt: "2026-04-18T00:00:00Z",
+        packages: [
+            {
+                id: "NotAllowed.Pkg",
+                version: "1.0.0",
+                sha256: notAllowedHash,
+                requestedBy: ["<root>"],
+                dependencies: [],
+                libFolder: "net10.0",
+            },
+        ],
+        warnings: [],
+    };
+    await assert.rejects(
+        () =>
+            resolve([{ id: "NotAllowed.Pkg", versionRange: "1.0.0" }], {
+                allowListMode: "strict",
+                flatContainer: fc,
+                cacheDir: nextCacheDir(),
+                lock,
+            }),
+        (err) => err instanceof AllowListRefusedError && err.packageId === "NotAllowed.Pkg",
     );
 });

@@ -53,3 +53,51 @@ test("asset server serves within-root files, rejects null-byte paths, does not l
         rmSync(sibling, { force: true });
     }
 });
+
+// Regression for review R1 C4 / R2 §5 — the older `abs.startsWith(rootAbs)` guard let
+// sibling directories with the same string prefix escape through, because string prefix
+// isn't a path-boundary check. A root like `/tmp/root` prefixes `/tmp/root-evil/secret`.
+// The fixed guard uses `path.relative` and rejects any `..` escape.
+test("asset server rejects prefix-sibling traversal", async () => {
+    const parentDir = mkdtempSync(path.join(tmpdir(), "carbide-asset-parent-"));
+    const rootDir = path.join(parentDir, "root");
+    const siblingDir = path.join(parentDir, "root-evil");
+    writeFileSync(path.join(parentDir, "dummy.txt"), "parent-file-must-not-leak");
+    // Use mkdirSync via fs for the nested dirs.
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(rootDir);
+    mkdirSync(siblingDir);
+    writeFileSync(path.join(rootDir, "ok.txt"), "ok");
+    writeFileSync(path.join(siblingDir, "secret.txt"), "should-not-be-served");
+
+    const handle = await startAssetServer(rootDir);
+    const port = Number(new URL(handle.baseUrl).port);
+    try {
+        // Sanity: within-root request works.
+        const okResp = await fetch(`${handle.baseUrl}ok.txt`);
+        assert.equal(okResp.status, 200);
+        assert.equal(await okResp.text(), "ok");
+
+        // The attack path uses percent-encoded slashes (`%2F`) to smuggle `..` segments
+        // past Node's URL class. `new URL("/%2E%2E/x")` normalises `%2E%2E` away, but
+        // `new URL("/a%2F..%2F..%2Fx")` keeps the whole thing as one opaque percent-
+        // encoded segment — our `safeDecodePath` then decodes the `%2F` to `/`, and the
+        // `..` segments survive into `path.resolve`. With root=`<parent>/root`, the
+        // resolved `abs` becomes `<parent>/root-evil/secret.txt`, which shares the
+        // `<parent>/root` prefix — that's the exact bug the OLD `abs.startsWith(rootAbs)`
+        // guard missed. The NEW `path.relative` guard sees `..` + sep and returns 403.
+        const attack = "/a%2F..%2F..%2Froot-evil/secret.txt";
+        const attackResp = await rawGet(port, attack);
+        assert.equal(attackResp.status, 403,
+            `prefix-sibling traversal via ${attack} must be forbidden (got ${attackResp.status})`);
+
+        // Also confirm we can't leak the parent-directory's file.
+        const parentAttack = "/a%2F..%2F..%2Fdummy.txt";
+        const parentResp = await rawGet(port, parentAttack);
+        assert.equal(parentResp.status, 403,
+            `parent-escape via ${parentAttack} must be forbidden (got ${parentResp.status})`);
+    } finally {
+        await handle.close();
+        rmSync(parentDir, { recursive: true, force: true });
+    }
+});

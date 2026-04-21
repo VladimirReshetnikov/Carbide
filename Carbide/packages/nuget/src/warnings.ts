@@ -15,7 +15,11 @@ export const MSNUGET_CODES = {
     SAFETY_NATIVE: "MSNUGET015",
     SAFETY_TARGETS: "MSNUGET016",
     SAFETY_ANALYZERS: "MSNUGET017",
-    SAFETY_GENERATORS: "MSNUGET018",
+    // MSNUGET018 (SAFETY_GENERATORS) was reserved for a finer-grained refusal that told
+    // generators apart from other analyzers. Carbide currently rejects `/^analyzers\//`
+    // wholesale under MSNUGET017, so the 018 distinction isn't observable — removed
+    // rather than kept as a promised but unfulfilled warning (review R1 M3). When
+    // analyzer execution lands (T4+), restore this code with real generator detection.
     SAFETY_UNKNOWN: "MSNUGET019",
     ALLOWLIST_ADVISORY: "MSNUGET020",
     ALLOWLIST_REFUSED: "MSNUGET021",

@@ -143,8 +143,13 @@ export async function parseCsprojString(
         }
     }
 
-    // 5. Post-processing: dedupe TFMs + package references.
-    const uniqueTfms = [...new Set(ctx.tfms)].sort();
+    // 5. Post-processing: dedupe TFMs + package references. TFM order is load-bearing —
+    // the evaluation trace advertises `selectionPolicy: "first-listed"`, and the downstream
+    // CLI / ref-pack / NuGet resolution pipelines consume `uniqueTfms[0]` as the effective
+    // framework. `new Set` preserves first-insertion order in ES2015+, so wrapping in
+    // `[...new Set(ctx.tfms)]` gives us dedup + original order. Do NOT `.sort()` — that
+    // silently swaps `<TargetFrameworks>net8.0;net10.0</TargetFrameworks>` to `net10.0` first.
+    const uniqueTfms = [...new Set(ctx.tfms)];
     const packageReferences = deduplicatePackageRefs(ctx.pkgRefs);
     const projectReferences = [...new Set(ctx.projRefs)].sort();
 
