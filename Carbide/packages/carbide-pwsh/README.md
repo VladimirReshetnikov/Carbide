@@ -1,13 +1,16 @@
 # carbide-pwsh
 
 A PowerShell-flavored shell, compiled from C# in the browser and run on Mono-WASM by
-[Carbide](../../README.md). Phase 1 ships an **expression evaluator**: arithmetic,
-variables, string interpolation, arrays, hashtables, ranges, and .NET interop via
-`[Type]::Member` — no cmdlets, no pipelines, no virtualized filesystem. Those land in
-Phase 2+. The parent proposal is
-[carbide-pwsh-subset-shell-proposal](../../docs/proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md);
-the Phase 1 plan is at
-[carbide-pwsh-phase1-detailed-plan](../../docs/planning/carbide-pwsh-phase1-detailed-plan__2026-04-21__21-45-00-000000__a5f8c3d192e0.md).
+[Carbide](../../README.md). **Phase 2** (current): pipelines, command invocation, a
+virtualized filesystem, ~25 curated cmdlets, script blocks, and multi-line REPL. Phase 1
+shipped the expression evaluator; Phase 3+ will add control flow, functions, error
+handling, and Carbide-compiled-app invocation.
+
+Source docs:
+
+- Parent proposal: [carbide-pwsh-subset-shell-proposal](../../docs/proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md)
+- Phase 1 plan: [carbide-pwsh-phase1-detailed-plan](../../docs/planning/carbide-pwsh-phase1-detailed-plan__2026-04-21__21-45-00-000000__a5f8c3d192e0.md)
+- Phase 2 plan: [carbide-pwsh-phase2-detailed-plan](../../docs/planning/carbide-pwsh-phase2-detailed-plan__2026-04-21__22-30-00-000000__b7e2c4a9d018.md)
 
 ## Running the demo
 
@@ -22,59 +25,101 @@ node scripts/serve.mjs
 
 Open that URL in any modern browser.
 
-## Phase 1 language subset
+## Phase 2 language surface (additions over Phase 1)
 
-| Category | Syntax |
+| Construct | Example |
 |---|---|
-| Integer / double literals | `42`, `0x2A`, `3.14`, `1.5e-3` |
-| Single-quoted string | `'literal, no $interpolation'` |
-| Double-quoted string | `"hello, $name"`, `"sum = $(1 + 2)"`, backtick escapes |
-| Here-strings | `@"…"@`, `@'…'@` (closer must be at column 1) |
-| Boolean / null | `$true`, `$false`, `$null` |
-| Array literal | `@(1, 2, 3)` |
-| Hashtable literal | `@{ a = 1; b = 2 }` |
-| Variable | `$name`, `${spaces ok}`, `$env:PATH` |
-| Arithmetic | `+ - * / %` (with PowerShell promotion rules) |
-| Comparison | `-eq -ne -lt -le -gt -ge` (and `-ceq`/`-ieq` variants) |
-| Logical | `-and -or -xor -not`, `!` |
-| Range | `1..10`, `10..1` (descending), `'a'..'z'` |
-| Type literal | `[int]`, `[System.Math]`, `[System.Text.StringBuilder]` |
-| Cast | `[int]'42'`, `[string]3.14`, `[ConsoleColor]'Red'` |
-| Static member | `[System.Math]::PI`, `[System.Math]::Sqrt(2)` |
-| Instance member | `'hello'.ToUpper()`, `@(1,2,3).Length`, `$d.Year` |
-| Indexer | `$arr[0]`, `$hash['key']`, `'abc'[1]` |
-| Constructor | `[System.Text.StringBuilder]::new()` |
-| Assignment | `$x = …`, `+=`, `-=`, `*=`, `/=`, `%=` |
-| Static property assign | `[System.Console]::BackgroundColor = 'DarkBlue'` |
+| Pipeline | `cmd1 \| cmd2 \| cmd3` |
+| Command | `Get-ChildItem -Path /tmp -Recurse` |
+| Hyphenated command name | `Get-ChildItem`, `ConvertTo-Json`, `Set-Location` |
+| Named parameter | `-Path value` |
+| Switch parameter | `-Recurse`, `-Force`, `-Compress` |
+| Bare-word path argument | `Set-Content /tmp/foo.json -Value hi` |
+| Script block | `{ $_ -gt 2 }`, `{ param($x) $x * 2 }` |
+| Assignment from pipeline | `$result = Get-ChildItem \| Sort-Object` |
+| Multi-line input | open `(`, `@(`, `@{`, `{` or an unclosed string and press Enter; prompt becomes `>> ` |
+| `$PWD` variable | reflects the VFS's current location |
 
-Explicitly **not** in Phase 1 (see the plan):
+## Cmdlet catalog
 
-- cmdlets and pipelines (`|`)
-- control flow (`if`, `while`, `for`, `foreach`, `switch`)
-- functions, script blocks, `try`/`catch`
-- virtualized filesystem + FS cmdlets
-- running other Carbide-compiled apps as commands
+| Family | Cmdlets |
+|---|---|
+| Pipeline shape | `Where-Object` (`where`, `?`), `ForEach-Object` (`foreach`, `%`), `Select-Object` (`select`), `Sort-Object` (`sort`), `Group-Object` (`group`), `Measure-Object` (`measure`) |
+| Output | `Write-Output` (`echo`, `write`), `Write-Host` (with `-ForegroundColor` / `-BackgroundColor`), `Write-Error`, `Out-String`, `Read-Host` |
+| JSON | `ConvertTo-Json` (with `-Compress`), `ConvertFrom-Json` |
+| Filesystem (VFS) | `Get-ChildItem` (`dir`, `ls`, `gci`), `Get-Content` (`cat`, `gc`, `type`), `Set-Content` (`sc`), `Add-Content` (`ac`), `New-Item` (`ni`), `Remove-Item` (`rm`, `del`, `ri`), `Test-Path`, `Set-Location` (`cd`, `sl`), `Get-Location` (`pwd`, `gl`), `Resolve-Path`, `Join-Path`, `Copy-Item` (`cp`, `copy`, `cpi`), `Move-Item` (`mv`, `move`, `mi`) |
+
+## Virtualized filesystem
+
+- Everything operates on an **in-memory tree** — FS cmdlets never touch the real disk.
+- Default seed: `/` root with `/tmp` and `/home/user` preloaded; starting location is
+  `/home/user`.
+- Paths are forward-slash, case-insensitive, with `~` / `.` / `..` resolution.
+- Snapshot/restore API (`VfsSnapshot.Save` / `.Load`) round-trips the tree to JSON;
+  browser/Node persistence backends are wiring-ready and land in Phase 2.1.
+
+## Example Phase 2 session
+
+```
+carbide-pwsh — Phase 2 (pipelines, VFS, cmdlets)
+PS /home/user> New-Item -ItemType Directory /work
+Mode  LastWriteTimeUtc Length Name
+----- ---------------- ------ ----
+d---- 2026-04-21 17:53        work
+PS /home/user> cd /work
+PS /work> @('apple','banana','cherry') | Where-Object { $_.Length -gt 5 } | Sort-Object
+banana
+cherry
+PS /work> @(1..10) | ForEach-Object { $_ * $_ } | Measure-Object -Sum
+Name  Value
+----- -----
+Count 10
+Sum   385
+PS /work> @{ repo = 'carbide'; star = 42 } | ConvertTo-Json -Compress
+{"repo":"carbide","star":42}
+PS /work> @(1,2,3
+>> 4,5)
+1
+2
+3
+4
+5
+PS /work> exit
+```
+
+## Exit-gate script
+
+The committed Phase 2 exit gate runs end-to-end in an `xUnit` integration test
+(`IntegrationTests.cs`):
+
+```powershell
+Set-Location /tmp
+@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json
+Get-Content profile.json | ConvertFrom-Json | ForEach-Object { "Hello, $($_.name)!" }
+# -> Hello, Vladimir!
+```
 
 ## Layout
 
 | path | purpose |
 |---|---|
-| `index.html` | host page; loads xterm.js + `@carbide/core`, fetches the 18 C# sources, compiles, and runs `project.runInteractive({ terminal })`. |
-| `src/Program.cs` | REPL entry point — banner + `while (true) { read line; parse; evaluate; render; }`. |
-| `src/Errors/` | `PwshException` hierarchy + `SourceLocation`. |
-| `src/Lexer/` | Hand-rolled tokenizer. |
-| `src/Parser/` | Recursive-descent parser producing an AST (`src/Parser/Ast/`). |
-| `src/Runtime/` | Scope, coercion rules, binary/unary operator implementations, type-literal resolution + reflection bridge, and the tree-walking interpreter. |
-| `src/Host/` | Banner, output formatter, persistent `ShellHost` (one long-lived scope across submissions). |
-| `src/CarbidePwsh.csproj` | Standalone project for `dotnet build` / `dotnet run` on Windows/Linux. |
-| `test/` | xUnit tests covering lexer, parser, coercion, interpreter, and type-bridge. Run with `dotnet test`. |
+| `index.html` | xterm.js host page; fetches the ~40 C# sources, compiles, and runs `project.runInteractive({ terminal })`. |
+| `src/Program.cs` | REPL entry point — banner + multi-line read loop + dispatch. |
+| `src/Errors/` | `PwshException` hierarchy, `PwshIncompleteInputException`, `SourceLocation`. |
+| `src/Lexer/` | Hand-rolled tokenizer with hyphenated-command-name folding, pipe token, incomplete-input detection on open strings / here-strings. |
+| `src/Parser/` | Recursive-descent parser with command-mode, pipelines, script blocks, and bare-word synthesis. |
+| `src/Runtime/` | Scope, coercion, operators, type-literal resolution, tree-walking interpreter, script-block closure. |
+| `src/Vfs/` | Virtualized filesystem (tree, paths, snapshot). |
+| `src/Cmdlets/` | Cmdlet base class, parameter binding, registry, pipeline runtime, and the Phase 2 cmdlet catalog. |
+| `src/Host/` | Banner, output formatter (VfsNode-aware), persistent `ShellHost`. |
+| `test/` | xUnit tests across lexer, parser, coercion, interpreter, type bridge, VFS, cmdlets, pipelines, and the exit-gate integration. |
 | `scripts/serve.mjs` | Static server rooted at the Carbide repo root (port 34571). |
-| `scripts/smoke.mjs` | Headless Playwright driver that asserts the REPL renders the expected output for seven Phase 1 expressions. |
+| `scripts/smoke.mjs` | Headless Playwright driver that asserts the REPL renders Phase 1 + Phase 2 expected outputs. |
 
 ## Local development
 
 ```bash
-# Unit tests (123 at Phase 1 landing):
+# Unit tests — 187 at Phase 2 landing:
 cd src/Carbide/packages/carbide-pwsh/test
 dotnet test CarbidePwsh.Tests.csproj
 
@@ -83,30 +128,10 @@ cd src/Carbide/packages/carbide-pwsh/src
 dotnet run --project CarbidePwsh.csproj
 ```
 
-Example session:
+## What's explicitly not in Phase 2
 
-```
-PS > 2 + 2
-4
-PS > $name = 'Vladimir'
-PS > "hello, $name"
-hello, Vladimir
-PS > [System.Math]::Sqrt(2)
-1.4142135623730951
-PS > @(1,2,3,4,5) -gt 2
-3
-4
-5
-PS > exit
-```
-
-## Smoke test
-
-```bash
-node scripts/serve.mjs &
-node scripts/smoke.mjs
-# -> smoke: PASSED
-```
-
-The smoke test drives six input→output pairs through xterm.js and fails loudly if any
-answer doesn't appear in the buffer.
+Control flow (`if`, `while`, `for`, `foreach`, `switch`), user-defined functions,
+error handling (`try`/`catch`/`throw`, `$ErrorActionPreference`), regex operators
+(`-match`, `-replace`, `-like`), format/join/split operators (`-f`, `-join`, `-split`),
+containment operators (`-contains`, `-in`), tab completion, history, and running
+Carbide-compiled apps as commands. Those land in Phase 3+.

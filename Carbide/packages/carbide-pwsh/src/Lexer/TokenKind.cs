@@ -42,6 +42,7 @@ public enum TokenKind
     Slash,              // /
     Percent,            // %
     Bang,               // !
+    Pipe,               // |
 
     // Dashed operators — all enumerated for parse-time disambiguation from -Parameter
     OpEq, OpNe, OpLt, OpLe, OpGt, OpGe,
