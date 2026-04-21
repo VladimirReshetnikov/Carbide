@@ -137,15 +137,14 @@ export function attachLineEditor(options: LineEditorOptions): LineEditorControll
         },
         setKeyMode(enabled: boolean) {
             keyMode = enabled;
-            if (!enabled) {
-                // Leaving key mode: commit any bytes that built up during key mode as a
-                // raw partial buffer. Normally ReadKeyAsync drains these on its own, but
-                // a cancelled/aborted key read can leave trailing bytes — flush them
-                // defensively so the next line mode doesn't start with stale input.
-                if (buffer.length > 0) {
-                    deliverStdIn(projectId, true, buffer);
-                    buffer = "";
-                }
+            // Symmetric flush on either mode transition: any bytes that accumulated in the
+            // wrong mode's buffer are forwarded to the new mode's consumer. Without the
+            // entering-key-mode branch, keystrokes delivered before the C# state machine
+            // reaches `ReadKeyAsync` (race with harnesses that deliver keys eagerly) get
+            // stranded in the line-mode buffer waiting for an Enter that never comes.
+            if (buffer.length > 0) {
+                deliverStdIn(projectId, true, buffer);
+                buffer = "";
             }
         },
         setTreatControlCAsInput(value: boolean) {

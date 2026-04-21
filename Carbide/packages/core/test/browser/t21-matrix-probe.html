@@ -54,33 +54,49 @@
     const qs = new URLSearchParams(window.location.search);
     const probeName = qs.get("probe") ?? "baseline";
 
+    function stage(name) {
+      console.log("[probe] stage:", name);
+      resultEl.dataset.stage = name;
+    }
+
     async function run() {
+      stage("adapter");
       const adapter = new BrowserHostAdapter({
         frameworkAssetsBaseUrl: new URL(
           "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
           window.location.origin,
         ).toString(),
       });
+      stage("terminal");
       const terminal = makeInteractiveTerminal(80, 24);
+      stage("session.init");
       const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      stage("session.ready");
       try {
         const project = session.createProject();
         const probeSource = window.__T21_PROBES__[probeName];
         if (!probeSource) {
           throw new Error("unknown probe: " + probeName + "; available: " + Object.keys(window.__T21_PROBES__).join(","));
         }
+        stage("project.addSource");
         project.addSource("Program.cs", probeSource.source);
+        stage("runInteractive");
         const handle = project.runInteractive({ terminal });
         const waitMode = probeSource.waitMode ?? "ready"; // "ready" | "raf2" | "none"
         if (waitMode === "ready") {
+          stage("waitForText(ready)");
           await waitForText(terminal, "ready\n");
         } else if (waitMode === "raf2") {
+          stage("raf2");
           await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         }
         if (probeSource.action) {
+          stage("action");
           await probeSource.action(terminal);
         }
+        stage("awaiting exit");
         const runResult = await handle.exitPromise;
+        stage("exit");
         return { runResult, fullText: terminal.getFullText() };
       } finally {
         await session.shutdown();

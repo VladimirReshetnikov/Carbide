@@ -1,15 +1,8 @@
 // T2 — ReadKeyAsync smoke. Fixture drives printable, arrow, function, and DEL key
 // sequences; KeyParser decodes each into the expected ConsoleKey.
-//
-// TODO(T2.1): this fixture is temporarily skipped pending a Mono-WASM browser async
-// regression. `CarbideConsole.ReadKeyAsync` is `async Task<ConsoleKeyInfo>` and awaits a
-// TCS-backed `WaitForBytesAsync`; user code's `await` on the returned task hangs on
-// Mono-WASM browser even though an identically-shaped TCS works via the non-async
-// `ReadLineAsync` path. Needs a proper SynchronizationContext or Blazor-style
-// dispatcher install to resolve; tracked in the T2 drift notes.
 import { test, expect } from "@playwright/test";
 
-test.skip("interactive: CarbideConsole.ReadKeyAsync decodes printable, arrow, F-key, and DEL", async ({ page }) => {
+test("interactive: CarbideConsole.ReadKeyAsync decodes printable, arrow, F-key, and DEL", async ({ page }) => {
     const pageErrors = [];
     page.on("pageerror", (e) => pageErrors.push(e.message));
 

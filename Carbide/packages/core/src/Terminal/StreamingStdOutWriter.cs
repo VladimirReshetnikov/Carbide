@@ -79,7 +79,14 @@ internal sealed class StreamingStdOutWriter : TextWriter
         if (_disposed) return;
         EnsureCapacity(1);
         _buffer[_length++] = value;
-        MaybeFlush();
+        if (value == '\n')
+        {
+            FlushNow();
+        }
+        else
+        {
+            MaybeFlush();
+        }
     }
 
     public override void Write(string? value)
@@ -190,21 +197,33 @@ internal sealed class StreamingStdOutWriter : TextWriter
 
     private void WriteSpan(ReadOnlySpan<char> value)
     {
+        // Line-buffered: if the span contains a newline, flush through the newline so that
+        // interactive terminals see the just-produced line before user code awaits input.
+        // Without this, `Console.WriteLine("ready"); await ReadLineAsync();` leaves "ready\n"
+        // in the buffer (no subsequent Write triggers MaybeFlush) and the JS line editor
+        // stays blind to the prompt — which then deadlocks harnesses that wait for the line
+        // before delivering keystrokes.
         while (!value.IsEmpty)
         {
             var remaining = _buffer.Length - _length;
             if (remaining == 0)
             {
-                // Flush to free the buffer rather than grow it unboundedly; keeps the
-                // per-flush payload sized to flushBytes.
                 FlushNow();
                 remaining = _buffer.Length;
             }
             var chunkLen = Math.Min(value.Length, remaining);
-            value.Slice(0, chunkLen).CopyTo(_buffer.AsSpan(_length));
+            var chunk = value.Slice(0, chunkLen);
+            chunk.CopyTo(_buffer.AsSpan(_length));
             _length += chunkLen;
             value = value.Slice(chunkLen);
-            MaybeFlush();
+            if (chunk.IndexOf('\n') >= 0)
+            {
+                FlushNow();
+            }
+            else
+            {
+                MaybeFlush();
+            }
         }
     }
 

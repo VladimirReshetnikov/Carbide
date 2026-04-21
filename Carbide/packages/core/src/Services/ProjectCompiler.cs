@@ -416,9 +416,13 @@ internal sealed class ProjectCompiler
             // (types resolved at method-JIT time) can still find the assemblies. Removal
             // happens in the outer finally after the user's entry point has returned.
         }
-        var reflectedEntry = assembly.EntryPoint
+        var declaredEntry = assembly.EntryPoint
             ?? throw new InvalidOperationException(
                 $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
+        // T2.1 — bypass the synthesised sync wrapper for `async Task Main` and top-level-
+        // statements-with-`await`. See `ResolveAsyncEntryOrFallback` at the bottom of this
+        // class for the full rationale.
+        var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
 
         using var stdOutCapture = new StringWriter();
         using var stdErrCapture = new StringWriter();
@@ -545,6 +549,84 @@ internal sealed class ProjectCompiler
         field?.SetValue(null, value);
     }
 
+    // T2.1 — resolve the user assembly's async entry point, if one exists.
+    //
+    // `Assembly.EntryPoint` points to the method the CLR considers the entry point.
+    // For `static async Task Main` and top-level-statements-with-`await`, Roslyn
+    // synthesises a synchronous wrapper that calls `.GetAwaiter().GetResult()` on
+    // the real async method's Task — and the wrapper is what `Assembly.EntryPoint`
+    // returns. Invoking the wrapper blocks on an infinite `Monitor.Wait` on Mono-WASM
+    // single-threaded browser when the task actually suspends, tripping PNSE.
+    //
+    // If the declared entry point already returns an awaitable (the CLR handles the
+    // Task-returning entry directly on newer frameworks), we use it as-is. Otherwise
+    // we search the declaring type for a sibling static method with the same
+    // parameter signature whose return type IS awaitable; that's the underlying
+    // async method the wrapper calls. Invoking THAT and awaiting it in our own
+    // async frame puts the wait on our TaskAwaiter path (which resumes via the
+    // scheduling pump) instead of the wrapper's blocking one.
+    private static System.Reflection.MethodInfo ResolveAsyncEntryOrFallback(
+        System.Reflection.MethodInfo declared)
+    {
+        if (IsAwaitableReturn(declared.ReturnType))
+        {
+            return declared;
+        }
+
+        var declaringType = declared.DeclaringType;
+        if (declaringType is null)
+        {
+            return declared;
+        }
+
+        var declaredParams = declared.GetParameters();
+        var candidates = declaringType
+            .GetMethods(System.Reflection.BindingFlags.Static
+                      | System.Reflection.BindingFlags.Public
+                      | System.Reflection.BindingFlags.NonPublic)
+            .Where(m => IsAwaitableReturn(m.ReturnType))
+            .Where(m => ParametersMatch(m.GetParameters(), declaredParams))
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            return declared;
+        }
+
+        // Exactly one match — that's the underlying async method.
+        if (candidates.Count == 1)
+        {
+            return candidates[0];
+        }
+
+        // Multiple — prefer a user-defined (non-compiler-generated) name. Roslyn's
+        // top-level-statements wrapper uses angle-bracket names; the underlying async
+        // method is sometimes also angle-bracketed (e.g. `<Main>$`) and sometimes the
+        // user's declared name (e.g. `Main`). Fall through to any awaitable match.
+        var userDefined = candidates.FirstOrDefault(m => !m.Name.Contains('<'));
+        return userDefined ?? candidates[0];
+    }
+
+    private static bool IsAwaitableReturn(Type t)
+    {
+        if (t == typeof(Task) || t == typeof(ValueTask)) return true;
+        if (!t.IsGenericType) return false;
+        var gtd = t.GetGenericTypeDefinition();
+        return gtd == typeof(Task<>) || gtd == typeof(ValueTask<>);
+    }
+
+    private static bool ParametersMatch(
+        System.Reflection.ParameterInfo[] a,
+        System.Reflection.ParameterInfo[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i].ParameterType != b[i].ParameterType) return false;
+        }
+        return true;
+    }
+
     /// <summary>
     /// RAII helper so <c>RunInteractiveAsync</c>'s `using` pattern unwinds the
     /// <see cref="TerminalInputState"/> registry slot deterministically on both the
@@ -637,9 +719,22 @@ internal sealed class ProjectCompiler
         AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
 
         var assembly = LoadAssembly(peBytes);
-        var reflectedEntry = assembly.EntryPoint
+        var declaredEntry = assembly.EntryPoint
             ?? throw new InvalidOperationException(
                 $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
+
+        // T2.1 — if the user program is `async Task Main` (or top-level statements with
+        // `await`), Roslyn synthesises a synchronous wrapper that calls
+        // `.GetAwaiter().GetResult()` on the real async method. `Assembly.EntryPoint`
+        // points at THAT wrapper. Calling the wrapper blocks on the task — on Mono-WASM
+        // single-threaded browser that blocking wait reaches `Monitor.Wait(INFINITE)` and
+        // trips `Cannot wait on monitors on this runtime`. Bypass the wrapper: if the
+        // declared entry point is sync-returning (`void`/`int`) and its declaring type has
+        // a sibling static method with the same parameter signature that returns
+        // Task/Task<int>/ValueTask/ValueTask<int>, invoke THAT instead and await it
+        // ourselves. That moves the "wait" out of the blocking BCL path and into our own
+        // async method where it resumes via the scheduling pump correctly.
+        var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
 
         // Tee each flushed chunk into a StringBuilder (for the RunResult trailer) while also
         // pushing it through the JS bridge. Stderr gets its SGR wrap on the JS-bound path

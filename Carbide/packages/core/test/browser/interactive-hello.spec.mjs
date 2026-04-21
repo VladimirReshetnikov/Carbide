@@ -24,11 +24,12 @@ test("interactive: ten Console.WriteLine lines reach terminal.write", async ({ p
     // SGR-wrapping for stderr; stdout is never SGR-wrapped).
     expect(payload.runResult.stdOut).toBe(expected);
 
-    // Chunks should have coalesced — we shouldn't see 10 separate `write` calls for 10 lines
-    // of ~10 bytes each. The 4 KB / 32 ms default flush window makes this comfortably
-    // one chunk (sometimes two if an await point lands mid-loop). Allow up to 3.
+    // T2.1 — StreamingStdOutWriter is line-buffered: it flushes on `\n` so interactive
+    // prompts reach the JS terminal before user code awaits input. A tight 10-WriteLine
+    // loop therefore produces up to one chunk per line. The 4 KB / 32 ms size+time bounds
+    // still coalesce mid-line writes; lines themselves are the atomic unit.
     expect(payload.chunks.length).toBeGreaterThanOrEqual(1);
-    expect(payload.chunks.length).toBeLessThanOrEqual(3);
+    expect(payload.chunks.length).toBeLessThanOrEqual(10);
 
     if (pageErrors.length) {
         throw new Error(`page reported JS errors:\n${pageErrors.join("\n")}`);
