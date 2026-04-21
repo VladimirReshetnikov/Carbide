@@ -17,11 +17,20 @@ public enum BinaryOp
     And, Or, Xor,
     BAnd, BOr, BXor,
     Is, IsNot, As,
+
+    // Phase 3 operators.
+    Match, IMatch, CMatch, NotMatch, INotMatch, CNotMatch,
+    Replace, IReplace, CReplace,
+    Like, ILike, CLike, NotLike, INotLike, CNotLike,
+    Contains, ICContains, CContains, NotContains, INotContains, CNotContains,
+    In, NotIn, CIn, CNotIn, IIn, INotIn,
+    Format, Join, Split,
 }
 
 public enum UnaryOp
 {
     Plus, Negate, Not, BNot,
+    PreIncrement, PreDecrement, PostIncrement, PostDecrement,
 }
 
 public enum AssignmentOp

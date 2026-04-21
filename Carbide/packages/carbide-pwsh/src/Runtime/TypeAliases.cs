@@ -47,5 +47,9 @@ public static class TypeAliases
         ["convert"] = typeof(Convert),
         ["enum"] = typeof(Enum),
         ["void"] = typeof(void),
+        ["scriptblock"] = typeof(ScriptBlock),
+        ["pscustomobject"] = typeof(System.Collections.Specialized.OrderedDictionary),
+        ["errorrecord"] = typeof(ErrorRecord),
+        ["pwshexception"] = typeof(Errors.PwshException),
     };
 }

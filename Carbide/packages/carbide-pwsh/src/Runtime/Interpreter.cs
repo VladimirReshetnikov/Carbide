@@ -41,13 +41,246 @@ public sealed class Interpreter
         return last;
     }
 
+    public FunctionRegistry? Functions { get; set; }
+    public ClassRegistry? Classes { get; set; }
+    public AppRegistry? Apps { get; set; }
+
+    /// <summary>Raised to run a script file path when the interpreter encounters it as a
+    /// command name. Set by <see cref="Host.ShellHost"/>; returns the result of the script.</summary>
+    public Func<string, bool, IReadOnlyList<object?>, object?>? RunScriptFile { get; set; }
+
+    /// <summary>Raised to invoke a .NET entry-point DLL by VFS path. Returns the exit code.</summary>
+    public Func<string, IReadOnlyList<object?>, int>? RunApp { get; set; }
+
     public object? EvaluateStatement(StatementAst statement) => statement switch
     {
         ExpressionStatementAst e => Eval(e.Expression),
         AssignmentStatementAst a => ExecuteAssignment(a),
         PipelineAst p => ExecutePipeline(p),
+        IfStatementAst i => ExecuteIf(i),
+        WhileStatementAst w => ExecuteWhile(w),
+        DoWhileStatementAst dw => ExecuteDoWhile(dw),
+        ForStatementAst f => ExecuteFor(f),
+        ForEachStatementAst fe => ExecuteForEach(fe),
+        SwitchStatementAst sw => ExecuteSwitch(sw),
+        BreakStatementAst br => throw new PwshBreakException(br.Label),
+        ContinueStatementAst co => throw new PwshContinueException(co.Label),
+        ReturnStatementAst r => throw new PwshReturnException(r.Value != null ? Eval(r.Value) : null),
+        ThrowStatementAst th => ExecuteThrow(th),
+        TryStatementAst tr => ExecuteTry(tr),
+        FunctionDefinitionAst fd => ExecuteFunctionDefinition(fd),
+        ClassDefinitionAst cd => ExecuteClassDefinition(cd),
+        EnumDefinitionAst ed => ExecuteEnumDefinition(ed),
         _ => throw new PwshRuntimeException($"Unsupported statement node: {statement.GetType().Name}", statement.Location),
     };
+
+    // ---------- Control flow ----------
+
+    private object? ExecuteIf(IfStatementAst ast)
+    {
+        foreach (var (cond, body) in ast.Branches)
+        {
+            if (Coercion.CoerceToBool(Eval(cond)))
+                return Evaluate(body);
+        }
+        if (ast.ElseBody != null) return Evaluate(ast.ElseBody);
+        return null;
+    }
+
+    private object? ExecuteWhile(WhileStatementAst ast)
+    {
+        var results = new List<object?>();
+        while (Coercion.CoerceToBool(Eval(ast.Condition)))
+        {
+            try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
+            catch (PwshBreakException) { break; }
+            catch (PwshContinueException) { continue; }
+        }
+        return CollectResults(results);
+    }
+
+    private object? ExecuteDoWhile(DoWhileStatementAst ast)
+    {
+        var results = new List<object?>();
+        do
+        {
+            try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
+            catch (PwshBreakException) { break; }
+            catch (PwshContinueException) { continue; }
+        } while (ast.IsUntil
+            ? !Coercion.CoerceToBool(Eval(ast.Condition))
+            : Coercion.CoerceToBool(Eval(ast.Condition)));
+        return CollectResults(results);
+    }
+
+    private object? ExecuteFor(ForStatementAst ast)
+    {
+        var results = new List<object?>();
+        if (ast.Init != null) EvaluateStatement(ast.Init);
+        while (true)
+        {
+            if (ast.Condition != null && !Coercion.CoerceToBool(Eval(ast.Condition))) break;
+            try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
+            catch (PwshBreakException) { break; }
+            catch (PwshContinueException) { /* fall through to update */ }
+            if (ast.Update != null) EvaluateStatement(ast.Update);
+        }
+        return CollectResults(results);
+    }
+
+    private object? ExecuteForEach(ForEachStatementAst ast)
+    {
+        var collection = Eval(ast.Collection);
+        var results = new List<object?>();
+        IEnumerable<object?> items = collection switch
+        {
+            null => Array.Empty<object?>(),
+            string s => new object?[] { s },
+            System.Collections.IDictionary d => new object?[] { d },
+            System.Collections.IEnumerable en => en.Cast<object?>(),
+            _ => new[] { collection },
+        };
+        foreach (var item in items)
+        {
+            Scope.Set(null, ast.VariableName, item);
+            try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
+            catch (PwshBreakException) { break; }
+            catch (PwshContinueException) { continue; }
+        }
+        return CollectResults(results);
+    }
+
+    private object? ExecuteSwitch(SwitchStatementAst ast)
+    {
+        var value = Eval(ast.Condition);
+        foreach (var (pattern, body) in ast.Cases)
+        {
+            var patternValue = Eval(pattern);
+            if ((bool)Operators.Binary(BinaryOp.Equal, value, patternValue)!)
+            {
+                try { return Evaluate(body); }
+                catch (PwshBreakException) { return null; }
+            }
+        }
+        if (ast.DefaultBody != null)
+        {
+            try { return Evaluate(ast.DefaultBody); }
+            catch (PwshBreakException) { return null; }
+        }
+        return null;
+    }
+
+    private static object? CollectResults(List<object?> results)
+    {
+        return results.Count switch
+        {
+            0 => null,
+            1 => results[0],
+            _ => results.ToArray(),
+        };
+    }
+
+    // ---------- Error handling ----------
+
+    private object? ExecuteThrow(ThrowStatementAst ast)
+    {
+        var value = ast.Value != null ? Eval(ast.Value) : null;
+        ErrorRecord record;
+        if (value is ErrorRecord er) record = er;
+        else if (value is Exception ex) record = new ErrorRecord(ex);
+        else
+        {
+            var message = Coercion.FormatAsString(value);
+            if (string.IsNullOrEmpty(message)) message = "ScriptHalted";
+            record = new ErrorRecord(new PwshRuntimeException(message, ast.Location), targetObject: value);
+        }
+        throw new PwshTerminatingException(record);
+    }
+
+    private object? ExecuteTry(TryStatementAst ast)
+    {
+        try
+        {
+            return Evaluate(ast.TryBody);
+        }
+        catch (PwshBreakException) { throw; }
+        catch (PwshContinueException) { throw; }
+        catch (PwshReturnException) { throw; }
+        catch (Exception ex)
+        {
+            var record = ex is PwshTerminatingException pt ? pt.Error : new ErrorRecord(ex);
+            foreach (var clause in ast.CatchClauses)
+            {
+                if (!ClauseMatches(clause, record.Exception)) continue;
+                var savedUnderscore = Scope.Get(null, "_");
+                Scope.Set(null, "_", record);
+                try
+                {
+                    return Evaluate(clause.Body);
+                }
+                finally
+                {
+                    Scope.Set(null, "_", savedUnderscore);
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            if (ast.FinallyBody != null)
+            {
+                try { Evaluate(ast.FinallyBody); }
+                catch (PwshBreakException) { throw; }
+                catch (PwshContinueException) { throw; }
+            }
+        }
+    }
+
+    private bool ClauseMatches(CatchClauseAst clause, Exception ex)
+    {
+        if (clause.TypeFilters.Count == 0) return true;
+        foreach (var filter in clause.TypeFilters)
+        {
+            try
+            {
+                var t = Types.ResolveType(filter.TypeName, filter.Location);
+                if (t.IsInstanceOfType(ex)) return true;
+            }
+            catch { /* try next filter */ }
+        }
+        return false;
+    }
+
+    // ---------- Function / class / enum definitions ----------
+
+    private object? ExecuteFunctionDefinition(FunctionDefinitionAst ast)
+    {
+        if (Functions == null) throw new PwshRuntimeException("Function registry not wired up.", ast.Location);
+        Functions.Register(new ScriptFunction(ast));
+        return null;
+    }
+
+    private object? ExecuteClassDefinition(ClassDefinitionAst ast)
+    {
+        if (Classes == null) throw new PwshRuntimeException("Class registry not wired up.", ast.Location);
+        Classes.Register(new RuntimeClass(ast));
+        return null;
+    }
+
+    private object? ExecuteEnumDefinition(EnumDefinitionAst ast)
+    {
+        if (Classes == null) throw new PwshRuntimeException("Class registry not wired up.", ast.Location);
+        var members = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        long next = 0;
+        foreach (var m in ast.Members)
+        {
+            var value = m.Value ?? next;
+            members[m.Name] = value;
+            next = value + 1;
+        }
+        Classes.Register(new RuntimeEnum(ast.Name, members));
+        return null;
+    }
 
     private object? ExecutePipeline(PipelineAst pipeline)
     {
@@ -103,12 +336,53 @@ public sealed class Interpreter
                 }
                 if (receiver == null)
                     throw new PwshRuntimeException("Cannot assign to a member on a null reference.", m.Location);
+                if (receiver is RuntimeInstance inst)
+                {
+                    // Coerce to declared type when possible.
+                    var prop = inst.Class.Properties.FirstOrDefault(p =>
+                        string.Equals(p.Name, m.MemberName, StringComparison.OrdinalIgnoreCase));
+                    if (prop?.TypeConstraint != null && value != null)
+                    {
+                        try
+                        {
+                            var t = Types.ResolveType(prop.TypeConstraint.TypeName, prop.TypeConstraint.Location);
+                            value = Coercion.To(value, t);
+                        }
+                        catch { /* leave */ }
+                    }
+                    inst.Fields[m.MemberName] = value;
+                    return;
+                }
                 Types.SetInstanceMember(receiver, m.MemberName, value, m.Location);
                 return;
             }
+            case IndexerAst ix:
+            {
+                var receiver = Eval(ix.Target);
+                var idx = Eval(ix.Index);
+                if (receiver is System.Collections.IDictionary d)
+                {
+                    d[idx!] = value; return;
+                }
+                if (receiver is Array arr)
+                {
+                    var iint = (int)Coercion.ToInt64(idx);
+                    if (iint < 0) iint += arr.Length;
+                    arr.SetValue(value, iint);
+                    return;
+                }
+                if (receiver is System.Collections.IList list)
+                {
+                    var iint = (int)Coercion.ToInt64(idx);
+                    if (iint < 0) iint += list.Count;
+                    list[iint] = value;
+                    return;
+                }
+                throw new PwshRuntimeException("Target is not indexable for assignment.", target.Location);
+            }
             default:
                 throw new PwshRuntimeException(
-                    $"Assignment target {target.GetType().Name} is not supported in Phase 1.", target.Location);
+                    $"Assignment target {target.GetType().Name} is not supported.", target.Location);
         }
     }
 
@@ -126,7 +400,7 @@ public sealed class Interpreter
         RangeExpressionAst r => EvalRange(r),
         ParenExpressionAst p => Eval(p.Inner),
         SubExpressionAst se => Evaluate(se.Body),
-        TypeLiteralAst tl => Types.ResolveType(tl.TypeName, tl.Location),
+        TypeLiteralAst tl => ResolveTypeExpression(tl),
         CastExpressionAst c => EvalCast(c),
         MemberAccessAst m => EvalMember(m),
         IndexerAst ix => EvalIndex(ix),
@@ -134,11 +408,23 @@ public sealed class Interpreter
         _ => throw new PwshRuntimeException($"Unsupported expression node: {expr.GetType().Name}", expr.Location),
     };
 
+    private object ResolveTypeExpression(TypeLiteralAst tl)
+    {
+        if (Classes != null)
+        {
+            if (Classes.TryGetClass(tl.TypeName, out var cls) && cls != null) return cls;
+            if (Classes.TryGetEnum(tl.TypeName, out var en) && en != null) return en;
+        }
+        return Types.ResolveType(tl.TypeName, tl.Location);
+    }
+
     private object? EvalVariable(VariableAst v)
     {
         // $PWD: special binding that reflects the VFS's current location if wired up.
         if (v.Scope == null && v.Name.Equals("PWD", StringComparison.OrdinalIgnoreCase) && Vfs != null)
             return Vfs.CurrentLocation;
+        if (v.Scope == null && v.Name.Equals("Matches", StringComparison.OrdinalIgnoreCase))
+            return Operators.LastMatches;
         return Scope.Get(v.Scope, v.Name);
     }
 
@@ -231,7 +517,22 @@ public sealed class Interpreter
         return Operators.Binary(b.Op, Eval(b.Left), Eval(b.Right));
     }
 
-    private object? EvalUnary(UnaryExpressionAst u) => Operators.Unary(u.Op, Eval(u.Operand));
+    private object? EvalUnary(UnaryExpressionAst u)
+    {
+        // Pre/post-increment/decrement mutate the operand variable.
+        if (u.Op is UnaryOp.PreIncrement or UnaryOp.PreDecrement
+                or UnaryOp.PostIncrement or UnaryOp.PostDecrement)
+        {
+            var current = Eval(u.Operand);
+            var asNum = current is null ? 0 : Coercion.ToInt64(current);
+            var delta = u.Op is UnaryOp.PreIncrement or UnaryOp.PostIncrement ? 1 : -1;
+            var updated = asNum + delta;
+            object updatedBoxed = updated >= int.MinValue && updated <= int.MaxValue ? (object)(int)updated : updated;
+            AssignTo(u.Operand, updatedBoxed);
+            return u.Op is UnaryOp.PreIncrement or UnaryOp.PreDecrement ? updatedBoxed : (current ?? 0);
+        }
+        return Operators.Unary(u.Op, Eval(u.Operand));
+    }
 
     private object EvalRange(RangeExpressionAst r)
     {
@@ -268,18 +569,61 @@ public sealed class Interpreter
 
     private object? EvalCast(CastExpressionAst c)
     {
+        // Runtime class cast: accept hashtable or (single) positional value.
+        if (Classes != null)
+        {
+            if (Classes.TryGetClass(c.TargetType.TypeName, out var cls) && cls != null)
+            {
+                var value = Eval(c.Value);
+                if (value is RuntimeInstance ri && ri.Class == cls) return ri;
+                var args = value is System.Collections.IDictionary ? new List<object?> { value } :
+                           value is Array arr ? arr.Cast<object?>().ToList() :
+                           new List<object?> { value };
+                return ConstructInstance(cls, args, c.Location);
+            }
+            if (Classes.TryGetEnum(c.TargetType.TypeName, out var en) && en != null)
+            {
+                var value = Eval(c.Value);
+                return value switch
+                {
+                    EnumValue ev when ev.EnumType.Name == en.Name => ev,
+                    string s => en.FromName(s) ?? throw new PwshRuntimeException(
+                        $"Enum [{en.Name}] has no member '{s}'.", c.Location),
+                    _ => en.FromValue(Coercion.ToInt64(value))!,
+                };
+            }
+        }
         var target = Types.ResolveType(c.TargetType.TypeName, c.TargetType.Location);
-        var value = Eval(c.Value);
-        return Coercion.To(value, target);
+        var val = Eval(c.Value);
+        return Coercion.To(val, target);
     }
 
     private object? EvalMember(MemberAccessAst m)
     {
         var receiver = Eval(m.Target);
 
-        // Static dispatch: receiver is a Type (from a type literal).
+        // Static dispatch: receiver is a Type, RuntimeClass, or RuntimeEnum.
         if (m.IsStatic)
         {
+            if (receiver is RuntimeClass cls)
+            {
+                if (m.IsInvocation && m.MemberName.Equals("new", StringComparison.OrdinalIgnoreCase))
+                {
+                    var args = m.Arguments!.Select(Eval).ToList();
+                    return ConstructInstance(cls, args, m.Location);
+                }
+                throw new PwshRuntimeException(
+                    $"Static '{m.MemberName}' is not supported on user-defined class [{cls.Name}] in Phase 3.",
+                    m.Location);
+            }
+            if (receiver is RuntimeEnum en)
+            {
+                if (m.IsInvocation)
+                    throw new PwshRuntimeException($"Cannot invoke '{m.MemberName}' on enum [{en.Name}].", m.Location);
+                var v = en.FromName(m.MemberName)
+                    ?? throw new PwshRuntimeException($"Enum [{en.Name}] has no member '{m.MemberName}'.", m.Location);
+                return v;
+            }
             if (receiver is not Type t)
                 throw new PwshRuntimeException("Left side of '::' is not a type.", m.Location);
             if (m.IsInvocation)
@@ -293,6 +637,22 @@ public sealed class Interpreter
         if (receiver == null)
             throw new PwshRuntimeException("You cannot call a method on a null-valued expression.", m.Location);
 
+        // User-defined class instance?
+        if (receiver is RuntimeInstance inst)
+        {
+            if (m.IsInvocation)
+            {
+                if (!inst.Class.Methods.TryGetValue(m.MemberName, out var method))
+                    throw new PwshRuntimeException(
+                        $"Method '{m.MemberName}' not found on class [{inst.Class.Name}].", m.Location);
+                var args = m.Arguments!.Select(Eval).ToList();
+                return InvokeClassMethod(inst, method, args);
+            }
+            if (inst.Fields.TryGetValue(m.MemberName, out var fieldValue)) return fieldValue;
+            // Missing field: return null (PowerShell convention).
+            return null;
+        }
+
         if (m.IsInvocation)
         {
             var args = m.Arguments!.Select(Eval).ToArray();
@@ -301,6 +661,93 @@ public sealed class Interpreter
             return Types.InvokeInstanceMethod(receiver, m.MemberName, args, m.Location);
         }
         return Types.GetInstanceMember(receiver, m.MemberName, m.Location);
+    }
+
+    internal RuntimeInstance ConstructInstance(RuntimeClass cls, IReadOnlyList<object?> args, Errors.SourceLocation location)
+    {
+        var instance = new RuntimeInstance(cls);
+        // Initialize field defaults.
+        foreach (var p in cls.Properties)
+        {
+            object? def = p.DefaultValue != null ? Eval(p.DefaultValue) : null;
+            if (def == null && p.TypeConstraint != null)
+            {
+                try
+                {
+                    var t = Types.ResolveType(p.TypeConstraint.TypeName, p.TypeConstraint.Location);
+                    def = Coercion.To(null, t);
+                }
+                catch { /* leave null */ }
+            }
+            instance.Fields[p.Name] = def;
+        }
+        if (cls.Constructor != null)
+        {
+            RunMethod(instance, cls.Constructor, args);
+        }
+        else if (args.Count > 0)
+        {
+            // Allow hashtable-based property init when a single hashtable is passed.
+            if (args.Count == 1 && args[0] is System.Collections.IDictionary dict)
+            {
+                foreach (System.Collections.DictionaryEntry entry in dict)
+                {
+                    var key = entry.Key?.ToString() ?? "";
+                    if (instance.Fields.ContainsKey(key)) instance.Fields[key] = entry.Value;
+                }
+            }
+            else if (args.Count <= cls.Properties.Count)
+            {
+                for (int i = 0; i < args.Count; i++)
+                {
+                    instance.Fields[cls.Properties[i].Name] = args[i];
+                }
+            }
+            else
+            {
+                throw new PwshRuntimeException(
+                    $"Class [{cls.Name}] has no constructor accepting {args.Count} argument(s).", location);
+            }
+        }
+        return instance;
+    }
+
+    private object? InvokeClassMethod(RuntimeInstance instance, ClassMethodAst method, IReadOnlyList<object?> args)
+    {
+        return RunMethod(instance, method, args);
+    }
+
+    private object? RunMethod(RuntimeInstance instance, ClassMethodAst method, IReadOnlyList<object?> args)
+    {
+        using (Scope.Push(ScopeKind.Function))
+        {
+            Scope.Set(null, "this", instance);
+            // Bind parameters positionally.
+            int i = 0;
+            foreach (var p in method.Parameters)
+            {
+                object? value = i < args.Count ? args[i] : (p.DefaultValue != null ? Eval(p.DefaultValue) : null);
+                if (p.TypeConstraint != null && value != null)
+                {
+                    try
+                    {
+                        var t = Types.ResolveType(p.TypeConstraint.TypeName, p.TypeConstraint.Location);
+                        value = Coercion.To(value, t);
+                    }
+                    catch { /* leave */ }
+                }
+                Scope.Set(null, p.Name, value);
+                i++;
+            }
+            try
+            {
+                return Evaluate(method.Body);
+            }
+            catch (PwshReturnException ret)
+            {
+                return ret.Value;
+            }
+        }
     }
 
     private object? EvalIndex(IndexerAst ix)

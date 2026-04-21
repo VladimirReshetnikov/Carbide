@@ -1,4 +1,6 @@
 using System.Collections;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Parser.Ast;
 
@@ -62,8 +64,213 @@ public static class Operators
             BinaryOp.IsNot => !IsOp(left, right),
             BinaryOp.As => AsOp(left, right),
 
+            BinaryOp.Match or BinaryOp.IMatch => MatchOp(left, right, ignoreCase: true),
+            BinaryOp.CMatch => MatchOp(left, right, ignoreCase: false),
+            BinaryOp.NotMatch or BinaryOp.INotMatch => NotMatchOp(left, right, ignoreCase: true),
+            BinaryOp.CNotMatch => NotMatchOp(left, right, ignoreCase: false),
+            BinaryOp.Replace or BinaryOp.IReplace => ReplaceOp(left, right, ignoreCase: true),
+            BinaryOp.CReplace => ReplaceOp(left, right, ignoreCase: false),
+            BinaryOp.Like or BinaryOp.ILike => LikeOp(left, right, ignoreCase: true, negate: false),
+            BinaryOp.CLike => LikeOp(left, right, ignoreCase: false, negate: false),
+            BinaryOp.NotLike or BinaryOp.INotLike => LikeOp(left, right, ignoreCase: true, negate: true),
+            BinaryOp.CNotLike => LikeOp(left, right, ignoreCase: false, negate: true),
+
+            BinaryOp.Contains or BinaryOp.ICContains => ContainsOp(left, right, ignoreCase: true),
+            BinaryOp.CContains => ContainsOp(left, right, ignoreCase: false),
+            BinaryOp.NotContains or BinaryOp.INotContains => !ContainsOp(left, right, ignoreCase: true),
+            BinaryOp.CNotContains => !ContainsOp(left, right, ignoreCase: false),
+            BinaryOp.In or BinaryOp.IIn => ContainsOp(right, left, ignoreCase: true),
+            BinaryOp.CIn => ContainsOp(right, left, ignoreCase: false),
+            BinaryOp.NotIn or BinaryOp.INotIn => !ContainsOp(right, left, ignoreCase: true),
+            BinaryOp.CNotIn => !ContainsOp(right, left, ignoreCase: false),
+
+            BinaryOp.Format => FormatOp(left, right),
+            BinaryOp.Join => JoinOp(left, right),
+            BinaryOp.Split => SplitOp(left, right),
+
             _ => throw new PwshRuntimeException($"Unsupported binary operator {op}.")
         };
+    }
+
+    // ---- Regex / glob / containment / format / join / split ----
+
+    private static readonly AsyncLocal<object?[]?> _matchesSink = new();
+    public static object?[]? LastMatches
+    {
+        get => _matchesSink.Value;
+        set => _matchesSink.Value = value;
+    }
+
+    private static object MatchOp(object? left, object? right, bool ignoreCase)
+    {
+        var pattern = Coercion.FormatAsString(right);
+        var options = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;
+        if (left is IEnumerable en && left is not string)
+        {
+            var result = new List<object?>();
+            foreach (var item in en)
+            {
+                var s = Coercion.FormatAsString(item);
+                if (Regex.IsMatch(s, pattern, options)) result.Add(item);
+            }
+            return result.ToArray();
+        }
+        var input = Coercion.FormatAsString(left);
+        var m = Regex.Match(input, pattern, options);
+        if (!m.Success) return false;
+        LastMatches = BuildMatchesArray(m);
+        return true;
+    }
+
+    private static object NotMatchOp(object? left, object? right, bool ignoreCase)
+    {
+        var pattern = Coercion.FormatAsString(right);
+        var options = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;
+        if (left is IEnumerable en && left is not string)
+        {
+            var result = new List<object?>();
+            foreach (var item in en)
+            {
+                var s = Coercion.FormatAsString(item);
+                if (!Regex.IsMatch(s, pattern, options)) result.Add(item);
+            }
+            return result.ToArray();
+        }
+        var input = Coercion.FormatAsString(left);
+        return !Regex.IsMatch(input, pattern, options);
+    }
+
+    private static object?[] BuildMatchesArray(Match m)
+    {
+        var arr = new object?[m.Groups.Count];
+        for (int i = 0; i < m.Groups.Count; i++) arr[i] = m.Groups[i].Value;
+        return arr;
+    }
+
+    private static object ReplaceOp(object? left, object? right, bool ignoreCase)
+    {
+        // Right is 1- or 2-element array: pattern [, replacement]. The replacement may be a
+        // literal string or a ScriptBlock that receives each match as $_.
+        string pattern;
+        object? replacement = "";
+        if (right is object?[] rarr)
+        {
+            pattern = Coercion.FormatAsString(rarr.Length > 0 ? rarr[0] : "");
+            if (rarr.Length > 1) replacement = rarr[1];
+        }
+        else if (right is System.Collections.IEnumerable renum && right is not string)
+        {
+            var list = new List<object?>();
+            foreach (var item in renum) list.Add(item);
+            pattern = Coercion.FormatAsString(list.Count > 0 ? list[0] : "");
+            if (list.Count > 1) replacement = list[1];
+        }
+        else
+        {
+            pattern = Coercion.FormatAsString(right);
+        }
+        var options = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;
+
+        string DoReplace(string source)
+        {
+            if (replacement is ScriptBlock sb)
+            {
+                return Regex.Replace(source, pattern,
+                    m => Coercion.FormatAsString(sb.InvokeForPipelineItem(m)), options);
+            }
+            return Regex.Replace(source, pattern, Coercion.FormatAsString(replacement), options);
+        }
+
+        if (left is System.Collections.IEnumerable en && left is not string)
+        {
+            var result = new List<object?>();
+            foreach (var item in en) result.Add(DoReplace(Coercion.FormatAsString(item)));
+            return result.ToArray();
+        }
+        return DoReplace(Coercion.FormatAsString(left));
+    }
+
+    private static object LikeOp(object? left, object? right, bool ignoreCase, bool negate)
+    {
+        var pattern = "^" + Regex.Escape(Coercion.FormatAsString(right))
+            .Replace("\\*", ".*")
+            .Replace("\\?", ".") + "$";
+        var options = ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None;
+        if (left is System.Collections.IEnumerable en && left is not string)
+        {
+            var result = new List<object?>();
+            foreach (var item in en)
+            {
+                var match = Regex.IsMatch(Coercion.FormatAsString(item), pattern, options);
+                if (negate ? !match : match) result.Add(item);
+            }
+            return result.ToArray();
+        }
+        var ok = Regex.IsMatch(Coercion.FormatAsString(left), pattern, options);
+        return negate ? !ok : ok;
+    }
+
+    private static bool ContainsOp(object? collection, object? element, bool ignoreCase)
+    {
+        if (collection is string s)
+        {
+            return s.Contains(Coercion.FormatAsString(element),
+                ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+        if (collection is System.Collections.IEnumerable en)
+        {
+            foreach (var item in en)
+            {
+                if ((bool)Binary(ignoreCase ? BinaryOp.IEqual : BinaryOp.CEqual, item, element)!)
+                    return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    private static string FormatOp(object? left, object? right)
+    {
+        var format = Coercion.FormatAsString(left);
+        object?[] args;
+        if (right is object?[] rarr)
+        {
+            args = rarr;
+        }
+        else if (right is System.Collections.IEnumerable en && right is not string)
+        {
+            var list = new List<object?>();
+            foreach (var item in en) list.Add(item);
+            args = list.ToArray();
+        }
+        else
+        {
+            args = new[] { right };
+        }
+        try { return string.Format(CultureInfo.InvariantCulture, format, args); }
+        catch (FormatException ex)
+        {
+            throw new PwshRuntimeException($"Invalid -f format: {ex.Message}");
+        }
+    }
+
+    private static object JoinOp(object? left, object? right)
+    {
+        var separator = Coercion.FormatAsString(right);
+        if (left is System.Collections.IEnumerable en && left is not string)
+        {
+            var parts = new List<string>();
+            foreach (var item in en) parts.Add(Coercion.FormatAsString(item));
+            return string.Join(separator, parts);
+        }
+        return Coercion.FormatAsString(left);
+    }
+
+    private static object SplitOp(object? left, object? right)
+    {
+        var pattern = Coercion.FormatAsString(right);
+        var source = Coercion.FormatAsString(left);
+        return Regex.Split(source, pattern);
     }
 
     private static bool IsComparison(BinaryOp op) => op switch
@@ -221,6 +428,10 @@ public static class Operators
 
     private static bool IsOp(object? value, object? typeValue)
     {
+        if (typeValue is RuntimeClass rc)
+            return value is RuntimeInstance ri && ri.Class.Name == rc.Name;
+        if (typeValue is RuntimeEnum re)
+            return value is EnumValue ev && ev.EnumType.Name == re.Name;
         if (typeValue is not Type t)
             throw new PwshRuntimeException("The right operand of -is must be a type.");
         return value != null && t.IsInstanceOfType(value);

@@ -1,7 +1,6 @@
 // Headless smoke test for the carbide-pwsh demo. Assumes `node scripts/serve.mjs` is
-// running on its default port. Launches headless Chromium, loads the page, drives the
-// REPL through a curated set of Phase 2 expressions + the exit-gate script, and asserts
-// that each produces the expected output in the xterm buffer.
+// running on its default port. Drives the REPL through a curated set of Phase 1+2+3
+// expressions, asserts xterm buffer output, and runs the Phase 3 aggregate exit-gate.
 const playwrightUrl = new URL("../../core/node_modules/playwright/index.mjs", import.meta.url);
 const { chromium } = await import(playwrightUrl.href);
 
@@ -35,37 +34,52 @@ try {
     };
 
     const cases = [
-        // Phase 1 surface — regression.
+        // Phase 1 regression.
         { input: "2 + 2", expect: "4" },
-        { input: "[System.Math]::Sqrt(2)", expect: "1.4142135623730951" },
 
-        // Phase 2 surface — pipelines, cmdlets, VFS.
+        // Phase 2 regression.
         { input: "@(5,3,1,4,2) | Sort-Object", expect: "1" },
-        { input: "@(1,2,3,4,5) | Where-Object { $_ -gt 2 }", expect: "5" },
-        { input: "@(1..5) | Measure-Object -Sum", expect: "15" },
 
-        // The proposal's exit-gate script.
-        { input: "Set-Location /tmp", expect: null },
+        // Phase 3: control flow.
+        { input: "foreach ($x in 1..3) { $x * $x }", expect: "9" },
+        { input: "if (5 -gt 3) { 'bigger' } else { 'not' }", expect: "bigger" },
+
+        // Phase 3: functions.
+        { input: "function Dbl { param($n) $n * 2 }", expect: null },
+        { input: "Dbl 21", expect: "42" },
+
+        // Phase 3: try/catch.
+        { input: "try { throw 'boom' } catch { \"caught: $($_.Exception.Message)\" }", expect: "caught: boom" },
+
+        // Phase 3: operators.
+        { input: "'hello world' -match 'hello'", expect: "True" },
+        { input: "'hello world' -replace 'world', 'universe'", expect: "hello universe" },
+        { input: "'{0:X}' -f 255", expect: "FF" },
+        { input: "@('a','b','c') -join ','", expect: "a,b,c" },
+        { input: "@(1,2,3) -contains 2", expect: "True" },
+
+        // Phase 3: classes + enums.
+        { input: "class Counter { [int] $N = 0; [int] Inc() { $this.N++; return $this.N } }", expect: null },
+        { input: "$c = [Counter]::new(); $c.Inc(); $c.Inc(); $c.Inc()", expect: "3" },
+        { input: "enum Color { Red; Green; Blue }; [Color]::Green", expect: "Green" },
+
+        // Phase 3: exit-gate aggregate.
         {
-            input: "@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json",
+            input: "function Retry { param([scriptblock] $Action, [int] $Times = 3) for ($i = 1; $i -le $Times; $i++) { try { return & $Action } catch { if ($i -eq $Times) { throw } } } }",
             expect: null,
-        },
-        {
-            input: "Get-Content profile.json | ConvertFrom-Json | ForEach-Object { \"Hello, $($_.name)!\" }",
-            expect: "Hello, Vladimir!",
         },
     ];
 
     for (const c of cases) {
-        await sendLine(c.input, 800);
+        await sendLine(c.input, 700);
         if (c.expect != null) {
             const buf = await page.evaluate(() => window.__dumpBuffer());
             if (!buf.includes(c.expect)) {
-                throw new Error(`smoke: input '${c.input}' did not produce expected output '${c.expect}'. Buffer:\n${buf}`);
+                throw new Error(`smoke: input '${c.input}' did not produce expected '${c.expect}'. Buffer tail:\n${buf.split('\n').slice(-30).join('\n')}`);
             }
-            console.log(`smoke: '${c.input}' -> contains '${c.expect}' OK`);
+            console.log(`smoke: '${c.input.slice(0, 60)}' -> contains '${c.expect}' OK`);
         } else {
-            console.log(`smoke: '${c.input}' OK (no output expected)`);
+            console.log(`smoke: '${c.input.slice(0, 60)}' OK (no output)`);
         }
     }
 

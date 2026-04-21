@@ -50,6 +50,38 @@ public sealed class Lexer
         ["is"] = TokenKind.OpIs,
         ["isnot"] = TokenKind.OpIsNot,
         ["as"] = TokenKind.OpAs,
+
+        // Phase 3 — regex, glob, format, collection operators
+        ["match"] = TokenKind.OpMatch,
+        ["imatch"] = TokenKind.OpIMatch,
+        ["cmatch"] = TokenKind.OpCMatch,
+        ["notmatch"] = TokenKind.OpNotMatch,
+        ["inotmatch"] = TokenKind.OpINotMatch,
+        ["cnotmatch"] = TokenKind.OpCNotMatch,
+        ["replace"] = TokenKind.OpReplace,
+        ["ireplace"] = TokenKind.OpIReplace,
+        ["creplace"] = TokenKind.OpCReplace,
+        ["like"] = TokenKind.OpLike,
+        ["ilike"] = TokenKind.OpILike,
+        ["clike"] = TokenKind.OpCLike,
+        ["notlike"] = TokenKind.OpNotLike,
+        ["inotlike"] = TokenKind.OpINotLike,
+        ["cnotlike"] = TokenKind.OpCNotLike,
+        ["contains"] = TokenKind.OpContains,
+        ["icontains"] = TokenKind.OpICContains,
+        ["ccontains"] = TokenKind.OpCContains,
+        ["notcontains"] = TokenKind.OpNotContains,
+        ["inotcontains"] = TokenKind.OpINotContains,
+        ["cnotcontains"] = TokenKind.OpCNotContains,
+        ["in"] = TokenKind.OpIn,
+        ["notin"] = TokenKind.OpNotIn,
+        ["cin"] = TokenKind.OpCIn,
+        ["cnotin"] = TokenKind.OpCNotIn,
+        ["iin"] = TokenKind.OpIIn,
+        ["inotin"] = TokenKind.OpINotIn,
+        ["f"] = TokenKind.OpFormat,
+        ["join"] = TokenKind.OpJoin,
+        ["split"] = TokenKind.OpSplit,
     };
 
     public Lexer(string source)
@@ -135,12 +167,14 @@ public sealed class Lexer
         if (ch == '/' && Peek(1) == '=') return TwoCharToken(TokenKind.SlashEqual, "/=");
         if (ch == '%' && Peek(1) == '=') return TwoCharToken(TokenKind.PercentEqual, "%=");
 
+        if (ch == '+' && Peek(1) == '+') return TwoCharToken(TokenKind.PlusPlus, "++");
         if (ch == '+') return OneCharToken(TokenKind.Plus, "+");
         if (ch == '*') return OneCharToken(TokenKind.Star, "*");
         if (ch == '/') return OneCharToken(TokenKind.Slash, "/");
         if (ch == '%') return OneCharToken(TokenKind.Percent, "%");
         if (ch == '!') return OneCharToken(TokenKind.Bang, "!");
         if (ch == '|') return OneCharToken(TokenKind.Pipe, "|");
+        if (ch == '&') return OneCharToken(TokenKind.Ampersand, "&");
 
         if (ch == '-')
             return LexDashOperatorOrMinus();
@@ -481,6 +515,17 @@ public sealed class Lexer
             return new Token(TokenKind.Variable, "${" + nameSb + "}", (v.Scope, v.Name), LocationFrom(start));
         }
 
+        // Special single-char automatic variables: $?, $^, $$.
+        if (_pos < _source.Length)
+        {
+            var ch0 = _source[_pos];
+            if (ch0 == '?' || ch0 == '^' || ch0 == '$')
+            {
+                Advance();
+                return new Token(TokenKind.Variable, "$" + ch0, ((string?)null, ch0.ToString()), LocationFrom(start));
+            }
+        }
+
         var nm = new StringBuilder();
         while (_pos < _source.Length && IsIdentifierPart(_source[_pos]))
         {
@@ -512,6 +557,12 @@ public sealed class Lexer
     private Token LexDashOperatorOrMinus()
     {
         var start = SnapshotLocation();
+        // `--` is decrement.
+        if (Peek(1) == '-')
+        {
+            Advance(); Advance();
+            return new Token(TokenKind.MinusMinus, "--", null, LocationFrom(start));
+        }
         // If we see -word where word is a known dashed operator, emit the operator token.
         if (Peek(1) != '\0' && IsIdentifierStart(Peek(1)))
         {
