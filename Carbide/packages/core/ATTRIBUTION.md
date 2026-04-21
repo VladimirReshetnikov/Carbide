@@ -4,7 +4,7 @@ Files in this package adapted from upstream sources. Carbide retains the origina
 
 ## From WasmSharp (Apache-2.0)
 
-Upstream: https://github.com/JakeYallop/WasmSharp — vendored snapshot at `lib/WasmSharp/` in this repository.
+Upstream: https://github.com/JakeYallop/WasmSharp.
 
 | Carbide file | WasmSharp origin |
 |---|---|
