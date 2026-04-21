@@ -80,6 +80,14 @@ public sealed class Parser
     private StatementAst ParseStatement()
     {
         var loc = Current.Location;
+
+        // Statement-start Identifier → command mode. Phase 1 had no Identifier-as-expression,
+        // so this simple rule covers `Get-ChildItem`, `cd /tmp`, etc. without false positives.
+        if (IsAt(TokenKind.Identifier))
+        {
+            return ParseCommandPipeline(loc);
+        }
+
         var expr = ParseLogicalOr();
         if (IsAssignmentOp(Current.Kind))
         {
@@ -95,10 +103,76 @@ public sealed class Parser
             };
             Advance();
             SkipNewlines();
-            var rhs = ParseLogicalOr();
+            // Assignment RHS may itself be a pipeline: `$x = Get-ChildItem | Sort-Object`.
+            var rhs = ParseRhsPipeline();
             return new AssignmentStatementAst(expr, op, rhs, loc);
         }
+
+        // Pipeline starting with expression: `@(1,2,3) | Where-Object {...}`.
+        if (IsAt(TokenKind.Pipe))
+        {
+            var stages = new List<AstNode> { expr };
+            while (IsAt(TokenKind.Pipe))
+            {
+                Advance();
+                SkipNewlines();
+                stages.Add(ParsePipelineStage());
+            }
+            return new PipelineAst(stages, loc);
+        }
+
         return new ExpressionStatementAst(expr, loc);
+    }
+
+    /// <summary>Parse the RHS of an assignment, which may contain a pipeline. Returns an
+    /// <see cref="ExpressionAst"/>; pipeline RHS is wrapped in a <see cref="SubExpressionAst"/>
+    /// that executes the pipeline and yields its final result.</summary>
+    private ExpressionAst ParseRhsPipeline()
+    {
+        var loc = Current.Location;
+        // If the RHS starts with an identifier, it's a command-mode pipeline.
+        if (IsAt(TokenKind.Identifier))
+        {
+            var cmdStmt = ParseCommandPipeline(loc);
+            return new SubExpressionAst(new ScriptAst(new[] { cmdStmt }, loc), loc);
+        }
+        var expr = ParseLogicalOr();
+        if (!IsAt(TokenKind.Pipe)) return expr;
+        var stages = new List<AstNode> { expr };
+        while (IsAt(TokenKind.Pipe))
+        {
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
+        }
+        var pipeline = new PipelineAst(stages, loc);
+        return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
+    }
+
+    private StatementAst ParseCommandPipeline(SourceLocation loc)
+    {
+        var first = ParseCommand();
+        if (!IsAt(TokenKind.Pipe))
+        {
+            // Single command — still return a PipelineAst for uniformity.
+            return new PipelineAst(new AstNode[] { first }, loc);
+        }
+        var stages = new List<AstNode> { first };
+        while (IsAt(TokenKind.Pipe))
+        {
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
+        }
+        return new PipelineAst(stages, loc);
+    }
+
+    private AstNode ParsePipelineStage()
+    {
+        // Command or expression. Same rule as statement-start.
+        if (IsAt(TokenKind.Identifier))
+            return ParseCommand();
+        return ParseLogicalOr();
     }
 
     private static bool IsAssignmentOp(TokenKind k) => k is
@@ -458,7 +532,13 @@ public sealed class Parser
                 SkipNewlines();
                 var inner = ParseLogicalOr();
                 SkipNewlines();
-                Consume(TokenKind.RParen);
+                if (!IsAt(TokenKind.RParen))
+                {
+                    if (IsAt(TokenKind.EndOfInput))
+                        throw new PwshIncompleteInputException("Unterminated '(' — expected ')'.", t.Location);
+                    throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
+                }
+                Advance();
                 return new ParenExpressionAst(inner, t.Location);
             case TokenKind.DollarLParen:
                 Advance();
@@ -470,19 +550,43 @@ public sealed class Parser
                     SkipNewlinesAndSemicolons();
                 }
                 if (IsAt(TokenKind.EndOfInput))
-                    throw new PwshParseException("Unterminated $(...) subexpression.", t.Location);
+                    throw new PwshIncompleteInputException("Unterminated $(...) subexpression.", t.Location);
                 Consume(TokenKind.RParen);
                 return new SubExpressionAst(new ScriptAst(body, t.Location), t.Location);
             case TokenKind.AtLParen:
                 return ParseArrayLiteral();
             case TokenKind.AtLBrace:
                 return ParseHashtableLiteral();
+            case TokenKind.LBrace:
+                return ParseScriptBlock();
             case TokenKind.LBracket:
                 // A type literal that did not attach to a cast: parse and return.
                 var lit = ParseTypeLiteral();
                 return lit;
         }
+        if (t.Kind == TokenKind.EndOfInput)
+            throw new PwshIncompleteInputException("Unexpected end of input.", t.Location);
         throw new PwshParseException($"Unexpected token {t.Kind} '{t.Text}'.", t.Location);
+    }
+
+    private ScriptBlockAst ParseScriptBlock()
+    {
+        var start = Consume(TokenKind.LBrace).Location;
+        SkipNewlinesAndSemicolons();
+        var statements = new List<StatementAst>();
+        while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
+        {
+            statements.Add(ParseStatement());
+            if (IsAt(TokenKind.RBrace) || IsAt(TokenKind.EndOfInput)) break;
+            if (!IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+                throw new PwshParseException(
+                    $"Expected statement separator inside script block, got {Current.Kind} '{Current.Text}'.", Current.Location);
+            SkipNewlinesAndSemicolons();
+        }
+        if (IsAt(TokenKind.EndOfInput))
+            throw new PwshIncompleteInputException("Unterminated script block.", start);
+        Consume(TokenKind.RBrace);
+        return new ScriptBlockAst(new ScriptAst(statements, start), start);
     }
 
     private ArrayExpressionAst ParseArrayLiteral()
@@ -501,7 +605,7 @@ public sealed class Parser
             }
         }
         if (IsAt(TokenKind.EndOfInput))
-            throw new PwshParseException("Unterminated @(...) array literal.", start);
+            throw new PwshIncompleteInputException("Unterminated @(...) array literal.", start);
         Consume(TokenKind.RParen);
         return new ArrayExpressionAst(elements, start);
     }
@@ -528,7 +632,7 @@ public sealed class Parser
             }
         }
         if (IsAt(TokenKind.EndOfInput))
-            throw new PwshParseException("Unterminated @{...} hashtable literal.", start);
+            throw new PwshIncompleteInputException("Unterminated @{...} hashtable literal.", start);
         Consume(TokenKind.RBrace);
         return new HashtableExpressionAst(entries, start);
     }
@@ -542,5 +646,103 @@ public sealed class Parser
             return new StringLiteralAst(new List<StringPart> { new LiteralPart(t.Text) }, IsSingleQuoted: true, t.Location);
         }
         return ParseLogicalOr();
+    }
+
+    // ---------- Command mode ----------
+
+    private CommandAst ParseCommand()
+    {
+        var nameToken = Consume(TokenKind.Identifier);
+        var elements = new List<CommandElementAst>();
+
+        while (IsCommandElementStart())
+        {
+            // `-Name` parameter introducer: Minus immediately followed by Identifier (no
+            // whitespace) and not a known dashed operator.
+            if (IsAt(TokenKind.Minus)
+                && Peek(1).Kind == TokenKind.Identifier
+                && Current.Location.Offset + 1 == Peek(1).Location.Offset)
+            {
+                var minusLoc = Current.Location;
+                Advance();
+                var idToken = Advance();
+                elements.Add(new CommandParameterAst(idToken.Text, minusLoc));
+                continue;
+            }
+
+            // Argument expression.
+            var argLoc = Current.Location;
+            var expr = ParseCommandArgument();
+            elements.Add(new CommandArgumentAst(expr, argLoc));
+        }
+
+        return new CommandAst(nameToken.Text, elements, nameToken.Location);
+    }
+
+    private bool IsCommandElementStart()
+    {
+        if (IsAt(TokenKind.EndOfInput) || IsAt(TokenKind.NewLine) ||
+            IsAt(TokenKind.Semicolon) || IsAt(TokenKind.Pipe) ||
+            IsAt(TokenKind.RParen) || IsAt(TokenKind.RBrace) || IsAt(TokenKind.RBracket))
+            return false;
+        return true;
+    }
+
+    private ExpressionAst ParseCommandArgument()
+    {
+        var t = Current;
+        switch (t.Kind)
+        {
+            case TokenKind.Variable:
+            case TokenKind.Number:
+            case TokenKind.String:
+            case TokenKind.LParen:
+            case TokenKind.AtLParen:
+            case TokenKind.AtLBrace:
+            case TokenKind.DollarLParen:
+            case TokenKind.LBrace:
+                return ParsePostfix();
+
+            case TokenKind.LBracket when LooksLikeTypeLiteral():
+                return ParsePostfix();
+
+            default:
+                return ParseBareWord();
+        }
+    }
+
+    private ExpressionAst ParseBareWord()
+    {
+        var start = Current.Location;
+        var startOffset = start.Offset;
+        int endOffset = startOffset;
+        var sb = new System.Text.StringBuilder();
+
+        while (!IsAt(TokenKind.EndOfInput) &&
+               !IsAt(TokenKind.NewLine) &&
+               !IsAt(TokenKind.Semicolon) &&
+               !IsAt(TokenKind.Pipe) &&
+               !IsAt(TokenKind.RParen) &&
+               !IsAt(TokenKind.RBrace) &&
+               !IsAt(TokenKind.RBracket))
+        {
+            // First token: always consume. Subsequent: only if adjacent (no whitespace).
+            if (sb.Length > 0 && Current.Location.Offset != endOffset)
+                break;
+            sb.Append(Current.Text);
+            endOffset = Current.Location.Offset + Current.Location.Length;
+            Advance();
+        }
+
+        if (sb.Length == 0)
+            throw new PwshParseException($"Unexpected token {Current.Kind} '{Current.Text}' in command argument.", Current.Location);
+
+        // Produce a single-quoted-shaped string literal so the interpreter treats the text as
+        // a literal (no interpolation).
+        var loc = new SourceLocation(start.Line, start.Column, start.Offset, endOffset - start.Offset);
+        return new StringLiteralAst(
+            new List<StringPart> { new LiteralPart(sb.ToString()) },
+            IsSingleQuoted: true,
+            loc);
     }
 }

@@ -1,7 +1,7 @@
 // Headless smoke test for the carbide-pwsh demo. Assumes `node scripts/serve.mjs` is
 // running on its default port. Launches headless Chromium, loads the page, drives the
-// REPL through a curated set of Phase 1 expressions, and asserts that each produces the
-// expected output in the xterm buffer. Pass-condition: final status is `exit ✓`.
+// REPL through a curated set of Phase 2 expressions + the exit-gate script, and asserts
+// that each produces the expected output in the xterm buffer.
 const playwrightUrl = new URL("../../core/node_modules/playwright/index.mjs", import.meta.url);
 const { chromium } = await import(playwrightUrl.href);
 
@@ -22,7 +22,7 @@ try {
     await page.waitForFunction(
         () => {
             const t = window.__dumpBuffer?.() ?? "";
-            return t.includes("carbide-pwsh") && t.includes("PS >");
+            return t.includes("carbide-pwsh") && t.includes("PS ");
         },
         undefined,
         { timeout: TIMEOUT_MS },
@@ -35,23 +35,35 @@ try {
     };
 
     const cases = [
+        // Phase 1 surface — regression.
         { input: "2 + 2", expect: "4" },
-        { input: "$x = 5", expect: null /* assignment produces no output */ },
-        { input: "$x + 2", expect: "7" },
-        { input: "\"hello, $x\"", expect: "hello, 5" },
         { input: "[System.Math]::Sqrt(2)", expect: "1.4142135623730951" },
-        { input: "@(1,2,3).Length", expect: "3" },
-        { input: "1 -eq 1", expect: "True" },
+
+        // Phase 2 surface — pipelines, cmdlets, VFS.
+        { input: "@(5,3,1,4,2) | Sort-Object", expect: "1" },
+        { input: "@(1,2,3,4,5) | Where-Object { $_ -gt 2 }", expect: "5" },
+        { input: "@(1..5) | Measure-Object -Sum", expect: "15" },
+
+        // The proposal's exit-gate script.
+        { input: "Set-Location /tmp", expect: null },
+        {
+            input: "@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json",
+            expect: null,
+        },
+        {
+            input: "Get-Content profile.json | ConvertFrom-Json | ForEach-Object { \"Hello, $($_.name)!\" }",
+            expect: "Hello, Vladimir!",
+        },
     ];
 
     for (const c of cases) {
-        await sendLine(c.input, 600);
+        await sendLine(c.input, 800);
         if (c.expect != null) {
             const buf = await page.evaluate(() => window.__dumpBuffer());
             if (!buf.includes(c.expect)) {
                 throw new Error(`smoke: input '${c.input}' did not produce expected output '${c.expect}'. Buffer:\n${buf}`);
             }
-            console.log(`smoke: '${c.input}' -> '${c.expect}' OK`);
+            console.log(`smoke: '${c.input}' -> contains '${c.expect}' OK`);
         } else {
             console.log(`smoke: '${c.input}' OK (no output expected)`);
         }

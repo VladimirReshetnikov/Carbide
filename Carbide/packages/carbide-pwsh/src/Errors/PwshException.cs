@@ -20,6 +20,16 @@ public sealed class PwshParseException : PwshException
         : base(message, location) { }
 }
 
+/// <summary>
+/// Thrown when the parser reaches EOF inside a grouping construct (paren, bracket, brace,
+/// quote, heredoc). The REPL catches this to drive multi-line input mode.
+/// </summary>
+public sealed class PwshIncompleteInputException : PwshException
+{
+    public PwshIncompleteInputException(string message, SourceLocation location)
+        : base(message, location) { }
+}
+
 public sealed class PwshRuntimeException : PwshException
 {
     public PwshRuntimeException(string message, SourceLocation location = default, Exception? inner = null)

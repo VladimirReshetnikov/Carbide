@@ -14,6 +14,10 @@ public sealed class Lexer
     private int _pos;
     private int _line = 1;
     private int _col = 1;
+    // Set after emitting a '.' or '::' token. Suppresses hyphen-folding for the next
+    // identifier so member names stay unhyphenated: `$a.foo-bar` is `$a.foo - bar`, not
+    // `$a."foo-bar"`.
+    private bool _suppressHyphenFoldOnce;
 
     private static readonly Dictionary<string, TokenKind> DashedOps = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -73,6 +77,7 @@ public sealed class Lexer
                 _line++;
                 _col = 1;
                 tokens.Add(new Token(TokenKind.NewLine, "\n", null, LocationFrom(start)));
+                _suppressHyphenFoldOnce = false;
                 continue;
             }
             if (ch == '`' && (Peek(1) == '\r' || Peek(1) == '\n'))
@@ -85,7 +90,11 @@ public sealed class Lexer
                 _col = 1;
                 continue;
             }
-            tokens.Add(LexOne());
+            var tok = LexOne();
+            tokens.Add(tok);
+            // After emitting a '.' or '::', the next identifier is treated as a member name
+            // without hyphen folding. Other tokens clear the flag.
+            _suppressHyphenFoldOnce = tok.Kind is TokenKind.Dot or TokenKind.ColonColon;
         }
     }
 
@@ -131,6 +140,7 @@ public sealed class Lexer
         if (ch == '/') return OneCharToken(TokenKind.Slash, "/");
         if (ch == '%') return OneCharToken(TokenKind.Percent, "%");
         if (ch == '!') return OneCharToken(TokenKind.Bang, "!");
+        if (ch == '|') return OneCharToken(TokenKind.Pipe, "|");
 
         if (ch == '-')
             return LexDashOperatorOrMinus();
@@ -308,7 +318,7 @@ public sealed class Lexer
                     sb.Append(cc); Advance();
                 }
                 if (depth != 0)
-                    throw new PwshParseException("Unterminated $(...) subexpression in string.", LocationFrom(exprLoc));
+                    throw new PwshIncompleteInputException("Unterminated $(...) subexpression in string.", LocationFrom(exprLoc));
                 Advance(); // consume )
                 parts.Add(new ExpressionPart(sb.ToString(), LocationFrom(exprLoc)));
                 continue;
@@ -358,7 +368,7 @@ public sealed class Lexer
             buf.Append(c); Advance();
         }
 
-        throw new PwshParseException("Unterminated double-quoted string.", LocationFrom(start));
+        throw new PwshIncompleteInputException("Unterminated double-quoted string.", LocationFrom(start));
     }
 
     private Token LexSingleQuoted()
@@ -383,7 +393,7 @@ public sealed class Lexer
             if (c == '\n') { _line++; _col = 0; }
             sb.Append(c); Advance();
         }
-        throw new PwshParseException("Unterminated single-quoted string.", LocationFrom(start));
+        throw new PwshIncompleteInputException("Unterminated single-quoted string.", LocationFrom(start));
     }
 
     private Token LexDoubleQuotedHereString()
@@ -410,7 +420,7 @@ public sealed class Lexer
             if (_source[_pos] == '\n') { _line++; _col = 0; }
             body.Append(_source[_pos]); Advance();
         }
-        throw new PwshParseException("Unterminated double-quoted here-string.", LocationFrom(start));
+        throw new PwshIncompleteInputException("Unterminated double-quoted here-string.", LocationFrom(start));
     }
 
     private Token LexSingleQuotedHereString()
@@ -434,7 +444,7 @@ public sealed class Lexer
             if (_source[_pos] == '\n') { _line++; _col = 0; }
             body.Append(_source[_pos]); Advance();
         }
-        throw new PwshParseException("Unterminated single-quoted here-string.", LocationFrom(start));
+        throw new PwshIncompleteInputException("Unterminated single-quoted here-string.", LocationFrom(start));
     }
 
     private static VariablePart ParseVariableFragment(string inside)
@@ -533,6 +543,32 @@ public sealed class Lexer
         var start = SnapshotLocation();
         var startPos = _pos;
         while (_pos < _source.Length && IsIdentifierPart(_source[_pos])) Advance();
+
+        // Fold hyphenated command-name sequences: if the next chars are `-Identifier` with no
+        // whitespace and the word after the hyphen isn't a known dashed operator, absorb them
+        // into the current identifier. Enables `Get-ChildItem`, `ConvertTo-Json`, etc. to lex
+        // as single tokens. Adjacency is source-index based so a space breaks the fold.
+        // Suppressed for the first identifier after `.` or `::` so member-access receivers
+        // stay unhyphenated (e.g. `$a.foo-bar` is `$a.foo - bar`, not `$a."foo-bar"`).
+        if (!_suppressHyphenFoldOnce)
+        {
+            while (_pos + 1 < _source.Length
+                   && _source[_pos] == '-'
+                   && IsIdentifierStart(_source[_pos + 1]))
+            {
+                var probe = _pos + 1;
+                var sb = new StringBuilder();
+                while (probe < _source.Length && IsIdentifierPart(_source[probe]))
+                {
+                    sb.Append(_source[probe]);
+                    probe++;
+                }
+                if (DashedOps.ContainsKey(sb.ToString())) break;
+                Advance(); // -
+                while (_pos < probe) Advance();
+            }
+        }
+
         var text = _source.Substring(startPos, _pos - startPos);
         return new Token(TokenKind.Identifier, text, text, LocationFrom(start));
     }

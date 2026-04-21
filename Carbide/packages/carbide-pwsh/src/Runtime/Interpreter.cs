@@ -1,9 +1,11 @@
 using System.Collections;
 using System.Collections.Specialized;
 using System.Text;
+using CarbidePwsh.Cmdlets;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Lexer;
 using CarbidePwsh.Parser.Ast;
+using CarbidePwsh.Vfs;
 using PwshParser = CarbidePwsh.Parser.Parser;
 
 namespace CarbidePwsh.Runtime;
@@ -17,6 +19,13 @@ public sealed class Interpreter
 {
     public Scope Scope { get; }
     public TypeBridge Types { get; }
+
+    // Pipeline infrastructure — optional. When null, pipeline statements throw a helpful
+    // error. When wired up by the host, pipelines dispatch to the registered cmdlets.
+    public VirtualFileSystem? Vfs { get; set; }
+    public CmdletRegistry? Registry { get; set; }
+    public TextWriter? PipelineOutput { get; set; }
+    public TextWriter? PipelineError { get; set; }
 
     public Interpreter(Scope? scope = null, TypeBridge? types = null)
     {
@@ -36,8 +45,23 @@ public sealed class Interpreter
     {
         ExpressionStatementAst e => Eval(e.Expression),
         AssignmentStatementAst a => ExecuteAssignment(a),
+        PipelineAst p => ExecutePipeline(p),
         _ => throw new PwshRuntimeException($"Unsupported statement node: {statement.GetType().Name}", statement.Location),
     };
+
+    private object? ExecutePipeline(PipelineAst pipeline)
+    {
+        if (pipeline.Stages.Count == 1 && pipeline.Stages[0] is ExpressionAst expr)
+        {
+            return Eval(expr);
+        }
+        if (Registry == null || Vfs == null || PipelineOutput == null || PipelineError == null)
+            throw new PwshRuntimeException(
+                "Pipeline infrastructure is not wired up (ShellHost should install it).",
+                pipeline.Location);
+        var ctx = new CmdletContext(this, Vfs, PipelineOutput, PipelineError);
+        return Cmdlets.Pipeline.Run(pipeline, ctx, Registry);
+    }
 
     private object? ExecuteAssignment(AssignmentStatementAst a)
     {
@@ -94,7 +118,7 @@ public sealed class Interpreter
         StringLiteralAst s => EvalString(s),
         BooleanLiteralAst b => b.Value,
         NullLiteralAst => null,
-        VariableAst v => Scope.Get(v.Scope, v.Name),
+        VariableAst v => EvalVariable(v),
         ArrayExpressionAst a => EvalArray(a),
         HashtableExpressionAst h => EvalHashtable(h),
         BinaryExpressionAst b => EvalBinary(b),
@@ -106,8 +130,17 @@ public sealed class Interpreter
         CastExpressionAst c => EvalCast(c),
         MemberAccessAst m => EvalMember(m),
         IndexerAst ix => EvalIndex(ix),
+        ScriptBlockAst sb => new ScriptBlock(sb.Body, this),
         _ => throw new PwshRuntimeException($"Unsupported expression node: {expr.GetType().Name}", expr.Location),
     };
+
+    private object? EvalVariable(VariableAst v)
+    {
+        // $PWD: special binding that reflects the VFS's current location if wired up.
+        if (v.Scope == null && v.Name.Equals("PWD", StringComparison.OrdinalIgnoreCase) && Vfs != null)
+            return Vfs.CurrentLocation;
+        return Scope.Get(v.Scope, v.Name);
+    }
 
     private object EvalString(StringLiteralAst s)
     {

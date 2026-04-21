@@ -99,3 +99,38 @@ public sealed record CommaExpressionAst(
     IReadOnlyList<ExpressionAst> Elements,
     SourceLocation Location)
     : ExpressionAst(Location);
+
+// ---- Phase 2: pipelines, commands, script blocks ----
+
+/// <summary>A sequence of pipeline stages separated by <c>|</c>.</summary>
+public sealed record PipelineAst(
+    IReadOnlyList<AstNode> Stages,
+    SourceLocation Location)
+    : StatementAst(Location);
+
+/// <summary>Invocation of a cmdlet or named command.</summary>
+public sealed record CommandAst(
+    string Name,
+    IReadOnlyList<CommandElementAst> Elements,
+    SourceLocation Location)
+    : AstNode(Location);
+
+public abstract record CommandElementAst(SourceLocation Location) : AstNode(Location);
+
+/// <summary>A <c>-Name</c> parameter introducer with an optional value element following it.</summary>
+public sealed record CommandParameterAst(
+    string Name,
+    SourceLocation Location)
+    : CommandElementAst(Location);
+
+/// <summary>A positional or value argument.</summary>
+public sealed record CommandArgumentAst(
+    ExpressionAst Expression,
+    SourceLocation Location)
+    : CommandElementAst(Location);
+
+/// <summary><c>{ … }</c> — deferred script, closed over the live scope at evaluation time.</summary>
+public sealed record ScriptBlockAst(
+    ScriptAst Body,
+    SourceLocation Location)
+    : ExpressionAst(Location);
