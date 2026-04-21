@@ -94,6 +94,8 @@ internal sealed class BrowserTerminalReader : TextReader
             throw new InvalidOperationException(
                 "BrowserTerminalReader: a previous key-mode wait is still pending.");
         }
+        // T2.1 — flush stdout before suspending (see ReadLineAsync for the rationale).
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.None);
         _keyWaiter = tcs;
         if (ct.CanBeCanceled)
@@ -167,6 +169,11 @@ internal sealed class BrowserTerminalReader : TextReader
                 "BrowserTerminalReader: a previous ReadLineAsync is still pending. " +
                 "Only one concurrent read is supported.");
         }
+        // T2.1 — flush stdout before suspending. StreamingStdOutWriter is line-buffered (flushes
+        // on `\n`) but interactive prompts like `Console.Write("name? ")` end without a newline.
+        // Without this flush, the prompt stays in the buffer and the JS terminal never sees it
+        // before the user is expected to respond — the line editor blinks at a blank screen.
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
         var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.None);
         _pendingRead = tcs;
         if (ct.CanBeCanceled)

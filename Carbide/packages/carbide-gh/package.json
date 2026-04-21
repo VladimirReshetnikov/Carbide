@@ -1,0 +1,20 @@
+{
+  "name": "@carbide/carbide-gh",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Spectre.Console-powered GitHub REPL, compiled and run in the browser by Carbide.",
+  "type": "module",
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "fetch-spectre": "node scripts/fetch-spectre.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "wasm",
+    "mono-wasm",
+    "spectre.console",
+    "browser-repl",
+    "roslyn"
+  ]
+}

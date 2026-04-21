@@ -3,6 +3,10 @@
 > ### ⚠ This is not a working demo.
 > ### It is a frozen reference artifact attached to the Carbide [T2.1 investigation report](../../carbide-T21-investigation-report__2026-04-20__17-11-37-000000.md).
 > ### It does not run end-to-end on the current Carbide runtime. Do not adopt the commands below, do not try to make it pass CI, do not wire it into any example scaffolding.
+>
+> **For the live, post-fix demo see [`packages/carbide-gh/`](../../../../packages/carbide-gh/).**
+> This frozen copy is preserved so the investigation report's "what failed and why" narrative
+> still resolves against the exact code it was written against.
 
 This directory preserves, exactly as it stood at the end of the T2.1 investigation, the mini `gh`-style REPL we attempted to build on top of Carbide T3. It reached the point where compilation succeeds, the Spectre.Console-powered banner renders in xterm, and the REPL loop enters its first `await Console.In.ReadLineAsync()` — then trips the Mono-WASM single-threaded `PlatformNotSupportedException: Cannot wait on monitors` every single time. See the report for why.
 

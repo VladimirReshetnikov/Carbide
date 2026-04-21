@@ -24,6 +24,7 @@ Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode,
 - `packages/cli/` — the `@carbide/cli` npm package (the `carbide` command; thin wrapper around `@carbide/core`).
 - `packages/msbuild-lite/` — the `@carbide/msbuild-lite` npm package (bounded `.csproj` parser, semantic port of `cs_kit.msbuild_lite`).
 - `packages/nuget/` — the `@carbide/nuget` npm package (bounded NuGet v3 resolver with allow-list policy, cache, and lock file support).
+- `packages/carbide-gh/` — Spectre.Console-powered GitHub REPL demo (compiles 4 C# files + vendored `Spectre.Console.dll` in the browser, drives `HttpClient` against `api.github.com`, renders xterm output with Spectre widgets). End-to-end exercise of the M1–T3 feature stack.
 - `Directory.Build.props` / `Directory.Build.targets` — shared MSBuild settings for the C# project.
 
 ## Build And Test From Source

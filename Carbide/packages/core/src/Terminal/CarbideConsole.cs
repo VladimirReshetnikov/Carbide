@@ -330,6 +330,9 @@ public static class CarbideConsole
         if (milliseconds < 0) throw new ArgumentOutOfRangeException(nameof(milliseconds));
         if (ct.IsCancellationRequested) return Task.FromCanceled(ct);
 
+        // T2.1 — flush stdout before suspending so any newline-less output (e.g. a spinner
+        // frame or progress marker) reaches the JS terminal before the delay starts.
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
         var tcs = new TaskCompletionSource(TaskCreationOptions.None);
         CancellationTokenRegistration reg = default;
         if (ct.CanBeCanceled)
@@ -354,6 +357,9 @@ public static class CarbideConsole
     {
         var state = RequireState(nameof(WaitForResizeAsync));
         if (ct.IsCancellationRequested) return Task.FromCanceled<bool>(ct);
+
+        // T2.1 — flush stdout before suspending; same rationale as ReadLineAsync.
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
 
         // Match the readline pattern: `TaskCompletionSource<bool>` (generic) + sync
         // continuations. The non-generic `TaskCompletionSource` / `Task` path turns out to
