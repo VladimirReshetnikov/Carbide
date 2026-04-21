@@ -1,13 +1,122 @@
 // T1+T2+T3 — installs the JS-side half of the interactive terminal bridge on
 // `globalThis.Carbide.Terminal`. The C# side reaches this via
-// `[JSImport("globalThis.Carbide.Terminal.{write|writeErr|setKeyMode|setTreatControlCAsInput|getCols|getRows}")]`.
+// `[JSImport("globalThis.Carbide.Terminal.{write|writeErr|setKeyMode|setTreatControlCAsInput|getCols|getRows|beep}")]`.
 // T1 wires the output side (write/writeErr). T2 adds setKeyMode and setTreatControlCAsInput
 // so the line editor can be toggled + the Ctrl+C policy can be propagated from C# → JS
 // without a round-trip per keystroke. T3 adds getCols/getRows so the forked
 // System.Console.dll's synchronous WindowWidth/WindowHeight getters can answer without a
-// NotifyResize round-trip.
+// NotifyResize round-trip. T3.1 adds `beep` for `Console.Beep(freq, duration)`.
 
 import type { XtermTerminalLike } from "../types.js";
+
+/**
+ * Lazy, shared AudioContext. Created on first beep so environments without Web Audio
+ * (Node, JSDOM, some embedded WebViews) don't fail at bridge install time. Reused across
+ * install/uninstall cycles so the one-time user-gesture unlock persists.
+ */
+let sharedAudioContext: AudioContext | null = null;
+let audioContextUnavailable = false;
+
+function getAudioContext(): AudioContext | null {
+    if (sharedAudioContext !== null) return sharedAudioContext;
+    if (audioContextUnavailable) return null;
+    const g = globalThis as Record<string, unknown>;
+    const Ctor = (g.AudioContext ?? g.webkitAudioContext) as (new () => AudioContext) | undefined;
+    if (!Ctor) {
+        audioContextUnavailable = true;
+        return null;
+    }
+    try {
+        sharedAudioContext = new Ctor();
+        return sharedAudioContext;
+    } catch {
+        audioContextUnavailable = true;
+        return null;
+    }
+}
+
+/**
+ * Audio-clock time at which the next queued beep should start. Tracks the end of the
+ * most recently scheduled tone so that back-to-back `Console.Beep` calls play in
+ * sequence instead of overlapping — otherwise `Beep(440, 500); Beep(880, 500);` from
+ * fire-and-forget C# would emit both tones simultaneously. Resets to "now" when the
+ * last-scheduled-end has already passed.
+ */
+let beepQueueEndTime = 0;
+
+/**
+ * Play a single sine tone at `frequency` Hz for `durationMs` milliseconds, then invoke
+ * the callback at the end of playback. Multiple concurrent `beep` calls queue back-to-
+ * back in audio time so the caller's intended sequence is preserved even though this
+ * function returns immediately. Silent but fast-completes when Web Audio is unavailable
+ * (Node tests) or the context is still suspended waiting on a user gesture (browser
+ * autoplay policy). Uses a short linear attack + release envelope so tone boundaries
+ * don't produce audible clicks.
+ */
+function beep(frequency: number, durationMs: number, callback: () => void): void {
+    const done = () => { try { callback(); } catch { /* swallow */ } };
+    const ctx = getAudioContext();
+    if (!ctx) {
+        // No Web Audio in this environment — schedule the callback after the expected
+        // duration so user code's `await BeepAsync(...)` still resolves on a realistic
+        // timeline (tests that assert ordering aren't surprised).
+        setTimeout(done, Math.max(0, durationMs));
+        return;
+    }
+
+    // Best-effort unlock on suspended contexts. `resume()` is a no-op if the user hasn't
+    // gestured yet; the scheduled beep will just be silent in that case (it still fires
+    // and its `ended` handler still completes the callback on time).
+    if (ctx.state === "suspended") {
+        ctx.resume().catch(() => { /* swallow */ });
+    }
+
+    const now = ctx.currentTime;
+    const durSec = Math.max(0.01, durationMs / 1000);
+    const startAt = Math.max(now, beepQueueEndTime);
+    const endAt = startAt + durSec;
+    beepQueueEndTime = endAt;
+
+    const osc = ctx.createOscillator();
+    // Sine is gentler than square; the stock Windows Console.Beep sounds closer to a
+    // square wave but that's actively unpleasant at higher frequencies in browser Web
+    // Audio, which doesn't band-limit the square. Sine + a slight gain ramp reads as
+    // a clean "beep" without a painful alias.
+    osc.type = "sine";
+    osc.frequency.value = Math.max(20, Math.min(20000, frequency));
+
+    const gain = ctx.createGain();
+    const attack = Math.min(0.005, durSec * 0.25);
+    const release = Math.min(0.01, durSec * 0.25);
+    gain.gain.setValueAtTime(0, startAt);
+    gain.gain.linearRampToValueAtTime(0.2, startAt + attack);
+    gain.gain.setValueAtTime(0.2, Math.max(startAt + attack, endAt - release));
+    gain.gain.linearRampToValueAtTime(0, endAt);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    let completed = false;
+    const complete = () => {
+        if (completed) return;
+        completed = true;
+        try { osc.disconnect(); gain.disconnect(); } catch { /* nop */ }
+        done();
+    };
+    osc.onended = complete;
+    // Belt-and-braces: if `ended` never fires (some headless configs), a setTimeout is
+    // a guaranteed floor for callback completion. Account for queue delay so queued
+    // beeps' callbacks fire at their scheduled end, not `durationMs` from now.
+    const waitMs = (endAt - now) * 1000;
+    setTimeout(complete, waitMs + 50);
+
+    try {
+        osc.start(startAt);
+        osc.stop(endAt);
+    } catch {
+        complete();
+    }
+}
 
 export interface TerminalBridgeSink {
     writeStdOut(text: string): void;
@@ -107,6 +216,11 @@ export function installBridge(
                 try { callback(); } catch { /* swallow */ }
             }, 0);
         },
+        // T3.1 — single-tone beep via Web Audio. See the module-level `beep` for the
+        // full story. Callback-based to dovetail with the same Mono-WASM marshaler
+        // caveat that drove `delayCallback` (Promise-to-Task forces continuations
+        // through the ThreadPool → Monitor.Wait trap on single-threaded browser-wasm).
+        beep,
     };
     return sink;
 }

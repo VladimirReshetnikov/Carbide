@@ -9,6 +9,7 @@
 
 using System;
 using System.Threading.Tasks;
+using Carbide.Terminal;
 using Spectre.Console;
 
 namespace CarbideGh;
@@ -36,8 +37,31 @@ internal static class Commands
             "contributors" or "contrib" => ContributorsAsync(args, state),
             "stars" => StarsAsync(args, state),
             "clear" or "cls" => Task.Run(() => { Console.Clear(); }),
+            "beep" => BeepAsync(args),
+            "fanfare" => FanfareAsync(),
             _ => UnknownAsync(cmd),
         };
+    }
+
+    private static async Task BeepAsync(string[] args)
+    {
+        int freq = 440;
+        int durationMs = 200;
+        if (args.Length >= 1 && int.TryParse(args[0], out var f)) freq = f;
+        if (args.Length >= 2 && int.TryParse(args[1], out var d)) durationMs = d;
+        AnsiConsole.MarkupLine($"[dim]beep[/] [cyan]{freq} Hz[/] [dim]for[/] [cyan]{durationMs} ms[/]");
+        await CarbideConsole.BeepAsync(freq, durationMs);
+    }
+
+    private static async Task FanfareAsync()
+    {
+        // A playful little arpeggio — demonstrates sequential BeepAsync awaits.
+        int[] notes = { 523, 659, 784, 1047 }; // C5 E5 G5 C6
+        AnsiConsole.MarkupLine("[dim]\u266b playing fanfare[/]");
+        foreach (var n in notes)
+        {
+            await CarbideConsole.BeepAsync(n, 150);
+        }
     }
 
     private static Task HelpAsync()

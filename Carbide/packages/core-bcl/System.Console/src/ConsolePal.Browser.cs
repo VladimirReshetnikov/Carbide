@@ -9,7 +9,11 @@
 //    single-threaded browser has no sync-over-async primitive; T3.1 or a worker+SAB
 //    effort is the proper fix.
 //  - `Console.GetCursorPosition` — needs DSR reply pre-filtering (T3.1).
-//  - `Console.Beep(freq, duration)` — no portable browser equivalent.
+//  - `Console.Beep()` rings the xterm BEL and plays a default 800Hz/200ms tone via
+//    Web Audio (best-effort; silent before the first user gesture).
+//  - `Console.Beep(freq, duration)` plays a Web Audio tone fire-and-forget (returns
+//    immediately; the tone continues in JS audio time). `CarbideConsole.BeepAsync` is
+//    the awaitable version for callers that want to sequence with other async work.
 //  - `Console.MoveBufferArea` — browser terminal has no separate scroll-back buffer.
 //  - `Console.SetBufferSize` / `Set{Window}Size` / `Set{Window}Position` — xterm.js doesn't
 //    expose programmatic resize.
@@ -241,14 +245,35 @@ namespace System
         internal static void Beep()
         {
             EnsureInteractive("Console.Beep()");
-            // BEL (\x07) on xterm rings the terminal bell if the host page has it enabled.
+            // BEL (\x07) rings the xterm bell if the host page has it enabled. Also
+            // play a Web Audio tone matching Windows' default (800 Hz, 200 ms) so
+            // browsers that mute xterm's bell still produce the expected audible cue.
             WriteAnsi("\x07");
+            try { CarbideBridge.Beep(800, 200, static () => { }); } catch { /* swallow */ }
         }
 
         internal static void Beep(int frequency, int duration)
-            => throw new PlatformNotSupportedException(
-                "Console.Beep(frequency, duration) has no browser equivalent; use Console.Beep() " +
-                "for the single-tone BEL or omit it entirely.");
+        {
+            EnsureInteractive("Console.Beep(frequency, duration)");
+            // Stock Windows Console.Beep is synchronous (blocks for `duration` ms). On
+            // single-threaded browser-wasm there's no way to block the main thread for a
+            // Web Audio tone without deadlocking the audio pump itself. Fire-and-forget:
+            // the JS bridge queues this beep after any previously-scheduled tone so
+            // sequential calls play in order. For code that needs to await completion,
+            // use `Carbide.Terminal.CarbideConsole.BeepAsync` from `@carbide/core`.
+            if (frequency is < 37 or > 32767)
+            {
+                throw new System.ArgumentOutOfRangeException(
+                    nameof(frequency), frequency,
+                    "Frequency must be between 37 and 32767 Hz (matching stock Console.Beep).");
+            }
+            if (duration <= 0)
+            {
+                throw new System.ArgumentOutOfRangeException(
+                    nameof(duration), duration, "Duration must be positive.");
+            }
+            try { CarbideBridge.Beep(frequency, duration, static () => { }); } catch { /* swallow */ }
+        }
 
         internal static void MoveBufferArea(int sourceLeft, int sourceTop, int sourceWidth,
                                             int sourceHeight, int targetLeft, int targetTop,
@@ -448,5 +473,15 @@ namespace System
 
         [JSImport("globalThis.Carbide.Terminal.getRows")]
         internal static partial int GetRows();
+
+        /// <summary>
+        /// T3.1 — fire-and-forget single-tone beep through Web Audio. Returns immediately;
+        /// the tone continues in audio time. The callback parameter is taken for API parity
+        /// with <c>Carbide.Core</c>'s <c>BeepCallback</c> but unused here — the forked
+        /// <c>Console.Beep(freq,duration)</c> is sync and has no Task to resolve.
+        /// </summary>
+        [JSImport("globalThis.Carbide.Terminal.beep")]
+        internal static partial void Beep(int frequency, int durationMs,
+            [JSMarshalAs<JSType.Function>] System.Action callback);
     }
 }

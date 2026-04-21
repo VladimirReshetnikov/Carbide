@@ -64,6 +64,20 @@ internal static partial class CarbideTerminalInterop
     [JSImport("globalThis.Carbide.Terminal.delayCallback")]
     internal static partial void DelayCallback(int milliseconds, [JSMarshalAs<JSType.Function>] Action callback);
 
+    /// <summary>
+    /// T3.1 — callback-based single-tone beep. Routes through <c>Carbide.Terminal.beep</c>
+    /// which drives Web Audio's <c>OscillatorNode</c> + envelope <c>GainNode</c>. Callback
+    /// shape for the same reason as <see cref="DelayCallback"/>: the Mono-WASM Promise-
+    /// to-Task marshaler would force continuations through the ThreadPool, which on
+    /// single-threaded browser-wasm trips "Cannot wait on monitors". A locally-owned TCS
+    /// completed from the callback resumes on the main thread synchronously.
+    /// Silently completes fast when Web Audio is unavailable (Node, JSDOM) or the context
+    /// is still suspended pre-user-gesture.
+    /// </summary>
+    [JSImport("globalThis.Carbide.Terminal.beep")]
+    internal static partial void BeepCallback(int frequency, int durationMs,
+        [JSMarshalAs<JSType.Function>] Action callback);
+
     // ---- JSExports (JS → C#) move to Carbide.Core.CompilationInterop so the TS-side
     // `locateInterop` (which resolves `exportsRoot.Carbide.Core.CompilationInterop`) sees
     // them on the same interop object it already uses for RunAsync / BuildAsync / etc.

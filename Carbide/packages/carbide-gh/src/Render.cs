@@ -51,6 +51,8 @@ internal static class Render
         grid.AddRow("[cyan]commits[/] [grey50][[--limit=N]][/]", "list recent commits");
         grid.AddRow("[cyan]contributors[/]", "bar chart of top committers");
         grid.AddRow("[cyan]stars[/] [grey50][[--pages=N]][/]", "ASCII sparkline of stargazer growth");
+        grid.AddRow("[cyan]beep[/] [grey50][[freq] [ms]][/]", "play a Web Audio tone (default 440 Hz, 200 ms)");
+        grid.AddRow("[cyan]fanfare[/]", "play a short C-major arpeggio (C5 E5 G5 C6)");
         grid.AddRow("[cyan]clear[/], [cyan]cls[/]", "clear the screen");
         grid.AddRow("[cyan]exit[/], [cyan]quit[/], [cyan]:q[/]", "exit the REPL");
 

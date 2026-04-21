@@ -348,6 +348,69 @@ public static class CarbideConsole
     }
 
     /// <summary>
+    /// T3.1 — awaitable single-tone beep through Web Audio. Plays a sine wave at
+    /// <paramref name="frequency"/> Hz for <paramref name="durationMs"/> milliseconds and
+    /// resolves the returned task when playback ends. Sequential <c>BeepAsync</c> calls
+    /// queue in audio time on the JS side, so tones don't overlap even if the awaits
+    /// resume fast.
+    /// <para>
+    /// Silent and completes on schedule when Web Audio is unavailable (Node, JSDOM) or
+    /// the AudioContext is still suspended waiting on a first user gesture (browser
+    /// autoplay policy). That matches the contract of stock <see cref="Console.Beep()"/>
+    /// which also silently no-ops on muted systems.
+    /// </para>
+    /// <para>
+    /// For fire-and-forget semantics matching stock sync <c>Console.Beep(freq, duration)</c>,
+    /// call that directly — the forked <c>System.Console.dll</c> routes to the same
+    /// JS bridge without an awaitable.
+    /// </para>
+    /// <example>
+    /// <code>
+    /// await CarbideConsole.BeepAsync(440, 200);
+    /// await CarbideConsole.BeepAsync(880, 200);
+    /// // The second tone starts after the first completes.
+    /// </code>
+    /// </example>
+    /// </summary>
+    public static Task BeepAsync(int frequency, int durationMs, CancellationToken ct = default)
+    {
+        RequireState(nameof(BeepAsync));
+        if (frequency is < 37 or > 32767)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(frequency), frequency,
+                "Frequency must be between 37 and 32767 Hz (matching stock Console.Beep).");
+        }
+        if (durationMs <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(durationMs), durationMs, "Duration must be positive.");
+        }
+        if (ct.IsCancellationRequested) return Task.FromCanceled(ct);
+
+        // Flush stdout before suspending so any newline-less output (e.g. "beeping:")
+        // reaches the terminal before the tone starts.
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.None);
+        CancellationTokenRegistration reg = default;
+        if (ct.CanBeCanceled)
+        {
+            // We can't actually stop an in-flight Web Audio oscillator from here (the JS
+            // side doesn't expose a handle), but we can resolve the Task as cancelled so
+            // user code unblocks. The tone finishes in audio time regardless; for most
+            // REPL/TUI uses that's acceptable.
+            reg = ct.Register(static s => ((TaskCompletionSource)s!).TrySetCanceled(), tcs);
+        }
+        CarbideTerminalInterop.BeepCallback(frequency, durationMs, () =>
+        {
+            reg.Dispose();
+            tcs.TrySetResult();
+        });
+        return tcs.Task;
+    }
+
+    /// <summary>
     /// Await the next <see cref="TerminalResized"/> event. Resolves on the first resize
     /// that fires after the call; cancellation via <paramref name="ct"/> fails the task
     /// with <see cref="OperationCanceledException"/>. Uses the same TCS pattern as
