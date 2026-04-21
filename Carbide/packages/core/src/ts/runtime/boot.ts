@@ -6,6 +6,7 @@ import type {
     MonoConfig,
     RuntimeAPI,
 } from "./dotnet-types.js";
+import { installDefaultBridge } from "../terminal/bridge.js";
 
 export interface BootOptions {
     hostAdapter: HostAdapter;
@@ -36,6 +37,18 @@ export async function bootRuntime(options: BootOptions): Promise<BootResult> {
         ? await options.hostAdapter.resolveDotnetModuleUrl()
         : baseUrl;
     const dotnetJsUrl = new URL("dotnet.js", moduleBaseUrl).toString();
+
+    // Install the default `globalThis.Carbide.Terminal` surface BEFORE importing dotnet.js.
+    // The forked System.Console's `CarbideStdWriteStream` (returned from
+    // `Console.OpenStandardOutput()`) resolves the `Carbide.Terminal.write` JSImport the
+    // first time user code writes raw bytes — if that happens in a non-interactive run
+    // (e.g. `project.run()` from the CLI), there's no `installBridge` to supply the
+    // global and the import used to throw `Carbide not found while looking up ...`.
+    // The default bridge routes to process.stdout / process.stderr (Node) or
+    // console.log / console.error (browser), so non-interactive runs get byte-accurate
+    // output to the parent stream. `installBridge` overrides these during an interactive
+    // session and `uninstallBridge` restores them on teardown.
+    installDefaultBridge();
 
     // Dynamic import keeps the runtime out of the static dependency graph so bundlers that
     // don't know how to handle the .NET-shipped dotnet.js don't get confused.
