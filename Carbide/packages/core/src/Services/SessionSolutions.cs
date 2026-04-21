@@ -69,7 +69,13 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
 
         foreach (var projectId in state.ProjectIds)
         {
-            _projects.TryRemove(projectId, out _);
+            if (_projects.TryRemove(projectId, out var entry))
+            {
+                // Review R1 M6 — dispose the underlying AdhocWorkspace so Roslyn caches
+                // held by abandoned projects get released. Without this, long-lived
+                // browser sessions accumulate workspace state on every project.
+                entry.Compiler.Dispose();
+            }
         }
     }
 
@@ -167,15 +173,35 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
         => GetProject(projectId).RunInteractiveAsync(projectId, options);
 
     /// <summary>
-    /// T1 — teardown stub. No-op in T1 because <see cref="ProjectCompiler.RunInteractiveAsync"/>
-    /// owns the drain+restore inside its own finally block. T2 extends this to unblock
-    /// pending async reads and tear down input-side state.
+    /// Signal teardown of an in-flight interactive run. Reviews R1 C3 / R2 §2 called this
+    /// a contract lie: the TypeScript <c>TerminalSession.dispose()</c> promises to be safe
+    /// mid-run, but the C# side used to be a no-op — a program blocked inside
+    /// <c>Console.In.ReadLineAsync()</c> would stay blocked after dispose because the JS
+    /// bridge had been torn down and no further deliveries could arrive. Now we:
+    /// <list type="number">
+    /// <item>Cancel the run-level <see cref="CancellationTokenSource"/> so user code
+    /// awaiting with the token observes cancellation.</item>
+    /// <item>Complete the <see cref="Carbide.Terminal.BrowserTerminalReader"/> so any
+    /// pending <c>ReadLineAsync</c> resolves to <c>null</c> (EOF) and any
+    /// <c>WaitForBytesAsync</c> resolves <c>false</c>.</item>
+    /// </list>
+    /// User code's read typically returns <c>null</c>, its REPL loop exits, and the run
+    /// drains through <c>RunInteractiveAsync</c>'s finally normally. User code that
+    /// ignores EOF still unblocks via the token trip on the next await that observes it.
     /// </summary>
     public void DisposeInteractive(string projectId)
     {
-        _ = projectId;
-        // T1 no-op; kept as a JSExport target so the TS side can signal teardown even
-        // though the current implementation doesn't need to act on it.
+        var state = Carbide.Terminal.TerminalInputState.TryGet(projectId);
+        if (state is null) return;
+        try
+        {
+            state.CancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already disposed by ProjectCompiler's finally — safe to ignore.
+        }
+        state.Reader.Complete();
     }
 
     private ProjectCompiler GetProject(string projectId)

@@ -58,36 +58,66 @@ export function startInteractiveSession(
         request.args = [...options.args];
     }
 
-    let disposed = false;
+    let bridgeDetached = false;
 
-    async function teardown(): Promise<void> {
-        if (disposed) return;
-        disposed = true;
+    /**
+     * Idempotent bridge/adapter detach. Run from both paths:
+     *  - the IIFE's finally (run completed naturally or threw),
+     *  - an explicit dispose() call (user-initiated mid-run teardown).
+     * Must be called AFTER the run has drained, otherwise late writes from the C# side
+     * hit a missing `globalThis.Carbide.Terminal.*` and throw.
+     */
+    function detachBridge(): void {
+        if (bridgeDetached) return;
+        bridgeDetached = true;
+        resizeSubscription?.dispose();
+        editor?.dispose();
+        adapter.detachTerminalSink();
+        uninstallBridge();
+        bridge.dispose();
+    }
+
+    // Declare `exitPromise` via a forward reference because `dispose` awaits it and the
+    // IIFE below references `detachBridge`.
+    let exitPromise: Promise<ReturnType<typeof parseRunResult>>;
+
+    /**
+     * Reviews R1 C3 / R2 §2 — honour the mid-run-safe contract. Signal the C# side to
+     * unblock any pending read / cancel the run token, wait for the run to actually drain
+     * (so stdout writes land before the bridge goes away), then detach the bridge.
+     *
+     * Repeated calls are safe: the second await on `exitPromise` resolves immediately,
+     * and `detachBridge` is idempotent.
+     */
+    async function dispose(): Promise<void> {
         try {
             interop.DisposeTerminal(projectId);
-        } finally {
-            resizeSubscription?.dispose();
-            editor?.dispose();
-            adapter.detachTerminalSink();
-            uninstallBridge();
-            bridge.dispose();
+        } catch {
+            // Bridge may have already been torn down by a concurrent completion; harmless.
         }
+        try {
+            await exitPromise;
+        } catch {
+            // The caller gets run failures via the public `exitPromise`. Swallow here so
+            // dispose() itself always resolves cleanly even when the program threw.
+        }
+        detachBridge();
     }
 
     // Kick off the run. The C# side drains its streaming writers in its own finally block,
     // so bytes buffered at the moment the entry point exits still reach the bridge before
     // the promise resolves.
-    const exitPromise = (async () => {
+    exitPromise = (async () => {
         try {
             const json = await interop.RunInteractiveAsync(projectId, JSON.stringify(request));
             return parseRunResult(json);
         } finally {
-            await teardown();
+            detachBridge();
         }
     })();
 
     return {
         exitPromise,
-        dispose: teardown,
+        dispose,
     };
 }

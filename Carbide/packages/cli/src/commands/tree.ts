@@ -5,7 +5,7 @@
 import path from "node:path";
 import { CarbideSession } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
-import { parseFormat } from "../format.js";
+import { parseFormat, writeJson } from "../format.js";
 import {
     runProjectGraphPipeline,
     handleProjectGraphError,
@@ -58,17 +58,66 @@ export async function runTree(args: ParsedArgs): Promise<number> {
             return handleProjectGraphError(err, format);
         }
 
-        process.stdout.write(renderTree(multi));
+        if (format === "json") {
+            // Review R1 M4 — `--format json` was advertised in help but previously ignored.
+            // Emit a lean JSON shape focused on the project graph (the same data the human
+            // tree walks), distinct from `audit`'s fuller payload so callers can
+            // unambiguously parse "this is a tree, not an audit".
+            writeJson(buildTreePayload(multi));
+        } else {
+            process.stdout.write(renderTree(multi));
+        }
         return 0;
     } finally {
         await session.shutdown();
     }
 }
 
+/**
+ * JSON payload for `carbide tree --format json`. Shape mirrors the ASCII tree: each
+ * subproject lists its direct <ProjectReference> children (by csproj path) and direct
+ * <PackageReference> children (by id + resolved version). No transitive closure — that's
+ * what `audit` is for.
+ */
+export function buildTreePayload(multi: MultiProjectPipelineResult): Record<string, unknown> {
+    // Build a key→subprojectIndex map up-front so we never walk subprojects linearly.
+    const indexByKey = new Map<string, number>();
+    multi.subprojects.forEach((sub, i) => indexByKey.set(canonicalKeyOf(sub.csprojPath), i));
+
+    return {
+        success: true,
+        root: multi.root.csprojPath,
+        subprojects: multi.subprojects.map((sub, i) => {
+            const node = multi.graph.order[i];
+            return {
+                csproj: sub.csprojPath,
+                assemblyName: sub.assemblyName,
+                targetFramework: sub.model.evaluationTrace.targetFramework.selected ?? null,
+                isRoot: sub.isRoot,
+                projectReferences: node.projectReferences,
+                packageReferences: sub.model.packageReferences.map((pkg) => {
+                    const resolved = sub.nugetGraph?.lock.packages.find((rp) => rp.id === pkg.id);
+                    return {
+                        id: pkg.id,
+                        requestedVersion: pkg.version ?? null,
+                        resolvedVersion: resolved?.version ?? null,
+                    };
+                }),
+            };
+        }),
+    };
+}
+
 /** Render the project graph as an ASCII tree rooted at `multi.root`. */
 export function renderTree(multi: MultiProjectPipelineResult): string {
     const byKey = new Map<string, SubprojectPipelineResult>();
-    for (const sub of multi.subprojects) byKey.set(canonicalKeyOf(sub.csprojPath), sub);
+    // Review R1 m4 — precompute sub→index once; `indexOf` inside the walk was O(n²).
+    const idxByKey = new Map<string, number>();
+    multi.subprojects.forEach((sub, i) => {
+        const key = canonicalKeyOf(sub.csprojPath);
+        byKey.set(key, sub);
+        idxByKey.set(key, i);
+    });
 
     const visited = new Set<string>();
     const lines: string[] = [];
@@ -89,7 +138,7 @@ export function renderTree(multi: MultiProjectPipelineResult): string {
         const nextPrefix = depth === 0 ? "" : prefix + (isLast ? "    " : "│   ");
 
         // Direct ProjectReferences (in graph-walk order within the sub-project).
-        const nodeIdx = multi.subprojects.indexOf(sub);
+        const nodeIdx = idxByKey.get(key)!;
         const node = multi.graph.order[nodeIdx];
         const directRefs = node.projectReferences;
 

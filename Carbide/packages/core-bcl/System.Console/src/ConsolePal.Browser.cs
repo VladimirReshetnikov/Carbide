@@ -236,8 +236,40 @@ namespace System
             {
                 ArgumentNullException.ThrowIfNull(value);
                 EnsureInteractive("Console.Title setter");
-                WriteAnsi("\x1b]0;" + value + "\x07");
+                WriteAnsi("\x1b]0;" + SanitiseTitle(value) + "\x07");
             }
+        }
+
+        /// <summary>
+        /// Strip C0 control characters (including ESC and BEL) from a title string before
+        /// embedding it inside an OSC 0 sequence. Review R2 §21: without this guard a
+        /// caller could inject extra terminal controls via the title value — a BEL or ESC
+        /// inside the title would terminate the OSC early and let the remainder of the
+        /// value be interpreted as a fresh control sequence. Replaces each offending byte
+        /// with a space so the visible-length of the title still tracks the caller's
+        /// intent for display layout.
+        /// </summary>
+        internal static string SanitiseTitle(string value)
+        {
+            var needsSanitise = false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                var ch = value[i];
+                if (ch < 0x20 || ch == 0x7F)
+                {
+                    needsSanitise = true;
+                    break;
+                }
+            }
+            if (!needsSanitise) return value;
+
+            var buf = new StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                var ch = value[i];
+                buf.Append(ch < 0x20 || ch == 0x7F ? ' ' : ch);
+            }
+            return buf.ToString();
         }
 
         // ---- Beep / buffer-area / clear ---------------------------------------------------

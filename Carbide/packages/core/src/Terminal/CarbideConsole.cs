@@ -193,8 +193,29 @@ public static class CarbideConsole
         {
             RequireState(nameof(Title));
             ArgumentNullException.ThrowIfNull(value);
-            Console.Out.Write($"\x1b]0;{value}\x07");
+            // Review R2 §21: strip C0 control characters (ESC/BEL/etc.) so the title
+            // value cannot prematurely terminate the OSC string and let the remainder
+            // be parsed as a fresh terminal control sequence.
+            Console.Out.Write($"\x1b]0;{SanitiseTitle(value)}\x07");
         }
+    }
+
+    private static string SanitiseTitle(string value)
+    {
+        var needsSanitise = false;
+        for (int i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            if (ch < 0x20 || ch == 0x7F) { needsSanitise = true; break; }
+        }
+        if (!needsSanitise) return value;
+        var buf = new StringBuilder(value.Length);
+        for (int i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            buf.Append(ch < 0x20 || ch == 0x7F ? ' ' : ch);
+        }
+        return buf.ToString();
     }
 
     /// <summary>Clear the terminal (ED + CUP home): <c>\x1b[2J\x1b[H</c>.</summary>

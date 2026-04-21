@@ -72,10 +72,41 @@ test("TargetFrameworks semicolon list; first-listed wins", async (t) => {
     t.after(() => rmSync(dir, { recursive: true, force: true }));
 
     const model = await parseCsproj(path.join(dir, "Foo.csproj"));
-    // Both listed, sorted set.
-    assert.deepEqual(model.targetFrameworks, ["net10.0", "net8.0"]);
-    // Selected = first in sorted set.
-    assert.equal(model.evaluationTrace.targetFramework.selected, "net10.0");
+    // Both listed in declaration order — first-listed is the load-bearing selection
+    // under the documented evaluationTrace.targetFramework.selectionPolicy. An earlier
+    // (broken) revision sorted the list; swapping <TargetFrameworks>net8.0;net10.0 to
+    // have net10.0 selected silently changed downstream ref-pack / NuGet resolution.
+    assert.deepEqual(model.targetFrameworks, ["net8.0", "net10.0"]);
+    assert.equal(model.evaluationTrace.targetFramework.selected, "net8.0");
+});
+
+// Regression for review R2 §9 — item attribute values used to be stored raw, so
+// `<PackageReference Version="$(Pkg)"/>` downstream consumers saw the literal
+// placeholder `$(Pkg)` rather than the evaluated property. Must now substitute.
+test("item attributes substitute $(Property) references", async (t) => {
+    const dir = makeFixture({
+        "Foo.csproj": `<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <NewtonsoftVersion>13.0.3</NewtonsoftVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftVersion)"/>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)../Sibling/Sibling.csproj"/>
+  </ItemGroup>
+</Project>`,
+    });
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+    const model = await parseCsproj(path.join(dir, "Foo.csproj"));
+    assert.equal(model.packageReferences.length, 1);
+    assert.equal(model.packageReferences[0].version, "13.0.3",
+        "PackageReference Version should be substituted from $(NewtonsoftVersion)");
+    assert.equal(model.projectReferences.length, 1);
+    // $(MSBuildThisFileDirectory) resolves to the project directory; the substituted
+    // include should therefore resolve to the sibling project's absolute path.
+    assert.ok(!model.projectReferences[0].includes("$("),
+        "ProjectReference Include should not contain a literal $(...) placeholder after substitution");
 });
 
 test("PackageReference and ProjectReference emit warnings, not errors", async (t) => {

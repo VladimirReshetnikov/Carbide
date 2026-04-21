@@ -57,7 +57,12 @@ export async function resolve(
 
     // Lock-file replay short-circuits the graph walk entirely.
     if (opts.lock) {
-        return replayLock(opts.lock, tfm, cache, flatContainer, warnings);
+        // Review R1 M1 / R2 §8: the allow-list and safety checks used to be bypassed
+        // when resolve replayed a lock file, which meant a lock generated under one
+        // policy could carry a disallowed / unsafe package into a stricter session
+        // and still land untouched (only the content hash was verified). Thread the
+        // same gates through replay — content hashes prove identity, not policy.
+        return replayLock(opts.lock, tfm, cache, flatContainer, mode, warnings);
     }
 
     // Fresh graph walk.
@@ -89,8 +94,16 @@ export async function resolve(
                 });
                 resolved.delete(idKey);
             } else if (next.depth === existing.depth && existing.package.version !== version.raw) {
-                // Same depth, different version — lexicographically later wins.
-                const keepNewer = version.raw.localeCompare(existing.package.version) > 0;
+                // Same depth, different version — semantically higher wins. Falls back to
+                // lexicographic compare only when one side fails to parse (rare; malformed
+                // pre-release labels).
+                let keepNewer: boolean;
+                try {
+                    const existingParsed = parseVersion(existing.package.version);
+                    keepNewer = compareVersion(version, existingParsed) > 0;
+                } catch {
+                    keepNewer = version.raw.localeCompare(existing.package.version) > 0;
+                }
                 if (keepNewer) {
                     warnings.push({
                         code: MSNUGET_CODES.NEAREST_WINS_TIE,
@@ -314,12 +327,20 @@ async function replayLock(
     tfm: Tfm,
     cache: Cache,
     flatContainer: FlatContainer,
+    mode: Exclude<ResolveOptions["allowListMode"], undefined>,
     warnings: Warning[],
 ): Promise<ResolvedGraph> {
     const packages: ResolvedPackage[] = [];
     const references: ResolvedReference[] = [];
 
     for (const p of lock.packages) {
+        // Review R1 M1 / R2 §8 — policy gates also apply to lock replay. A stale/malicious
+        // lock can only carry a package as far as the current policy permits. Content
+        // hashes are checked below; they prove byte identity, not policy compliance.
+        if (applyAllowList(p.id, mode, warnings) === "refused") {
+            throw new AllowListRefusedError(p.id);
+        }
+
         const { bytes, sha256 } = await flatContainer.downloadNupkg(p.id, p.version);
         if (sha256 !== p.sha256) {
             throw new Error(
@@ -328,6 +349,10 @@ async function replayLock(
         }
         const nuspec = await readNuspec(bytes);
         const entryNames = nuspec.entries.map((e) => e.name);
+        const safetyResult = checkSafety(nuspec.id, nuspec.version, entryNames);
+        if (safetyResult.kind === "refused") {
+            throw new SafetyRefusalError(safetyResult.code, safetyResult.message);
+        }
         const libFolders = collectLibFolders(entryNames);
         const picked = pickBestLibFolder(tfm, libFolders);
         packages.push({ ...p, libFolder: picked });

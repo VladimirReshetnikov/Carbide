@@ -24,12 +24,26 @@ using Microsoft.Extensions.Logging;
 
 namespace Carbide.Core.Services;
 
-internal sealed class ProjectCompiler
+internal sealed class ProjectCompiler : IDisposable
 {
     private readonly ILogger<ProjectCompiler> _logger = Host.Services.GetService<ILogger<ProjectCompiler>>();
     private readonly ReferenceRegistry _referenceRegistry;
     private readonly ProjectId _projectId;
     private readonly string _assemblyName;
+    private bool _disposed;
+
+    /// <summary>
+    /// Release the underlying <see cref="AdhocWorkspace"/>. Review R1 M6: long-lived
+    /// browser sessions that create and tear down many projects accumulate Roslyn caches
+    /// on each abandoned workspace; this makes the clean-up explicit rather than relying
+    /// on GC to eventually run.
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Workspace.Dispose();
+    }
 
     /// <summary>
     /// Default implicit-usings set for console applications. Mirrors the SDK's ImplicitUsings
@@ -281,6 +295,8 @@ internal sealed class ProjectCompiler
 
     private static OutputKind InferOutputKind(Compilation compilation)
     {
+        // Top-level statements are unambiguous — any file with `GlobalStatementSyntax`
+        // forces a console app.
         foreach (var tree in compilation.SyntaxTrees)
         {
             var roslynRoot = tree.GetRoot();
@@ -292,7 +308,18 @@ internal sealed class ProjectCompiler
                 }
             }
         }
-        return OutputKind.DynamicallyLinkedLibrary;
+
+        // Review R1 §5 / R2 §4: without this check a source set that uses an explicit
+        // `static Main(...)` but no top-level statements compiled to a DLL under
+        // `project.build()`, while `project.run()` (which forces ConsoleApplication)
+        // could still execute it — so the same sources produced different-shaped
+        // artefacts depending on the entry point. Ask Roslyn for the entry point under
+        // a speculative ConsoleApplication compilation; if one exists, use ConsoleApplication.
+        var consoleProbe = compilation.WithOptions(
+            compilation.Options.WithOutputKind(OutputKind.ConsoleApplication));
+        return consoleProbe.GetEntryPoint(CancellationToken.None) is not null
+            ? OutputKind.ConsoleApplication
+            : OutputKind.DynamicallyLinkedLibrary;
     }
 
     /// <summary>
@@ -403,104 +430,104 @@ internal sealed class ProjectCompiler
                 ? found
                 : null;
         };
+        // Wrap everything from the AssemblyResolve subscription onward in a try/finally
+        // so the handler is unsubscribed regardless of where in the path a failure lands.
+        // Review R1 C1 / R2 §1: a throw in LoadAssembly or Console.SetOut used to leak
+        // the handler into subsequent runs ("everything is weird after one failed run").
         AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
-
-        Assembly assembly;
-        try
-        {
-            assembly = LoadAssembly(peBytes);
-        }
-        finally
-        {
-            // Keep the handler alive for the duration of the user's run so lazy references
-            // (types resolved at method-JIT time) can still find the assemblies. Removal
-            // happens in the outer finally after the user's entry point has returned.
-        }
-        var declaredEntry = assembly.EntryPoint
-            ?? throw new InvalidOperationException(
-                $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
-        // T2.1 — bypass the synthesised sync wrapper for `async Task Main` and top-level-
-        // statements-with-`await`. See `ResolveAsyncEntryOrFallback` at the bottom of this
-        // class for the full rationale.
-        var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
-
         using var stdOutCapture = new StringWriter();
         using var stdErrCapture = new StringWriter();
-        var oldOut = Console.Out;
-        var oldError = Console.Error;
-        // U2: Mono-WASM marks Console.In / Console.SetIn with UnsupportedOSPlatform("browser")
-        // AND throws PlatformNotSupportedException at runtime when these APIs touch the
-        // real stdin handle. Setting the internal static field via reflection bypasses
-        // both the code-analysis warning and the runtime guard: once the field is non-null,
-        // the getter returns our TextReader without going through EnsureInitialized.
-        System.IO.TextReader? oldIn = null;
-        if (stdin is not null)
-        {
-            oldIn = GetConsoleInField();
-            SetConsoleInField(new System.IO.StringReader(stdin));
-        }
-        Console.SetOut(stdOutCapture);
-        Console.SetError(stdErrCapture);
 
         int exitCode = 0;
         string? uncaught = null;
 
         try
         {
-            var parameters = reflectedEntry.GetParameters();
-            // U2: bind by parameter count. `Main()` gets no args; `Main(string[] args)`
-            // (including Roslyn's synthesised top-level-statements wrapper) gets the
-            // forwarded array. Any other shape falls back to the empty-array behaviour.
-            var invocationArgs = parameters.Length == 0
-                ? Array.Empty<object?>()
-                : new object?[] { args };
+            var assembly = LoadAssembly(peBytes);
+            var declaredEntry = assembly.EntryPoint
+                ?? throw new InvalidOperationException(
+                    $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
+            // T2.1 — bypass the synthesised sync wrapper for `async Task Main` and top-level-
+            // statements-with-`await`. See `ResolveAsyncEntryOrFallback` at the bottom of this
+            // class for the full rationale.
+            var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
 
-            object? result;
+            var oldOut = Console.Out;
+            var oldError = Console.Error;
+            // U2: Mono-WASM marks Console.In / Console.SetIn with UnsupportedOSPlatform("browser")
+            // AND throws PlatformNotSupportedException at runtime when these APIs touch the
+            // real stdin handle. Setting the internal static field via reflection bypasses
+            // both the code-analysis warning and the runtime guard: once the field is non-null,
+            // the getter returns our TextReader without going through EnsureInitialized.
+            System.IO.TextReader? oldIn = null;
+            if (stdin is not null)
+            {
+                oldIn = GetConsoleInField();
+                SetConsoleInField(new System.IO.StringReader(stdin));
+            }
+            Console.SetOut(stdOutCapture);
+            Console.SetError(stdErrCapture);
+
             try
             {
-                result = reflectedEntry.Invoke(null, invocationArgs);
-            }
-            catch (TargetInvocationException tie) when (tie.InnerException is not null)
-            {
-                throw tie.InnerException;
-            }
+                var parameters = reflectedEntry.GetParameters();
+                // U2: bind by parameter count. `Main()` gets no args; `Main(string[] args)`
+                // (including Roslyn's synthesised top-level-statements wrapper) gets the
+                // forwarded array. Any other shape falls back to the empty-array behaviour.
+                var invocationArgs = parameters.Length == 0
+                    ? Array.Empty<object?>()
+                    : new object?[] { args };
 
-            switch (result)
-            {
-                case Task<int> taskInt:
-                    exitCode = await taskInt.ConfigureAwait(false);
-                    break;
-                case Task task:
-                    await task.ConfigureAwait(false);
-                    break;
-                case int i:
-                    exitCode = i;
-                    break;
-                case ValueTask<int> vti:
-                    exitCode = await vti.ConfigureAwait(false);
-                    break;
-                case ValueTask vt:
-                    await vt.ConfigureAwait(false);
-                    break;
+                object? result;
+                try
+                {
+                    result = reflectedEntry.Invoke(null, invocationArgs);
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+
+                switch (result)
+                {
+                    case Task<int> taskInt:
+                        exitCode = await taskInt.ConfigureAwait(false);
+                        break;
+                    case Task task:
+                        await task.ConfigureAwait(false);
+                        break;
+                    case int i:
+                        exitCode = i;
+                        break;
+                    case ValueTask<int> vti:
+                        exitCode = await vti.ConfigureAwait(false);
+                        break;
+                    case ValueTask vt:
+                        await vt.ConfigureAwait(false);
+                        break;
+                }
             }
-        }
 #pragma warning disable CA1031 // Do not catch general exception types
-        catch (Exception ex)
+            catch (Exception ex)
 #pragma warning restore CA1031
-        {
-            uncaught = ex.ToString();
-            await stdErrCapture.WriteLineAsync(uncaught).ConfigureAwait(false);
+            {
+                uncaught = ex.ToString();
+                await stdErrCapture.WriteLineAsync(uncaught).ConfigureAwait(false);
+            }
+            finally
+            {
+                Console.SetOut(oldOut);
+                Console.SetError(oldError);
+                if (stdin is not null)
+                {
+                    // Restore whatever was there before (including null — the default "never
+                    // initialised" state on Mono-WASM).
+                    SetConsoleInField(oldIn);
+                }
+            }
         }
         finally
         {
-            Console.SetOut(oldOut);
-            Console.SetError(oldError);
-            if (stdin is not null)
-            {
-                // Restore whatever was there before (including null — the default "never
-                // initialised" state on Mono-WASM).
-                SetConsoleInField(oldIn);
-            }
             AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
         }
 
@@ -661,7 +688,9 @@ internal sealed class ProjectCompiler
 
         // T2 — install CarbideSyncContext. T2.1 Option F experiment removed this and
         // empirically confirmed it did not fix the Assembly.Load-plus-await trap;
-        // restored.
+        // restored. Review R2 §1: compile/emit failures used to return early while
+        // leaving the CarbideSyncContext installed, which corrupted subsequent runs.
+        // Restore the old context before every early-return path.
         var oldSyncContext = SynchronizationContext.Current;
         SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
 
@@ -669,12 +698,14 @@ internal sealed class ProjectCompiler
         var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(OutputKind.ConsoleApplication).ConfigureAwait(false);
         if (compilation is null)
         {
+            SynchronizationContext.SetSynchronizationContext(oldSyncContext);
             return RunResult.CompileFailure(preEmitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
 
         var (peBytes, _, emitDiagnostics) = EmitPeAndPdb(compilation);
         if (peBytes is null)
         {
+            SynchronizationContext.SetSynchronizationContext(oldSyncContext);
             return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
 
@@ -716,25 +747,11 @@ internal sealed class ProjectCompiler
                 ? found
                 : null;
         };
+        // Wrap everything from the AssemblyResolve subscription onward in try/finally.
+        // Review R1 C1 / R2 §1: a throw in LoadAssembly, EntryPoint reflection, or any of
+        // the Console.SetOut / SetConsoleInField calls used to leak the handler and the
+        // SynchronizationContext into later runs.
         AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
-
-        var assembly = LoadAssembly(peBytes);
-        var declaredEntry = assembly.EntryPoint
-            ?? throw new InvalidOperationException(
-                $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
-
-        // T2.1 — if the user program is `async Task Main` (or top-level statements with
-        // `await`), Roslyn synthesises a synchronous wrapper that calls
-        // `.GetAwaiter().GetResult()` on the real async method. `Assembly.EntryPoint`
-        // points at THAT wrapper. Calling the wrapper blocks on the task — on Mono-WASM
-        // single-threaded browser that blocking wait reaches `Monitor.Wait(INFINITE)` and
-        // trips `Cannot wait on monitors on this runtime`. Bypass the wrapper: if the
-        // declared entry point is sync-returning (`void`/`int`) and its declaring type has
-        // a sibling static method with the same parameter signature that returns
-        // Task/Task<int>/ValueTask/ValueTask<int>, invoke THAT instead and await it
-        // ourselves. That moves the "wait" out of the blocking BCL path and into our own
-        // async method where it resumes via the scheduling pump correctly.
-        var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
 
         // Tee each flushed chunk into a StringBuilder (for the RunResult trailer) while also
         // pushing it through the JS bridge. Stderr gets its SGR wrap on the JS-bound path
@@ -758,107 +775,130 @@ internal sealed class ProjectCompiler
         using var stdOutWriter = new StreamingStdOutWriter(stdOutSink);
         using var stdErrWriter = new StreamingStdOutWriter(stdErrSink);
 
-        var oldOut = Console.Out;
-        var oldError = Console.Error;
-        Console.SetOut(stdOutWriter);
-        Console.SetError(stdErrWriter);
-
-        // T2 — install the BrowserTerminalReader into Console._in via the U2 reflection path
-        // so Console.In.ReadLineAsync() resolves against the same queue CarbideConsole uses.
-        // Preserve whatever was in the slot before (null in the normal case) and restore in
-        // finally. `SetConsoleInField` is the same helper U2 uses for pre-seeded stdin.
-        var oldIn = GetConsoleInField();
-        SetConsoleInField(inputState.Reader);
-
-        // T3 — signal the forked System.Console.dll that an interactive bridge is live so
-        // the fork's cosmetic emitters (`Console.ForegroundColor`, `Console.Clear()`, etc.)
-        // emit ANSI instead of throwing. Outside this region the flag is false and those
-        // members throw PlatformNotSupportedException with a "use runInteractive" message
-        // — preserving the pre-T3 contract for plain `Project.run` programs.
-        AppContext.SetData("Carbide.InteractiveBridge", true);
-
-        // T3.1 defensive — re-install before user-code invoke in case the intervening
-        // Roslyn await cleared the SC.
-        SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
-
         int exitCode = 0;
         string? uncaught = null;
 
         try
         {
-            var parameters = reflectedEntry.GetParameters();
-            var invocationArgs = parameters.Length == 0
-                ? Array.Empty<object?>()
-                : new object?[] { options.Args };
+            var assembly = LoadAssembly(peBytes);
+            var declaredEntry = assembly.EntryPoint
+                ?? throw new InvalidOperationException(
+                    $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
 
-            object? result;
+            // T2.1 — if the user program is `async Task Main` (or top-level statements with
+            // `await`), Roslyn synthesises a synchronous wrapper that calls
+            // `.GetAwaiter().GetResult()` on the real async method. `Assembly.EntryPoint`
+            // points at THAT wrapper. Calling the wrapper blocks on the task — on Mono-WASM
+            // single-threaded browser that blocking wait reaches `Monitor.Wait(INFINITE)` and
+            // trips `Cannot wait on monitors on this runtime`. Bypass the wrapper: if the
+            // declared entry point is sync-returning (`void`/`int`) and its declaring type has
+            // a sibling static method with the same parameter signature that returns
+            // Task/Task<int>/ValueTask/ValueTask<int>, invoke THAT instead and await it
+            // ourselves. That moves the "wait" out of the blocking BCL path and into our own
+            // async method where it resumes via the scheduling pump correctly.
+            var reflectedEntry = ResolveAsyncEntryOrFallback(declaredEntry);
+
+            var oldOut = Console.Out;
+            var oldError = Console.Error;
+            Console.SetOut(stdOutWriter);
+            Console.SetError(stdErrWriter);
+
+            // T2 — install the BrowserTerminalReader into Console._in via the U2 reflection path
+            // so Console.In.ReadLineAsync() resolves against the same queue CarbideConsole uses.
+            // Preserve whatever was in the slot before (null in the normal case) and restore in
+            // finally. `SetConsoleInField` is the same helper U2 uses for pre-seeded stdin.
+            var oldIn = GetConsoleInField();
+            SetConsoleInField(inputState.Reader);
+
+            // T3 — signal the forked System.Console.dll that an interactive bridge is live so
+            // the fork's cosmetic emitters (`Console.ForegroundColor`, `Console.Clear()`, etc.)
+            // emit ANSI instead of throwing. Outside this region the flag is false and those
+            // members throw PlatformNotSupportedException with a "use runInteractive" message
+            // — preserving the pre-T3 contract for plain `Project.run` programs.
+            AppContext.SetData("Carbide.InteractiveBridge", true);
+
+            // T3.1 defensive — re-install before user-code invoke in case the intervening
+            // Roslyn await cleared the SC.
+            SynchronizationContext.SetSynchronizationContext(CarbideSyncContext.Instance);
+
             try
             {
-                result = reflectedEntry.Invoke(null, invocationArgs);
-            }
-            catch (TargetInvocationException tie) when (tie.InnerException is not null)
-            {
-                throw tie.InnerException;
-            }
+                var parameters = reflectedEntry.GetParameters();
+                var invocationArgs = parameters.Length == 0
+                    ? Array.Empty<object?>()
+                    : new object?[] { options.Args };
 
-            // T3.1 defensive — Do NOT use `ConfigureAwait(false)` here. Mono-WASM browser's
-            // default `TaskScheduler` dispatches to an absent thread pool; keeping the
-            // captured context (our inline-Post `CarbideSyncContext`) avoids that fall-
-            // through. Does not on its own fix T2.1 for suspended-completion awaits.
-            switch (result)
-            {
-                case Task<int> taskInt:
-                    exitCode = await taskInt;
-                    break;
-                case Task task:
-                    await task;
-                    break;
-                case int i:
-                    exitCode = i;
-                    break;
-                case ValueTask<int> vti:
-                    exitCode = await vti;
-                    break;
-                case ValueTask vt:
-                    await vt;
-                    break;
+                object? result;
+                try
+                {
+                    result = reflectedEntry.Invoke(null, invocationArgs);
+                }
+                catch (TargetInvocationException tie) when (tie.InnerException is not null)
+                {
+                    throw tie.InnerException;
+                }
+
+                // T3.1 defensive — Do NOT use `ConfigureAwait(false)` here. Mono-WASM browser's
+                // default `TaskScheduler` dispatches to an absent thread pool; keeping the
+                // captured context (our inline-Post `CarbideSyncContext`) avoids that fall-
+                // through. Does not on its own fix T2.1 for suspended-completion awaits.
+                switch (result)
+                {
+                    case Task<int> taskInt:
+                        exitCode = await taskInt;
+                        break;
+                    case Task task:
+                        await task;
+                        break;
+                    case int i:
+                        exitCode = i;
+                        break;
+                    case ValueTask<int> vti:
+                        exitCode = await vti;
+                        break;
+                    case ValueTask vt:
+                        await vt;
+                        break;
+                }
             }
-        }
 #pragma warning disable CA1031 // Do not catch general exception types
-        catch (Exception ex)
+            catch (Exception ex)
 #pragma warning restore CA1031
-        {
-            // Walk inner exceptions so the stderr carries the full chain — useful for
-            // diagnosing Mono-WASM async failures where the outer wrapper hides the real
-            // throwing site (e.g. TaskSchedulerException -> PlatformNotSupportedException).
-            var chain = new StringBuilder();
-            for (var e = (Exception?)ex; e is not null; e = e.InnerException)
             {
-                if (chain.Length > 0) chain.AppendLine().AppendLine("--- inner ---");
-                chain.Append(e.GetType().FullName).Append(": ").AppendLine(e.Message);
-                if (e.StackTrace is { } st) chain.AppendLine(st);
+                // Walk inner exceptions so the stderr carries the full chain — useful for
+                // diagnosing Mono-WASM async failures where the outer wrapper hides the real
+                // throwing site (e.g. TaskSchedulerException -> PlatformNotSupportedException).
+                var chain = new StringBuilder();
+                for (var e = (Exception?)ex; e is not null; e = e.InnerException)
+                {
+                    if (chain.Length > 0) chain.AppendLine().AppendLine("--- inner ---");
+                    chain.Append(e.GetType().FullName).Append(": ").AppendLine(e.Message);
+                    if (e.StackTrace is { } st) chain.AppendLine(st);
+                }
+                uncaught = chain.ToString();
+                await stdErrWriter.WriteLineAsync(uncaught).ConfigureAwait(false);
             }
-            uncaught = chain.ToString();
-            await stdErrWriter.WriteLineAsync(uncaught).ConfigureAwait(false);
+            finally
+            {
+                // Drain order: flush the writers first so in-buffer bytes make it to the bridge,
+                // then restore Console.{Out,Error,In} to their previous values. Writers are
+                // also disposed by the `using` block, which flushes again defensively. The
+                // `_inputStateDisposer` runs last (via `using`) so the BrowserTerminalReader
+                // completes (wakes a pending ReadLineAsync with EOF) only after Console.In no
+                // longer points at it.
+                stdOutWriter.FlushNow();
+                stdErrWriter.FlushNow();
+                Console.SetOut(oldOut);
+                Console.SetError(oldError);
+                SetConsoleInField(oldIn);
+                // T3 — clear the flag so subsequent non-interactive runs see PNS again.
+                AppContext.SetData("Carbide.InteractiveBridge", false);
+                SynchronizationContext.SetSynchronizationContext(oldSyncContext);
+            }
         }
         finally
         {
-            // Drain order: flush the writers first so in-buffer bytes make it to the bridge,
-            // then restore Console.{Out,Error,In} to their previous values, then detach the
-            // AssemblyResolve handler, then restore the SynchronizationContext. Writers are
-            // also disposed by the `using` block, which flushes again defensively. The
-            // `_inputStateDisposer` runs last (via `using`) so the BrowserTerminalReader
-            // completes (wakes a pending ReadLineAsync with EOF) only after Console.In no
-            // longer points at it.
-            stdOutWriter.FlushNow();
-            stdErrWriter.FlushNow();
-            Console.SetOut(oldOut);
-            Console.SetError(oldError);
-            SetConsoleInField(oldIn);
-            // T3 — clear the flag so subsequent non-interactive runs see PNS again.
-            AppContext.SetData("Carbide.InteractiveBridge", false);
             AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
-            SynchronizationContext.SetSynchronizationContext(oldSyncContext);
         }
 
         sw.Stop();

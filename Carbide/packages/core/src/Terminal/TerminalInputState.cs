@@ -198,9 +198,11 @@ internal sealed class TerminalInputState
         }
     }
 
-    private static ConsoleCancelEventArgs? s_cachedArgsFactoryProbe;
-    private static bool s_argsFactoryProbed;
-
+    // Review R1 m2 removed two dead "cached ctor probe" fields that were never set and
+    // only existed to suppress unused-variable warnings. CreateCancelEventArgs reflects
+    // every call; for a Ctrl+C path that fires at most once per interactive run this is
+    // not worth caching — if that changes, reintroduce a lazy `Lazy<ConstructorInfo?>`
+    // or a compiled-delegate path here rather than raw unused fields.
     private static ConsoleCancelEventArgs? CreateCancelEventArgs()
     {
         // Prefer the reflected internal ctor; fall back to GetUninitializedObject so the
@@ -235,8 +237,6 @@ internal sealed class TerminalInputState
         catch
 #pragma warning restore CA1031
         {
-            _ = s_cachedArgsFactoryProbe;
-            _ = s_argsFactoryProbed;
             return null;
         }
     }
