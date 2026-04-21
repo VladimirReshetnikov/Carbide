@@ -15,3 +15,4 @@ This directory holds Carbide's planning corpus: the project-wide architecture pl
 - [Carbide-pwsh Phase 1 plan](carbide-pwsh-phase1-detailed-plan__2026-04-21__21-45-00-000000__a5f8c3d192e0.md) — expression evaluator.
 - [Carbide-pwsh Phase 2 plan](carbide-pwsh-phase2-detailed-plan__2026-04-21__22-30-00-000000__b7e2c4a9d018.md) — pipelines, VFS, curated cmdlet catalog.
 - [Carbide-pwsh Phase 3 plan](carbide-pwsh-phase3-detailed-plan__2026-04-21__23-00-00-000000__f8c3e2a9b471.md) — control flow, functions, errors, scripts, apps, classes, enums, regex/format/join/split/containment operators.
+- [Carbide.UI — Approach B implementation plan (UI-M0..UI-M6)](carbide-ui-avalonia-approach-b-plan__2026-04-21__23-40-46-000000__d3b1a638db2c.md) — cross-frame Avalonia runner plan for `@carbide-ui/*`. Implements the recommendation of the [Avalonia integration proposal](../proposals/carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__2bc4122b7f3f.md) §4.2 / §5.
