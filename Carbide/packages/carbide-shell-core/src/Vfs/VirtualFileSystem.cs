@@ -1,6 +1,6 @@
-using CarbidePwsh.Errors;
+using CarbideShellCore.Errors;
 
-namespace CarbidePwsh.Vfs;
+namespace CarbideShellCore.Vfs;
 
 public sealed class VirtualFileSystem
 {
@@ -30,7 +30,7 @@ public sealed class VirtualFileSystem
     }
 
     public VfsNode GetRequired(string path)
-        => Resolve(path) ?? throw new PwshRuntimeException($"Cannot find path '{path}' because it does not exist.");
+        => Resolve(path) ?? throw new VfsException($"Cannot find path '{path}' because it does not exist.");
 
     public bool Exists(string path) => Resolve(path) != null;
 
@@ -58,7 +58,7 @@ public sealed class VirtualFileSystem
             }
             else
             {
-                throw new PwshRuntimeException($"'{current.AbsolutePath}/{seg}' exists and is not a directory.");
+                throw new VfsException($"'{current.AbsolutePath}/{seg}' exists and is not a directory.");
             }
         }
         return current;
@@ -68,7 +68,7 @@ public sealed class VirtualFileSystem
     {
         var abs = Normalize(path);
         if (Resolve(abs) is VfsDirectory existing) return existing;
-        if (Resolve(abs) != null) throw new PwshRuntimeException($"'{abs}' already exists and is not a directory.");
+        if (Resolve(abs) != null) throw new VfsException($"'{abs}' already exists and is not a directory.");
         var (parentPath, leaf) = VfsPath.SplitLeaf(abs);
         if (leaf.Length == 0) return Root;
         var parent = GetOrCreateDirectory(parentPath);
@@ -82,9 +82,9 @@ public sealed class VirtualFileSystem
         var abs = Normalize(path);
         var existing = Resolve(abs);
         if (existing is VfsDirectory)
-            throw new PwshRuntimeException($"'{abs}' is a directory; cannot write as file.");
+            throw new VfsException($"'{abs}' is a directory; cannot write as file.");
         if (existing is VfsFile file && !overwrite)
-            throw new PwshRuntimeException($"'{abs}' already exists. Use -Force to overwrite.");
+            throw new VfsException($"'{abs}' already exists. Use -Force to overwrite.");
         if (existing is VfsFile existingFile)
         {
             existingFile.Content = content;
@@ -93,7 +93,7 @@ public sealed class VirtualFileSystem
             return existingFile;
         }
         var (parentPath, leaf) = VfsPath.SplitLeaf(abs);
-        if (leaf.Length == 0) throw new PwshRuntimeException("Cannot create a file at the filesystem root.");
+        if (leaf.Length == 0) throw new VfsException("Cannot create a file at the filesystem root.");
         var parent = GetOrCreateDirectory(parentPath);
         var f = new VfsFile(leaf)
         {
@@ -117,18 +117,18 @@ public sealed class VirtualFileSystem
         if (node == null)
         {
             if (force) return;
-            throw new PwshRuntimeException($"Cannot find path '{path}' because it does not exist.");
+            throw new VfsException($"Cannot find path '{path}' because it does not exist.");
         }
         if (node == Root)
-            throw new PwshRuntimeException("Cannot remove the filesystem root.");
+            throw new VfsException("Cannot remove the filesystem root.");
         if (node is VfsDirectory dir && dir.Children.Count > 0 && !recursive)
-            throw new PwshRuntimeException($"Directory '{node.AbsolutePath}' is not empty. Use -Recurse to remove.");
+            throw new VfsException($"Directory '{node.AbsolutePath}' is not empty. Use -Recurse to remove.");
         node.Parent!.Children.Remove(node.Name);
     }
 
     public void Copy(string source, string destination, bool recursive)
     {
-        var src = Resolve(source) ?? throw new PwshRuntimeException($"Cannot find source '{source}'.");
+        var src = Resolve(source) ?? throw new VfsException($"Cannot find source '{source}'.");
         var dstNormalized = Normalize(destination);
         var dstExisting = Resolve(dstNormalized);
         switch (src)
@@ -137,7 +137,7 @@ public sealed class VirtualFileSystem
                 CopyFileInto(f, dstNormalized, dstExisting);
                 break;
             case VfsDirectory d:
-                if (!recursive) throw new PwshRuntimeException("Use -Recurse to copy a directory.");
+                if (!recursive) throw new VfsException("Use -Recurse to copy a directory.");
                 CopyDirectoryInto(d, dstNormalized, dstExisting);
                 break;
         }
@@ -188,7 +188,7 @@ public sealed class VirtualFileSystem
 
     public void Move(string source, string destination)
     {
-        var src = Resolve(source) ?? throw new PwshRuntimeException($"Cannot find source '{source}'.");
+        var src = Resolve(source) ?? throw new VfsException($"Cannot find source '{source}'.");
         var dstNormalized = Normalize(destination);
         var dstExisting = Resolve(dstNormalized);
         if (dstExisting is VfsDirectory destDir)
@@ -199,7 +199,7 @@ public sealed class VirtualFileSystem
             return;
         }
         var (parentPath, leaf) = VfsPath.SplitLeaf(dstNormalized);
-        if (leaf.Length == 0) throw new PwshRuntimeException("Cannot move to filesystem root.");
+        if (leaf.Length == 0) throw new VfsException("Cannot move to filesystem root.");
         var parent = GetOrCreateDirectory(parentPath);
         src.Parent!.Children.Remove(src.Name);
         src.Name = leaf;
@@ -209,7 +209,7 @@ public sealed class VirtualFileSystem
 
     public IEnumerable<VfsNode> List(string path, bool recursive, string? filter, bool filesOnly = false, bool directoriesOnly = false)
     {
-        var node = Resolve(path) ?? throw new PwshRuntimeException($"Cannot find path '{path}'.");
+        var node = Resolve(path) ?? throw new VfsException($"Cannot find path '{path}'.");
         if (node is VfsFile f)
         {
             yield return f;
@@ -238,7 +238,6 @@ public sealed class VirtualFileSystem
 
     private static bool FilterMatch(string name, string filter)
     {
-        // Simple shell-style glob: * and ?.
         var pattern = "^" + System.Text.RegularExpressions.Regex.Escape(filter)
             .Replace("\\*", ".*")
             .Replace("\\?", ".") + "$";
@@ -251,7 +250,7 @@ public sealed class VirtualFileSystem
         var abs = Normalize(path);
         var node = Resolve(abs);
         if (node is not VfsDirectory)
-            throw new PwshRuntimeException($"'{abs}' is not a directory.");
+            throw new VfsException($"'{abs}' is not a directory.");
         CurrentLocation = abs;
     }
 }

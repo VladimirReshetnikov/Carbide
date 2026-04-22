@@ -5,7 +5,8 @@ using CarbidePwsh.Cmdlets;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Lexer;
 using CarbidePwsh.Parser.Ast;
-using CarbidePwsh.Vfs;
+using CarbideShellCore.Apps;
+using CarbideShellCore.Vfs;
 using PwshParser = CarbidePwsh.Parser.Parser;
 
 namespace CarbidePwsh.Runtime;
@@ -44,6 +45,8 @@ public sealed class Interpreter
     public FunctionRegistry? Functions { get; set; }
     public ClassRegistry? Classes { get; set; }
     public AppRegistry? Apps { get; set; }
+    public CarbideShellCore.Dispatch.ShellDispatcher? Dispatcher { get; set; }
+    public CarbideShellCore.Env.EnvVarStore? Env { get; set; }
 
     /// <summary>Raised to run a script file path when the interpreter encounters it as a
     /// command name. Set by <see cref="Host.ShellHost"/>; returns the result of the script.</summary>

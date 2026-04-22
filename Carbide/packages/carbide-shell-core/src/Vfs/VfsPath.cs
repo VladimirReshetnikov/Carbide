@@ -1,9 +1,10 @@
-namespace CarbidePwsh.Vfs;
+namespace CarbideShellCore.Vfs;
 
 /// <summary>
 /// Path utilities for the virtualized filesystem. All paths are forward-slash normalized,
 /// absolute paths start with <c>/</c>, and resolution is case-insensitive. This is a VFS
-/// convention for the shell, not a property of any real OS the runtime is hosted on.
+/// convention shared across every Carbide shell dialect, not a property of any real OS
+/// the runtime is hosted on.
 /// </summary>
 public static class VfsPath
 {
@@ -26,12 +27,10 @@ public static class VfsPath
     {
         if (string.IsNullOrEmpty(path)) return RootPath;
 
-        // Expand tilde.
         if (path == "~") path = HomePath;
         else if (path.StartsWith("~/") || path.StartsWith("~\\"))
             path = HomePath + "/" + path.Substring(2);
 
-        // Combine with current location if relative.
         if (!IsAbsolute(path))
         {
             var cur = currentLocation.TrimEnd('/');
@@ -72,5 +71,19 @@ public static class VfsPath
         var idx = absolutePath.LastIndexOf('/');
         if (idx <= 0) return (RootPath, absolutePath.Substring(1));
         return (absolutePath.Substring(0, idx), absolutePath.Substring(idx + 1));
+    }
+
+    /// <summary>
+    /// Return the file extension for a VFS path (including the leading dot) or the empty
+    /// string if the leaf has no extension. Case is preserved; callers typically
+    /// lower-case before matching.
+    /// </summary>
+    public static string GetExtension(string absolutePath)
+    {
+        var leaf = SplitLeaf(absolutePath).Leaf;
+        if (leaf.Length == 0) return "";
+        var dot = leaf.LastIndexOf('.');
+        if (dot <= 0) return "";
+        return leaf.Substring(dot);
     }
 }

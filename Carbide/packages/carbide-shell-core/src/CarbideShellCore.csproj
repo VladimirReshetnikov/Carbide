@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>$(NetVersion)</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>CarbideShellCore</RootNamespace>
+    <AssemblyName>CarbideShellCore</AssemblyName>
+    <LangVersion>preview</LangVersion>
+    <!-- The shared shell-kernel services are hand-rolled plumbing; analyzer noise that covers
+         large-ceremony codebases is not useful here. -->
+    <NoWarn>$(NoWarn);IDE0008;IDE0028;IDE0046;IDE0055;IDE0051;IDE0058;IDE0059;IDE0290;IDE0300;IDE0301;CA1031;CA1062;CA1724;CA1822;CA1859;CA1063</NoWarn>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!-- This package is consumed by carbide-pwsh / carbide-cmd / carbide-bash, which each
+       dispatch reflectively into curated BCL surfaces (for pwsh) or invoke loaded assemblies
+       (for the shared AppRegistry). Trim-safety is a Phase-4 concern across the whole
+       multishell effort. -->
+  <PropertyGroup>
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <TrimmerSingleWarn>true</TrimmerSingleWarn>
+  </PropertyGroup>
+</Project>

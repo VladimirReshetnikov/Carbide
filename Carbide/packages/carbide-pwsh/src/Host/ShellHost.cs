@@ -6,10 +6,14 @@ using CarbidePwsh.Cmdlets.Json;
 using CarbidePwsh.Cmdlets.Output;
 using CarbidePwsh.Cmdlets.Shape;
 using CarbidePwsh.Cmdlets.Sys;
+using CarbidePwsh.Cmdlets.Shell;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Parser.Ast;
 using CarbidePwsh.Runtime;
-using CarbidePwsh.Vfs;
+using CarbideShellCore.Apps;
+using CarbideShellCore.Dispatch;
+using CarbideShellCore.Env;
+using CarbideShellCore.Vfs;
 using PwshParser = CarbidePwsh.Parser.Parser;
 
 namespace CarbidePwsh.Host;
@@ -18,25 +22,37 @@ public sealed class ShellHost
 {
     public Interpreter Interpreter { get; }
     public VirtualFileSystem Vfs { get; }
+    public EnvVarStore Env { get; }
     public CmdletRegistry Registry { get; }
     public FunctionRegistry Functions { get; }
     public ClassRegistry Classes { get; }
     public AppRegistry Apps { get; }
+    public ShellDispatcher Dispatcher { get; }
     public bool Verbose { get; set; }
 
-    public ShellHost()
+    public ShellHost(
+        VirtualFileSystem? vfs = null,
+        EnvVarStore? env = null,
+        AppRegistry? apps = null,
+        ShellDispatcher? dispatcher = null)
     {
-        Vfs = new VirtualFileSystem();
-        Vfs.CreateDirectory("/tmp");
-        Vfs.CreateDirectory("/home/user");
-        Vfs.CurrentLocation = "/home/user";
+        bool ownsVfs = vfs is null;
+        Vfs = vfs ?? new VirtualFileSystem();
+        Env = env ?? new EnvVarStore();
+        Apps = apps ?? new AppRegistry();
+        Dispatcher = dispatcher ?? new ShellDispatcher();
+        if (ownsVfs)
+        {
+            Vfs.CreateDirectory("/tmp");
+            Vfs.CreateDirectory("/home/user");
+            Vfs.CurrentLocation = "/home/user";
+        }
 
         Registry = new CmdletRegistry();
         RegisterBuiltinCmdlets(Registry);
 
         Functions = new FunctionRegistry();
         Classes = new ClassRegistry();
-        Apps = new AppRegistry();
 
         Interpreter = new Interpreter
         {
@@ -45,6 +61,8 @@ public sealed class ShellHost
             Functions = Functions,
             Classes = Classes,
             Apps = Apps,
+            Dispatcher = Dispatcher,
+            Env = Env,
             PipelineOutput = Console.Out,
             PipelineError = Console.Error,
         };
@@ -255,5 +273,9 @@ public sealed class ShellHost
         r.Register(() => new RegisterCarbideAppCommand());
         r.Register(() => new UnregisterCarbideAppCommand());
         r.Register(() => new GetCarbideAppCommand());
+
+        // Cross-shell launchers.
+        r.Register(() => new InvokeCmdCommand());
+        r.Register(() => new InvokeBashCommand());
     }
 }

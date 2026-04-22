@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace CarbidePwsh.Vfs;
+namespace CarbideShellCore.Vfs;
 
 public abstract class VfsNode
 {
@@ -22,7 +22,11 @@ public abstract class VfsNode
     public bool IsDirectory => this is VfsDirectory;
     public bool IsFile => this is VfsFile;
 
-    /// <summary>Display mode analogous to <c>Get-ChildItem</c>'s first column.</summary>
+    /// <summary>
+    /// Display mode analogous to <c>Get-ChildItem</c>'s first column. The string is
+    /// pwsh-flavored by default because the pwsh shell is the oldest consumer; cmd and bash
+    /// shells format listings with their own presenters and do not consult this property.
+    /// </summary>
     public virtual string Mode => IsDirectory ? "d----" : "-a---";
 }
 

@@ -1,8 +1,8 @@
-using CarbidePwsh.Vfs;
-using CarbidePwsh.Errors;
+using CarbideShellCore.Errors;
+using CarbideShellCore.Vfs;
 using Xunit;
 
-namespace CarbidePwsh.Tests;
+namespace CarbideShellCore.Tests;
 
 public class VfsTests
 {
@@ -39,7 +39,7 @@ public class VfsTests
     {
         var vfs = new VirtualFileSystem();
         vfs.CreateTextFile("/foo.txt", "1", overwrite: false);
-        Assert.Throws<PwshRuntimeException>(() => vfs.CreateTextFile("/foo.txt", "2", overwrite: false));
+        Assert.Throws<VfsException>(() => vfs.CreateTextFile("/foo.txt", "2", overwrite: false));
         vfs.CreateTextFile("/foo.txt", "2", overwrite: true);
         Assert.Equal("2", ((VfsFile)vfs.Resolve("/foo.txt")!).ReadText());
     }
@@ -58,7 +58,7 @@ public class VfsTests
     {
         var vfs = new VirtualFileSystem();
         vfs.CreateTextFile("/work/f.txt", "x", overwrite: false);
-        Assert.Throws<PwshRuntimeException>(() => vfs.Delete("/work", recursive: false, force: false));
+        Assert.Throws<VfsException>(() => vfs.Delete("/work", recursive: false, force: false));
         vfs.Delete("/work", recursive: true, force: false);
         Assert.False(vfs.Exists("/work"));
     }
@@ -158,7 +158,7 @@ public class VfsTests
     {
         var vfs = new VirtualFileSystem();
         vfs.CreateTextFile("/file.txt", "", overwrite: false);
-        Assert.Throws<PwshRuntimeException>(() => vfs.SetLocation("/file.txt"));
+        Assert.Throws<VfsException>(() => vfs.SetLocation("/file.txt"));
     }
 
     [Fact]
@@ -168,5 +168,16 @@ public class VfsTests
         vfs.CreateDirectory("/work");
         vfs.SetLocation("/work");
         Assert.Equal("/work", vfs.CurrentLocation);
+    }
+
+    [Theory]
+    [InlineData("/a/b/c.txt", ".txt")]
+    [InlineData("/a/b/noext", "")]
+    [InlineData("/a.tar.gz", ".gz")]
+    [InlineData("/.hidden", "")]
+    [InlineData("/", "")]
+    public void GetExtensionParsesLeaf(string path, string expected)
+    {
+        Assert.Equal(expected, VfsPath.GetExtension(path));
     }
 }

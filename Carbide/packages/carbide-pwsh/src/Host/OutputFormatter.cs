@@ -2,7 +2,7 @@ using System.Collections;
 using System.Globalization;
 using System.Text;
 using CarbidePwsh.Runtime;
-using CarbidePwsh.Vfs;
+using CarbideShellCore.Vfs;
 
 namespace CarbidePwsh.Host;
 

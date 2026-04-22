@@ -1,5 +1,5 @@
 using CarbidePwsh.Errors;
-using CarbidePwsh.Vfs;
+using CarbideShellCore.Vfs;
 
 namespace CarbidePwsh.Cmdlets.Fs;
 
