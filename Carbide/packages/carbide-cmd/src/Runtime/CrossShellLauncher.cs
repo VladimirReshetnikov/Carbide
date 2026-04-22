@@ -94,9 +94,10 @@ internal static class CrossShellLauncher
             return parent.Dispatcher.ExecuteScript(abs, kernel, childCtx);
         }
         // Bare invocation (`bash`, `powershell`, `pwsh`, or a registered stub path like
-        // `/usr/bin/bash`) enters an interactive sub-REPL of the target shell. The loop
-        // unwinds when the user types `exit`, matching real-OS subshell behavior.
-        return parent.Dispatcher.RunInteractive(kernel, childCtx);
+        // `/usr/bin/bash`) enters an interactive sub-REPL of the target shell. In sync
+        // contexts this loops inline; in WASM the dispatcher throws so the async outer
+        // REPL can stack the kernel without re-entering the synchronous interpreter.
+        return parent.Dispatcher.EnterSubShell(kernel, childCtx);
     }
 
     private static string Unquote(string s)

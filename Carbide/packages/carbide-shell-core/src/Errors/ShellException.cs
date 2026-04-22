@@ -34,3 +34,22 @@ public sealed class DispatchException : ShellException
     public DispatchException(string message, Exception? inner = null)
         : base(message, inner) { }
 }
+
+/// <summary>
+/// Thrown from a cross-shell launcher when the host has opted into async-driven sub-shell
+/// entry (typically because the runtime is WASM single-threaded and cannot block on
+/// <c>Console.In.ReadLine</c>). The outer async REPL loop catches the exception, pushes
+/// the target kernel on its shell stack, and resumes reading from the terminal. Nesting
+/// is achieved by the outer loop, not by recursion inside the synchronous interpreter —
+/// which lets cmd / bash / pwsh stay fully synchronous internally.
+/// </summary>
+public sealed class RequestSubShellException : Exception
+{
+    public CarbideShellCore.Dispatch.IShellKernel Kernel { get; }
+
+    public RequestSubShellException(CarbideShellCore.Dispatch.IShellKernel kernel)
+        : base($"enter subshell: {kernel.Name}")
+    {
+        Kernel = kernel;
+    }
+}

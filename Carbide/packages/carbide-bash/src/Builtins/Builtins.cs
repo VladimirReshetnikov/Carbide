@@ -596,6 +596,12 @@ public static class Builtins
         return 0;
     }
 
+    public static int Clear(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
+    {
+        stdout.Write("\x1b[2J\x1b[H");
+        return 0;
+    }
+
     public static int SetBuiltin(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         // Phase 1: honor -e / +e as a no-op (flag recorded but untracked), and replace

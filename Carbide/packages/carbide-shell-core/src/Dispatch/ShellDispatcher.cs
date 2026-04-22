@@ -25,6 +25,17 @@ public sealed class ShellDispatcher
     /// <summary>Exit code from the most recent cross-shell invocation (0 initially).</summary>
     public int LastExitCode { get; set; }
 
+    /// <summary>
+    /// When <see langword="true"/>, <see cref="EnterSubShell"/> throws a
+    /// <see cref="CarbideShellCore.Errors.RequestSubShellException"/> instead of running
+    /// <see cref="RunInteractive"/> inline. The outer async REPL loop catches the
+    /// exception and pushes the target kernel on its shell stack. Must be set in WASM
+    /// single-threaded contexts because the synchronous REPL loop would otherwise block
+    /// on <c>Console.In.ReadLine</c>. Default <see langword="false"/> keeps the
+    /// synchronous fall-through that the xunit suite relies on.
+    /// </summary>
+    public bool ThrowOnSubShellEntry { get; set; }
+
     /// <summary>Register a kernel under its name, aliases, and file extensions.</summary>
     public void Register(IShellKernel kernel)
     {
@@ -119,6 +130,21 @@ public sealed class ShellDispatcher
         var code = kernel.ExecuteFile(absolutePath, scoped);
         LastExitCode = code;
         return code;
+    }
+
+    /// <summary>
+    /// Entry point used by cross-shell launchers when the user invokes a bare shell name
+    /// (<c>cmd</c>, <c>bash</c>, <c>pwsh</c>, or a registered stub path). When
+    /// <see cref="ThrowOnSubShellEntry"/> is set, throws
+    /// <see cref="CarbideShellCore.Errors.RequestSubShellException"/> so the async outer
+    /// REPL (Program.cs in WASM contexts) can stack the kernel without recursing through
+    /// the synchronous interpreter. Otherwise falls through to the synchronous
+    /// <see cref="RunInteractive"/> loop — the behavior the xunit suite relies on.
+    /// </summary>
+    public int EnterSubShell(IShellKernel kernel, ShellExecutionContext ctx)
+    {
+        if (ThrowOnSubShellEntry) throw new CarbideShellCore.Errors.RequestSubShellException(kernel);
+        return RunInteractive(kernel, ctx);
     }
 
     /// <summary>

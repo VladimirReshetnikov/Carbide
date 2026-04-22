@@ -2,6 +2,24 @@ using System.Globalization;
 
 namespace CarbidePwsh.Cmdlets.Sys;
 
+/// <summary>
+/// <c>Clear-Host</c> / <c>cls</c> / <c>clear</c> — clear the terminal screen and home the
+/// cursor via the ANSI sequence <c>\x1b[2J\x1b[H</c>. Works against any VT100-compatible
+/// host; in the Carbide xterm.js session that's the only surface we target, so the
+/// sequence is emitted unconditionally.
+/// </summary>
+public sealed class ClearHostCommand : Cmdlet
+{
+    public override string Name => "Clear-Host";
+    public override IEnumerable<string> Aliases => new[] { "cls", "clear" };
+
+    public override IEnumerable<object?> Invoke(IEnumerable<object?>? input, ParameterBinding binding, CmdletContext context)
+    {
+        context.Output.Write("\x1b[2J\x1b[H");
+        yield break;
+    }
+}
+
 public sealed class StartSleepCommand : Cmdlet
 {
     public override string Name => "Start-Sleep";

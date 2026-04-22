@@ -110,7 +110,8 @@ public sealed class ShellHost
         {
             return Interpreter.Evaluate(script);
         }
-        catch (Exception ex) when (ex is not PwshIncompleteInputException)
+        catch (Exception ex) when (ex is not PwshIncompleteInputException
+                                 && ex is not CarbideShellCore.Errors.RequestSubShellException)
         {
             var record = ex is PwshTerminatingException pt ? pt.Error : new ErrorRecord(ex);
             if (Interpreter.Scope.Get("global", "Error") is List<ErrorRecord> errors)
@@ -280,6 +281,7 @@ public sealed class ShellHost
         r.Register(() => new MoveItemCommand());
 
         // System.
+        r.Register(() => new ClearHostCommand());
         r.Register(() => new StartSleepCommand());
         r.Register(() => new GetDateCommand());
         r.Register(() => new GetRandomCommand());

@@ -44,7 +44,7 @@ public sealed class InvokeCmdCommand : Cmdlet
         }
         else
         {
-            var code = dispatcher.RunInteractive(kernel, ctx);
+            var code = dispatcher.EnterSubShell(kernel, ctx);
             context.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         }
         yield break;
@@ -129,7 +129,7 @@ public sealed class InvokeBashCommand : Cmdlet
         }
         else
         {
-            var code = dispatcher.RunInteractive(kernel, ctx);
+            var code = dispatcher.EnterSubShell(kernel, ctx);
             context.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         }
         yield break;

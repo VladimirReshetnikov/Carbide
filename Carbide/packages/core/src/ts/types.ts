@@ -153,6 +153,17 @@ export interface XtermTerminalLike {
     readonly cols?: number;
     /** xterm's current row count. Used to prime `CarbideConsole.WindowHeight`. */
     readonly rows?: number;
+    /**
+     * xterm's buffer API, used by the line editor's Ctrl+L (clear-and-redraw) path to
+     * read back the current prompt row before clearing. Declared optional so minimal
+     * mocks remain compatible.
+     */
+    readonly buffer?: {
+        readonly active?: {
+            readonly cursorY: number;
+            getLine(y: number): { translateToString(trimRight: boolean): string } | undefined;
+        };
+    };
 }
 
 /**
