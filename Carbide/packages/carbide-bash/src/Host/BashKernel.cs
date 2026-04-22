@@ -37,4 +37,8 @@ public sealed class BashKernel : IShellKernel
         try { _ = BashParser.ParseString(source); return true; }
         catch { return false; }
     }
+
+    public string BuildPrompt(ShellExecutionContext ctx) => $"user@carbide:{ctx.Vfs.CurrentLocation}$ ";
+
+    public string BuildContinuationPrompt(ShellExecutionContext ctx) => "> ";
 }

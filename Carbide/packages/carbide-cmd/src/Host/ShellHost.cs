@@ -39,6 +39,14 @@ public sealed class ShellHost
 
         Kernel = new CmdKernel();
         Dispatcher.Register(Kernel);
+        StubInstaller.Install(Vfs, Dispatcher, Kernel, new[]
+        {
+            "/usr/bin/cmd",
+            "/usr/bin/cmd.exe",
+            "/bin/cmd",
+            "/bin/cmd.exe",
+            "/Windows/System32/cmd.exe",
+        });
     }
 
     public int Submit(string source, TextReader? input = null, TextWriter? output = null, TextWriter? error = null)

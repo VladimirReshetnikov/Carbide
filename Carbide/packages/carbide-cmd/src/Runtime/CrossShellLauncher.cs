@@ -93,8 +93,10 @@ internal static class CrossShellLauncher
             var abs = parent.Vfs.Normalize(scriptFile);
             return parent.Dispatcher.ExecuteScript(abs, kernel, childCtx);
         }
-        stderr.WriteLine("No inline source or script file provided.");
-        return 1;
+        // Bare invocation (`bash`, `powershell`, `pwsh`, or a registered stub path like
+        // `/usr/bin/bash`) enters an interactive sub-REPL of the target shell. The loop
+        // unwinds when the user types `exit`, matching real-OS subshell behavior.
+        return parent.Dispatcher.RunInteractive(kernel, childCtx);
     }
 
     private static string Unquote(string s)

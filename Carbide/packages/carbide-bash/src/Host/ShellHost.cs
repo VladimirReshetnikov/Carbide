@@ -33,6 +33,13 @@ public sealed class ShellHost
 
         Kernel = new BashKernel();
         Dispatcher.Register(Kernel);
+        StubInstaller.Install(Vfs, Dispatcher, Kernel, new[]
+        {
+            "/usr/bin/bash",
+            "/usr/bin/sh",
+            "/bin/bash",
+            "/bin/sh",
+        });
     }
 
     public int Submit(string source, TextReader? input = null, TextWriter? output = null, TextWriter? error = null)

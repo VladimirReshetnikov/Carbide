@@ -46,4 +46,18 @@ public interface IShellKernel
     /// input accumulates, complete input submits.
     /// </summary>
     bool IsCompleteInput(string source);
+
+    /// <summary>
+    /// Build the primary interactive prompt for this kernel against the supplied session
+    /// state. Implementations typically render the current VFS location plus a dialect-
+    /// specific suffix (<c>PS /path&gt; </c>, <c>C:\path&gt; </c>, <c>user@host:/path$ </c>).
+    /// </summary>
+    string BuildPrompt(ShellExecutionContext ctx);
+
+    /// <summary>
+    /// Build the continuation prompt shown when the previous input was syntactically
+    /// incomplete (open brace, unterminated quote, heredoc, etc.). A short sentinel like
+    /// <c>&gt;&gt; </c> (pwsh), <c>More? </c> (cmd), or <c>&gt; </c> (bash) is conventional.
+    /// </summary>
+    string BuildContinuationPrompt(ShellExecutionContext ctx);
 }

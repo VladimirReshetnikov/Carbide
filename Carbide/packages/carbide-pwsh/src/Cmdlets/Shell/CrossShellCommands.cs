@@ -44,7 +44,8 @@ public sealed class InvokeCmdCommand : Cmdlet
         }
         else
         {
-            throw new PwshRuntimeException("Invoke-Cmd requires -Command or -File.");
+            var code = dispatcher.RunInteractive(kernel, ctx);
+            context.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         }
         yield break;
     }

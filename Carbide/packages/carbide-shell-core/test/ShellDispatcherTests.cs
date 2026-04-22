@@ -39,6 +39,8 @@ public class ShellDispatcherTests
         }
 
         public bool IsCompleteInput(string source) => true;
+        public string BuildPrompt(ShellExecutionContext ctx) => $"{Name}> ";
+        public string BuildContinuationPrompt(ShellExecutionContext ctx) => ">> ";
     }
 
     private static ShellExecutionContext Context(VirtualFileSystem vfs, ShellDispatcher d, AppRegistry? apps = null)

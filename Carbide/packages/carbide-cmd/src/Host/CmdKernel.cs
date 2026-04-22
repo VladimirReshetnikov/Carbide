@@ -53,4 +53,15 @@ public sealed class CmdKernel : IShellKernel
             return false;
         }
     }
+
+    public string BuildPrompt(ShellExecutionContext ctx)
+    {
+        // cmd presents VFS paths with a synthetic C: drive letter and backslashes on
+        // display; the VFS internally is forward-slash-normalized.
+        var loc = ctx.Vfs.CurrentLocation;
+        var display = loc == "/" ? "C:\\" : "C:" + loc.Replace('/', '\\');
+        return display + ">";
+    }
+
+    public string BuildContinuationPrompt(ShellExecutionContext ctx) => "More? ";
 }

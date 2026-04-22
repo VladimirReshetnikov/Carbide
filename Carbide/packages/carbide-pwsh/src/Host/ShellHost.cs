@@ -74,7 +74,24 @@ public sealed class ShellHost
         Interpreter.Scope.Set("global", "?", true);
         Interpreter.Scope.Set("global", "ErrorActionPreference", "Continue");
         Interpreter.Scope.Set("global", "Error", new List<ErrorRecord>());
+
+        Kernel = new PwshKernel(this);
+        Dispatcher.Register(Kernel);
+        CarbideShellCore.Apps.StubInstaller.Install(Vfs, Dispatcher, Kernel, new[]
+        {
+            "/usr/bin/pwsh",
+            "/usr/bin/pwsh.exe",
+            "/usr/bin/powershell",
+            "/usr/bin/powershell.exe",
+            "/bin/pwsh",
+            "/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        });
     }
+
+    /// <summary>The pwsh <see cref="CarbideShellCore.Dispatch.IShellKernel"/> exposed to the
+    /// shared dispatcher. cmd and bash sessions invoke <c>pwsh</c> / <c>powershell</c>
+    /// through this kernel.</summary>
+    public PwshKernel Kernel { get; private set; } = null!;
 
     public string BuildPrompt()
     {

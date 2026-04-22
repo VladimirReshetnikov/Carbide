@@ -19,6 +19,8 @@ public sealed class ShellDispatcher
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IShellKernel> _byExtension =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IShellKernel> _byStubPath =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exit code from the most recent cross-shell invocation (0 initially).</summary>
     public int LastExitCode { get; set; }
@@ -29,6 +31,17 @@ public sealed class ShellDispatcher
         _byName[kernel.Name] = kernel;
         foreach (var alias in kernel.Aliases) _byName[alias] = kernel;
         foreach (var ext in kernel.FileExtensions) _byExtension[ext] = kernel;
+    }
+
+    /// <summary>
+    /// Register an absolute VFS path (e.g. <c>/usr/bin/bash</c>) that, when invoked by
+    /// path, resolves to the given kernel. Multiple paths may point to the same kernel.
+    /// Used by each shell to materialize stub executables so <c>./pwsh.exe</c>,
+    /// <c>/usr/bin/cmd</c>, and friends enter the corresponding interactive sub-REPL.
+    /// </summary>
+    public void RegisterStubPath(string absolutePath, IShellKernel kernel)
+    {
+        _byStubPath[absolutePath] = kernel;
     }
 
     /// <summary>Look up a kernel by its canonical name or alias.</summary>
@@ -67,6 +80,8 @@ public sealed class ShellDispatcher
             var abs = ctx.Vfs.Normalize(commandName);
             if (ctx.Vfs.Resolve(abs) is VfsFile)
             {
+                if (_byStubPath.TryGetValue(abs, out var stubKernel))
+                    return new DispatchResolution(ResolutionKind.NamedShell, null, null, stubKernel);
                 var ext = VfsPath.GetExtension(abs);
                 if (TryResolveShellByExtension(ext, out var byExt))
                     return new DispatchResolution(ResolutionKind.Script, null, abs, byExt);
@@ -104,6 +119,92 @@ public sealed class ShellDispatcher
         var code = kernel.ExecuteFile(absolutePath, scoped);
         LastExitCode = code;
         return code;
+    }
+
+    /// <summary>
+    /// Drive an interactive REPL over <paramref name="kernel"/>, reading lines from
+    /// <c>ctx.Input</c> and writing prompts + output to <c>ctx.Output</c>. The loop:
+    /// <list type="number">
+    ///   <item>shows the kernel's primary prompt,</item>
+    ///   <item>accumulates lines until <see cref="IShellKernel.IsCompleteInput"/> returns
+    ///     <see langword="true"/> (showing the continuation prompt in between),</item>
+    ///   <item>submits the accumulated source via <see cref="IShellKernel.Execute"/>,</item>
+    ///   <item>intercepts <c>exit</c> / <c>quit</c> / <c>:q</c> and EOF to return from the
+    ///     loop (with an optional exit code parsed from <c>exit N</c>).</item>
+    /// </list>
+    /// This is what a bare <c>cmd</c>, <c>bash</c>, or <c>pwsh</c> invocation from another
+    /// shell resolves to: a nested REPL that unwinds when the user exits, leaving the
+    /// caller's REPL intact. Nesting depth is unbounded.
+    /// </summary>
+    public int RunInteractive(IShellKernel kernel, ShellExecutionContext ctx)
+    {
+        if (kernel is null) throw new DispatchException("No kernel supplied to RunInteractive.");
+        var pending = new System.Text.StringBuilder();
+        int lastCode = 0;
+        while (true)
+        {
+            var prompt = pending.Length == 0
+                ? kernel.BuildPrompt(ctx)
+                : kernel.BuildContinuationPrompt(ctx);
+            ctx.Output.Write(prompt);
+            ctx.Output.Flush();
+
+            string? line;
+            try { line = ctx.Input.ReadLine(); }
+            catch (Exception ex)
+            {
+                ctx.Error.WriteLine($"{kernel.Name}: readline failed: {ex.Message}");
+                break;
+            }
+            if (line is null) break;
+
+            if (pending.Length == 0)
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                if (IsExitLine(trimmed, out var exitCode))
+                {
+                    lastCode = exitCode;
+                    break;
+                }
+            }
+
+            if (pending.Length > 0) pending.Append('\n');
+            pending.Append(line);
+
+            var source = pending.ToString();
+            if (!kernel.IsCompleteInput(source)) continue;
+
+            try
+            {
+                lastCode = kernel.Execute(source, ctx);
+            }
+            catch (Exception ex)
+            {
+                ctx.Error.WriteLine($"{kernel.Name}: {ex.Message}");
+                lastCode = 1;
+            }
+            pending.Clear();
+        }
+        LastExitCode = lastCode;
+        return lastCode;
+    }
+
+    private static bool IsExitLine(string line, out int exitCode)
+    {
+        exitCode = 0;
+        if (line.Equals("exit", StringComparison.OrdinalIgnoreCase)
+            || line.Equals("quit", StringComparison.OrdinalIgnoreCase)
+            || line == ":q")
+            return true;
+        if (line.StartsWith("exit ", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = line.Substring(5).Trim();
+            if (int.TryParse(rest, System.Globalization.NumberStyles.Integer,
+                             System.Globalization.CultureInfo.InvariantCulture, out exitCode))
+                return true;
+        }
+        return false;
     }
 }
 
