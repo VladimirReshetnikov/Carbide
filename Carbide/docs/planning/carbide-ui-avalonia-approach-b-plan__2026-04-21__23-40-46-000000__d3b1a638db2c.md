@@ -434,9 +434,20 @@ type RunnerErrorMessage   = {
 - **UI-M3-R3. `runner-bridge.js` `import.meta.url` resolution varies across bundlers.** Mitigation: the launcher resolves the runner's `index.html` via its own package URL, which supports bundler rewrites; `runner-bridge.js` is loaded by the runner page itself, not the launcher, so its path is runner-page-relative and does not depend on bundler logic.
 - **UI-M3-R4. Boot race: launcher sends `load` before runner posts `runnerReady`.** The launcher buffers sends until `runnerReady`; an internal queue flushes on transition. This is a testable property.
 
-## 8. UI-M4 — runtime XAML via `.axaml`-as-document
+## 8. UI-M4 — runtime XAML via `.axaml`-as-document  ✓ shipped 2026-04-21
 
 **Goal.** Carbide-side convenience: user calls `project.addSource("MainView.axaml", xamlText)`. Carbide detects the `.axaml` extension, generates a hidden companion `.g.cs` that embeds the XAML string as a resource and wires `InitializeComponent()` to call `AvaloniaRuntimeXamlLoader.Parse<T>(xamlString, rootObject: this, parentAssembly: userAssembly)`.
+
+**Shipped artefacts (2026-04-21):**
+
+- [`packages/core/src/Services/AxamlCompanionGenerator.cs`](../../packages/core/src/Services/AxamlCompanionGenerator.cs) — deterministic companion generator. Extracts `x:Class` via a bounded regex (first 16 KB of the XAML; full XML parse avoided), splits into namespace + class, emits a `#pragma warning disable` + `#nullable disable` header, and generates a `partial class` with a `const string __CarbideAxaml` and `InitializeComponent()` body that calls `global::Avalonia.Markup.Xaml.AvaloniaRuntimeXamlLoader.Load(__CarbideAxaml, typeof(<class>).Assembly, this)`. Returns `null` when `x:Class` is absent — the .axaml stays as a non-compiled artefact, and user code can still load it manually.
+- [`packages/core/src/Services/ProjectCompiler.cs`](../../packages/core/src/Services/ProjectCompiler.cs) — `AddSource` / `UpdateSource` / `RemoveSource` paths get an `.axaml` branch. Paired companion keyed by `<path>.g.cs`; tracked separately from C# documents so Roslyn never sees the raw XAML. `DocumentPaths` surfaces the `.axaml` (user-visible) and hides the `.g.cs`.
+- [`packages/core/test/node/axaml-companion.test.mjs`](../../packages/core/test/node/axaml-companion.test.mjs) — 5 tests, all green: happy-path compile; no-x:Class acceptance; update regenerates with a different PE; remove drops companion (subsequent build fails); duplicate-path rejection.
+
+**Acceptance deferrals:**
+
+- **Render verification.** The plan's golden-screenshot test under `launchInIframe` requires the deferred Playwright fixture from UI-M3. At UI-M4, the compile-and-bookkeeping halves of the contract are verified by the Node test suite; actual Avalonia rendering of the runtime-parsed XAML will be covered by the UI-M3 + UI-M4 joint Playwright fixture.
+- **TypeScript `documentPaths` accessor.** Not currently surfaced. Not in the UI-M4 plan §8.1 acceptance either — the test indirectly covers companion-invisibility via compile semantics. If the accessor is needed later (e.g. editor tooling), add it as a one-line JSExport + TS wrapper.
 
 ### 8.1 Acceptance
 

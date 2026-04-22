@@ -113,25 +113,68 @@ internal sealed class ProjectCompiler : IDisposable
     // intentionally not in this map so it can't leak into AddSource/UpdateSource/RemoveSource.
     private readonly Dictionary<string, DocumentId> _documentsByPath = new(StringComparer.Ordinal);
 
+    // UI-M4: axaml path → DocumentId of the paired auto-generated .g.cs. Tracks only the
+    // generated companion; the .axaml content itself is not handed to Roslyn (it would be
+    // mis-parsed as C#). The user-facing source lives as a string in _axamlSources and is
+    // re-read on UpdateSource to regenerate the companion.
+    private readonly Dictionary<string, DocumentId> _axamlCompanionIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _axamlSources = new(StringComparer.Ordinal);
+
     // Set of attached reference ids (session-scoped). Looked up through _referenceRegistry at
     // rebuild time — if the registry removes a ref while it's still attached here, the next
     // rebuild silently skips the orphan (architecture §3.1).
     private readonly HashSet<string> _attachedReferenceIds = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// The set of user-visible document paths currently in the project, in insertion order.
-    /// Exposed for diagnostics and tests; callers must not mutate it.
+    /// The set of user-visible document paths currently in the project. Includes both
+    /// C# sources (backed by Roslyn documents) and .axaml sources (UI-M4; backed by a
+    /// generated companion, not a Roslyn document). Auto-generated <c>.g.cs</c>
+    /// companions are intentionally excluded — they are an implementation detail.
+    /// Callers must not mutate either collection.
     /// </summary>
-    public IReadOnlyCollection<string> DocumentPaths => _documentsByPath.Keys;
+    public IReadOnlyCollection<string> DocumentPaths
+    {
+        get
+        {
+            if (_axamlSources.Count == 0) return _documentsByPath.Keys;
+            var combined = new List<string>(_documentsByPath.Count + _axamlSources.Count);
+            combined.AddRange(_documentsByPath.Keys);
+            combined.AddRange(_axamlSources.Keys);
+            return combined;
+        }
+    }
 
     public void AddSource(string path, string code)
     {
         ValidatePath(path);
-        if (_documentsByPath.ContainsKey(path))
+        if (_documentsByPath.ContainsKey(path) || _axamlSources.ContainsKey(path))
         {
             throw new InvalidOperationException(
                 $"Document path '{path}' is already in the project; use UpdateSource to replace its content. " +
                 "Note: paths are compared byte-for-byte, so casing and slash direction matter.");
+        }
+
+        // UI-M4: .axaml documents are paired with a generated .g.cs companion that wires
+        // InitializeComponent() to AvaloniaRuntimeXamlLoader.Load. The .axaml itself is
+        // not added as a Roslyn document — it would be mis-parsed as C# — but its
+        // content is retained for UpdateSource-driven regeneration and diagnostics.
+        if (IsAxamlPath(path))
+        {
+            _axamlSources[path] = code;
+            var companion = AxamlCompanionGenerator.Generate(path, code);
+            if (companion is not null)
+            {
+                var companionPath = AxamlCompanionGenerator.CompanionPath(path);
+                var companionId = DocumentId.CreateNewId(_projectId, companionPath);
+                Solution = Solution.AddDocument(
+                    companionId, companionPath, SourceText.From(companion, Encoding.UTF8),
+                    filePath: companionPath);
+                _axamlCompanionIds[path] = companionId;
+                Workspace.TryApplyChanges(Solution);
+            }
+            _logger.LogTrace("AddSource('{Path}') [.axaml] -> companion {HasCompanion}.",
+                path, _axamlCompanionIds.ContainsKey(path));
+            return;
         }
 
         var id = DocumentId.CreateNewId(_projectId, path);
@@ -143,9 +186,54 @@ internal sealed class ProjectCompiler : IDisposable
         _logger.LogTrace("AddSource('{Path}') -> now {Count} user document(s).", path, _documentsByPath.Count);
     }
 
+    private static bool IsAxamlPath(string path) =>
+        path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase);
+
     public void UpdateSource(string path, string code)
     {
         ValidatePath(path);
+
+        // UI-M4: an .axaml update regenerates the paired .g.cs companion. If the updated
+        // XAML removes x:Class, the existing companion is dropped (the .axaml becomes a
+        // manual-load artefact for this update). Adding x:Class back on a later update
+        // re-creates the companion.
+        if (IsAxamlPath(path))
+        {
+            if (!_axamlSources.ContainsKey(path))
+            {
+                throw new InvalidOperationException(
+                    $"Unknown document path '{path}'; call AddSource first. " +
+                    "Note: paths are compared byte-for-byte, so casing and slash direction matter.");
+            }
+            _axamlSources[path] = code;
+            var companion = AxamlCompanionGenerator.Generate(path, code);
+            if (_axamlCompanionIds.TryGetValue(path, out var existingId))
+            {
+                if (companion is null)
+                {
+                    Solution = Solution.RemoveDocument(existingId);
+                    _axamlCompanionIds.Remove(path);
+                }
+                else
+                {
+                    Solution = Solution.WithDocumentText(existingId, SourceText.From(companion, Encoding.UTF8));
+                }
+            }
+            else if (companion is not null)
+            {
+                var companionPath = AxamlCompanionGenerator.CompanionPath(path);
+                var newId = DocumentId.CreateNewId(_projectId, companionPath);
+                Solution = Solution.AddDocument(
+                    newId, companionPath, SourceText.From(companion, Encoding.UTF8),
+                    filePath: companionPath);
+                _axamlCompanionIds[path] = newId;
+            }
+            Workspace.TryApplyChanges(Solution);
+            _logger.LogTrace("UpdateSource('{Path}') [.axaml] -> companion {HasCompanion}.",
+                path, _axamlCompanionIds.ContainsKey(path));
+            return;
+        }
+
         if (!_documentsByPath.TryGetValue(path, out var id))
         {
             throw new InvalidOperationException(
@@ -213,6 +301,21 @@ internal sealed class ProjectCompiler : IDisposable
     public void RemoveSource(string path)
     {
         ValidatePath(path);
+
+        // UI-M4: dropping an .axaml drops its paired companion too.
+        if (IsAxamlPath(path) && _axamlSources.ContainsKey(path))
+        {
+            if (_axamlCompanionIds.TryGetValue(path, out var companionId))
+            {
+                Solution = Solution.RemoveDocument(companionId);
+                _axamlCompanionIds.Remove(path);
+            }
+            _axamlSources.Remove(path);
+            Workspace.TryApplyChanges(Solution);
+            _logger.LogTrace("RemoveSource('{Path}') [.axaml].", path);
+            return;
+        }
+
         if (!_documentsByPath.TryGetValue(path, out var id))
         {
             // Silent no-op per architecture M2 D16: teardown code commonly tries to clean
