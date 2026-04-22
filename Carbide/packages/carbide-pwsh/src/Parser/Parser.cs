@@ -128,6 +128,21 @@ public sealed class Parser
         }
 
         var expr = ParseLogicalOr();
+
+        // Top-level comma operator: `1, 2, 3` forms an array, matching real pwsh. Comma has
+        // the lowest precedence of any operator, so it attaches here after ParseLogicalOr.
+        if (IsAt(TokenKind.Comma))
+        {
+            var elems = new List<ExpressionAst> { expr };
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                elems.Add(ParseLogicalOr());
+            }
+            expr = new ArrayExpressionAst(elems, loc);
+        }
+
         if (IsAssignmentOp(Current.Kind))
         {
             var op = Current.Kind switch
@@ -182,6 +197,19 @@ public sealed class Parser
             return new SubExpressionAst(new ScriptAst(new[] { cmdStmt }, loc), loc);
         }
         var expr = ParseLogicalOr();
+        // Top-level comma operator on the RHS: `$a, $b = 1, 2` builds a 2-element array
+        // on the right, which the assignment then destructures over the LHS array.
+        if (IsAt(TokenKind.Comma))
+        {
+            var elems = new List<ExpressionAst> { expr };
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                elems.Add(ParseLogicalOr());
+            }
+            expr = new ArrayExpressionAst(elems, loc);
+        }
         if (!IsAt(TokenKind.Pipe)) return expr;
         var stages = new List<AstNode> { expr };
         while (IsAt(TokenKind.Pipe))
@@ -830,6 +858,7 @@ public sealed class Parser
     private ExpressionAst ParseCommandArgument()
     {
         var t = Current;
+        ExpressionAst first;
         switch (t.Kind)
         {
             case TokenKind.Variable:
@@ -840,14 +869,31 @@ public sealed class Parser
             case TokenKind.AtLBrace:
             case TokenKind.DollarLParen:
             case TokenKind.LBrace:
-                return ParsePostfix();
+                first = ParsePostfix();
+                break;
 
             case TokenKind.LBracket when LooksLikeTypeLiteral():
-                return ParsePostfix();
+                first = ParsePostfix();
+                break;
 
             default:
                 return ParseBareWord();
         }
+
+        // Command-mode comma-array: `Write-Output 1,2,3` is a single argument whose value
+        // is @(1,2,3). Collect adjacent comma-separated expressions into an ArrayExpression.
+        if (IsAt(TokenKind.Comma))
+        {
+            var elems = new List<ExpressionAst> { first };
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                elems.Add(ParsePostfix());
+            }
+            return new ArrayExpressionAst(elems, t.Location);
+        }
+        return first;
     }
 
     private ExpressionAst ParseBareWord()
@@ -1178,12 +1224,39 @@ public sealed class Parser
             throw new PwshParseException("Expected function name.", Current.Location);
         var name = Advance().Text;
         SkipNewlines();
+
+        // Real pwsh supports `function name (a, b) { body }` as a shorthand for the
+        // param-block form. If we see a `(` before the `{`, parse inline parameters.
+        var parameters = new List<ParameterAst>();
+        bool parenParams = false;
+        if (IsAt(TokenKind.LParen))
+        {
+            parenParams = true;
+            Advance();
+            SkipNewlines();
+            if (!IsAt(TokenKind.RParen))
+            {
+                parameters.Add(ParseParameter());
+                SkipNewlines();
+                while (IsAt(TokenKind.Comma))
+                {
+                    Advance();
+                    SkipNewlines();
+                    parameters.Add(ParseParameter());
+                    SkipNewlines();
+                }
+            }
+            Consume(TokenKind.RParen);
+            SkipNewlines();
+        }
+
         Consume(TokenKind.LBrace);
         SkipNewlinesAndSemicolons();
 
-        // Optional param(...) block right after {.
-        var parameters = new List<ParameterAst>();
-        if (IsKeyword("param"))
+        // Optional param(...) block right after { — only if the paren-parameter form wasn't
+        // already used on the function declaration line. Using both is a syntax error in
+        // real pwsh; we quietly ignore the inner param(...) when the outer form wins.
+        if (!parenParams && IsKeyword("param"))
         {
             Advance();
             SkipNewlines();

@@ -122,6 +122,11 @@ public static class Coercion
     {
         if (value == null) return "";
         if (value is bool b) return b ? "True" : "False";
+        // Match real pwsh's numeric rendering: double/float use 15 significant digits
+        // (G15) instead of .NET's default G17 round-trip format. `10 / 3` prints as
+        // `3.33333333333333`, not `3.3333333333333335`.
+        if (value is double d) return d.ToString("G15", CultureInfo.InvariantCulture);
+        if (value is float f32) return f32.ToString("G7", CultureInfo.InvariantCulture);
         if (value is IFormattable f) return f.ToString(null, CultureInfo.InvariantCulture);
         return value.ToString() ?? "";
     }
