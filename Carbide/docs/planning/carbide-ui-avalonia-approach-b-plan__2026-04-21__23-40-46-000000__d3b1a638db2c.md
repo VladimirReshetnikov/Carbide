@@ -115,9 +115,17 @@ These three land in `@carbide/core` independently of `Carbide.UI` work. Each has
 
 Each PR title prefix: `carbide-core: ` (the umbrella package tag). Each one is independently shippable.
 
-## 4. UI-M0 — skeleton & build pipeline
+## 4. UI-M0 — skeleton & build pipeline  ✓ shipped 2026-04-21
 
 **Goal.** Stand up `src/Carbide.UI/`, four empty npm packages, the internal `runner-dotnet` csproj (empty stub), and CI wiring that measures sizes even before any real code exists. No Avalonia yet; no runtime bundle yet; no protocol.
+
+**Shipped artefacts (2026-04-21, repo HEAD 1caf40063):**
+
+- Tree scaffolded under [`src/Carbide.UI/`](../../../Carbide.UI/) per proposal §7.6.
+- Four `package.json` files (`refs-avalonia`, `runtime-bundle`, `runner`, `launcher`) with `version: "0.0.0-dev.0"`, `private: true`, Apache-2.0 licence. Each packs cleanly via `npm pack --dry-run`.
+- Internal C# stub: [`packages/runner-dotnet/Avalonia.UI.Runner.csproj`](../../../Carbide.UI/packages/runner-dotnet/Avalonia.UI.Runner.csproj) + [`Program.cs`](../../../Carbide.UI/packages/runner-dotnet/Program.cs) printing `"stub runner"`. Not built at UI-M0; UI-M2 brings the build online.
+- Size gate: [`scripts/measure-sizes.mjs`](../../../Carbide.UI/scripts/measure-sizes.mjs) reports per-package tarball bytes against UI-I2 budgets. Replaces the `.github/workflows/carbide-ui.yml` deliverable from the original §4.2 table — the repo has no `.github/workflows/` directory, so a locally-runnable measurement script serves the same purpose and is CI-ready when a workflow story arrives. Baseline (2026-04-21): all four packages < 1 KB (stubs).
+- `.gitignore` updates: repo root whitelists `!src/Carbide.UI/packages/`; `src/Carbide.UI/.gitignore` excludes generated `ref/`, `_framework/`, `dist/`, etc.
 
 ### 4.1 Acceptance
 
@@ -452,26 +460,26 @@ This lives entirely in `@carbide/core`'s document-handling layer. It is **not** 
 - A `src/Carbide.UI/docs/drift/` directory, per proposal §7.6, holds dated drift reports on upstream Avalonia + .NET releases.
 - CI has a nightly job (opt-in, not blocking trunk) that rebuilds the runtime bundle against the next Avalonia minor release and runs the UI-M6 sample set. Failures produce a drift report stub in `docs/drift/` that a maintainer fills in.
 
-## 11. Owner decisions required before UI-M0
+## 11. Owner decisions (resolved 2026-04-21)
 
-Per proposal §13:
+All four calls from proposal §13 are recorded. UI-M0 is unblocked and has shipped (see the ✓ marker on UI-M0's heading in §4).
 
-1. **Approve the companion-project concept.** Edit `src/Carbide/docs/carbide-vision__2026-04-17__16-16-47-000000.md` §13 to include the "Companion projects" paragraph quoted in the proposal §2. Without this, UI-M0 does not start.
-2. **Pick the Avalonia target version.** Current public stable (12.x); or 13.0 if released by UI-M1 start. The choice is recorded in `packages/refs-avalonia/package.json`'s version and `packages/runtime-bundle/package.json`'s `"pinned"` block.
-3. **Confirm .NET target.** `net10.0-browser` mirrors Carbide core. No reason to diverge.
-4. **Finalise the npm scope.** `@carbide-ui/*` is the working name per the proposal; if Carbide's `@carbide` scope itself is renamed, the companion follows.
+1. ✓ **Companion-project concept approved.** The "Companion projects" paragraph was added to [`carbide-vision.md`](../carbide-vision__2026-04-17__16-16-47-000000.md) §13 on 2026-04-21, naming `@carbide-ui/*` as the first companion and explicitly stating that `@carbide/core`'s N.1–N.8 non-goals do not bind companions (and vice versa).
+2. ✓ **Avalonia target: 12.x latest stable.** 13.0 is speculative as of the decision date and not on the v1 track. The exact 12.x patch is pinned in [`packages/refs-avalonia/scripts/build.mjs`](../../../Carbide.UI/packages/refs-avalonia/scripts/build.mjs) when UI-M1 opens, and in [`packages/runtime-bundle/package.json`](../../../Carbide.UI/packages/runtime-bundle/package.json)'s `"pinned"` block when UI-M2 opens. Bumping the 12.x patch is a routine PR; bumping the minor or moving to 13.x engages the drift workflow (§10.5).
+3. ✓ **.NET target: `net10.0-browser`.** Mirrors Carbide core. The runner csproj already carries this — [`Avalonia.UI.Runner.csproj`](../../../Carbide.UI/packages/runner-dotnet/Avalonia.UI.Runner.csproj) sets `<TargetFramework>net10.0-browser</TargetFramework>` at UI-M0.
+4. ✓ **npm scope: `@carbide-ui/*` (final).** The working name stays. Fits the vision amendment's `@carbide-<topic>/*` pattern exactly. If Carbide's own `@carbide` scope is renamed later (proposal Q.1 fallback), the companion family follows in lockstep — no need to re-open this plan.
 
-Items 2–4 are short. Item 1 is the material one: without the vision amendment, every UI-M* phase is blocked.
+The authoritative decision record lives in [proposal §13](../proposals/carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__2bc4122b7f3f.md); this section mirrors it for plan-first readers.
 
-## 12. Open questions carried from the proposal (tracked, not resolved here)
+## 12. Open questions — ratified positions (2026-04-21)
 
-These are the proposal §12 open questions that survive into this plan. They are re-opened by editing the proposal, not this document.
+All proposal §12 Positions relevant to this plan are ratified. Re-opening any of them routes through the proposal's §12, not this document.
 
-- **Q.2 App-class discovery.** v1 requires `LaunchOptions.appClass`. v1.1 may infer from `BuildResult.primaryAssemblyName + ".App"` (§10.3 ships the field; the inference is a launcher-side addition).
-- **Q.3 Teardown across runs.** v1 swaps `MainView`; v2 supports full `Application` swap. Tracked as a UI-M6+ follow-up.
-- **Q.4 `Console.WriteLine` forwarding.** Deferred. If needed, add a `{ type: "stdout", text }` message at protocol schema version 2. Not this plan's concern.
-- **Q.6 XAML without Carbide M12.** Handled in v1 via UI-M4; UI-M7 is the compile-time fix, gated on M12.
-- **Q.7 Ref-pack delivery via CDN + IndexedDB.** Open; v1 uses npm. No action until npm cost becomes a real complaint.
+- ✓ **Q.2 App-class discovery.** `LaunchOptions.appClass` is **required in v1**. v1.1 may infer from `BuildResult.primaryAssemblyName + ".App"` (the field is shipped via core-P3 §10.3; the inference is a launcher-side addition, non-breaking).
+- ✓ **Q.3 Teardown across runs.** v1 swaps `MainView`; v2 supports full `Application` swap. The v1 limitation — static state in the previous `App` lingers — is a documented property, tested in UI-M3's fixture set, and recalled in `@carbide-ui/launcher`'s README.
+- ✓ **Q.4 `Console.WriteLine` forwarding.** Not in v1. If users ask for it, add `{ type: "stdout", text: string }` at protocol schema version 2 — the runner can already intercept via `Console.SetOut`. Zero runner work until a user asks.
+- ✓ **Q.6 XAML without Carbide M12.** v1 answer is runtime parse via `AvaloniaRuntimeXamlLoader` (UI-M4); UI-M7 is the compile-time fix, gated on Carbide M12. Documented in `@carbide-ui/refs-avalonia`'s README per plan §9.3.
+- ✓ **Q.7 Ref-pack delivery.** v1 ships via npm (`@carbide-ui/refs-avalonia`). CDN + IndexedDB remains on the table as a v2 move if npm install cost becomes a real complaint; no action until it does.
 
 ## 13. Risks (roll-up from proposal §14, per-phase refinement)
 

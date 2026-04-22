@@ -1,0 +1,32 @@
+{
+  "name": "@carbide-ui/launcher",
+  "version": "0.0.0-dev.0",
+  "description": "TypeScript orchestrator that bridges a Carbide BuildResult into @carbide-ui/avalonia-runner via postMessage. UI-M0 stub; real contents ship at UI-M3.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "keywords": [
+    "carbide",
+    "avalonia",
+    "launcher",
+    "ui"
+  ],
+  "license": "Apache-2.0",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

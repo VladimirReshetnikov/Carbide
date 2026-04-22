@@ -1,0 +1,20 @@
+{
+  "name": "@carbide-ui/avalonia-runner",
+  "version": "0.0.0-dev.0",
+  "description": "HTML/JS shell that iframe-embeds @carbide-ui/avalonia-runtime-bundle and brokers PE loads via postMessage. UI-M0 stub; real contents ship at UI-M3.",
+  "type": "module",
+  "files": [
+    "index.html",
+    "main.js",
+    "runner-bridge.js",
+    "README.md"
+  ],
+  "keywords": [
+    "carbide",
+    "avalonia",
+    "iframe",
+    "ui"
+  ],
+  "license": "Apache-2.0",
+  "private": true
+}

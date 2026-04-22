@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net10.0-browser</TargetFramework>
+    <OutputType>Exe</OutputType>
+
+    <!-- UI-M0: no trimming. The runner will load user PEs via AssemblyLoadContext.LoadFromStream
+         at UI-M3; the trimmer cannot see through that edge. Overrides the Carbide.UI
+         Directory.Build.props defaults. -->
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+
+    <RootNamespace>Carbide.UI.Runner</RootNamespace>
+    <AssemblyName>Avalonia.UI.Runner</AssemblyName>
+  </PropertyGroup>
+</Project>

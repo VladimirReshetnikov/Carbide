@@ -1,0 +1,20 @@
+bin/
+obj/
+dist/
+node_modules/
+test-results/
+playwright-report/
+*.tsbuildinfo
+*.tgz
+
+# @carbide-ui/refs-avalonia downloads and extracts Avalonia nupkgs at UI-M1 build time.
+packages/refs-avalonia/.cache/
+packages/refs-avalonia/ref/
+packages/refs-avalonia/refpack.json
+
+# @carbide-ui/avalonia-runtime-bundle writes the published _framework/ tree at UI-M2.
+packages/runtime-bundle/_framework/
+packages/runtime-bundle/bundle-manifest.json
+
+# @carbide-ui/launcher tsc output.
+packages/launcher/dist/
