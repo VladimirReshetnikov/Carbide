@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text;
 using CarbidePwsh.Runtime;
 using CarbideShellCore.Vfs;
+using PwshProviderItem = CarbidePwsh.Runtime.PwshProviderItem;
+using PwshDriveKind = CarbidePwsh.Runtime.PwshDriveKind;
 
 namespace CarbidePwsh.Host;
 
@@ -25,14 +27,21 @@ public static class OutputFormatter
         if (value is float f32) return f32.ToString("G7", CultureInfo.InvariantCulture);
         if (value is VfsNode[] vfsArr) return FormatVfsTable(vfsArr);
         if (value is IDictionary dict) return FormatDictionary(dict);
+        if (value is PwshProviderItem single_provider) return FormatProviderItems(new[] { single_provider });
         if (value is Array arr)
         {
-            // Homogeneous VfsNode arrays get the table treatment.
+            // Homogeneous typed arrays get the table treatment.
             if (arr.Length > 0 && arr.GetValue(0) is VfsNode)
             {
                 var list = new List<VfsNode>();
                 foreach (var item in arr) if (item is VfsNode n) list.Add(n);
                 if (list.Count == arr.Length) return FormatVfsTable(list.ToArray());
+            }
+            if (arr.Length > 0 && arr.GetValue(0) is PwshProviderItem)
+            {
+                var list = new List<PwshProviderItem>();
+                foreach (var item in arr) if (item is PwshProviderItem p) list.Add(p);
+                if (list.Count == arr.Length) return FormatProviderItems(list.ToArray());
             }
             return FormatEnumerable(arr);
         }
@@ -90,6 +99,75 @@ public static class OutputFormatter
 
     private static void AppendColoredCell(StringBuilder sb, string text)
         => sb.Append(HdrOn).Append(text).Append(HdrOff);
+
+    /// <summary>
+    /// Render provider items to match real pwsh's default formatters for each drive:
+    /// Env / Variable use Name/Value (30/? widths); Alias / Function use CommandType /
+    /// Name / Version / Source (15 / 50 / 10 / rest). Leading + trailing blank lines,
+    /// ANSI-colored headers, pwsh-exact layout.
+    /// </summary>
+    private static string FormatProviderItems(PwshProviderItem[] items)
+    {
+        if (items.Length == 0) return "";
+        var drive = items[0].Drive;
+        return drive switch
+        {
+            PwshDriveKind.Alias => FormatCommandTable(items, "Alias"),
+            PwshDriveKind.Function => FormatCommandTable(items, "Function"),
+            _ => FormatProviderNameValue(items),
+        };
+    }
+
+    private static string FormatProviderNameValue(PwshProviderItem[] items)
+    {
+        int nameWidth = "Name".Length;
+        foreach (var it in items) if (it.Name.Length > nameWidth) nameWidth = it.Name.Length;
+        if (nameWidth < 30) nameWidth = 30;
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "Name".PadRight(nameWidth));
+        AppendColoredCell(sb, " Value"); sb.AppendLine();
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "-----"); sb.AppendLine();
+        foreach (var it in items)
+        {
+            sb.Append(it.Name.PadRight(nameWidth)).Append(' ').Append(Format(it.Value));
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatCommandTable(PwshProviderItem[] items, string commandType)
+    {
+        // Column widths match real pwsh 7.x `Get-ChildItem Alias:` / `Function:`:
+        // CommandType = 15, Name = 50, Version = 10, Source = remainder.
+        const int ctWidth = 15;
+        const int nameWidth = 50;
+        const int verWidth = 10;
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "CommandType".PadRight(ctWidth));
+        AppendColoredCell(sb, " Name".PadRight(nameWidth + 1));
+        AppendColoredCell(sb, " Version".PadRight(verWidth + 1));
+        AppendColoredCell(sb, " Source"); sb.AppendLine();
+        AppendColoredCell(sb, "-----------".PadRight(ctWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "-------".PadRight(verWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "------"); sb.AppendLine();
+        foreach (var it in items)
+        {
+            // For Alias, show `name -> target`; Function shows just the name.
+            var nameField = it.Target is null ? it.Name : $"{it.Name} -> {it.Target}";
+            sb.Append(commandType.PadRight(ctWidth)).Append(' ')
+              .Append(nameField.PadRight(nameWidth)).Append(' ')
+              .Append("".PadRight(verWidth)).Append(' ')
+              .Append("");
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
 
     private static string FormatEnumerable(IEnumerable en)
     {

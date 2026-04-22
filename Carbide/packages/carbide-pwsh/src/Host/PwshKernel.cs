@@ -99,7 +99,14 @@ public sealed class PwshKernel : IShellKernel
         }
     }
 
-    public string BuildPrompt(ShellExecutionContext ctx) => $"PS {ctx.Vfs.CurrentLocation}> ";
+    public string BuildPrompt(ShellExecutionContext ctx)
+    {
+        // Reflect the active pwsh drive in the prompt so users know when they're navigating
+        // a provider namespace. `PS Env:\>`, `PS Alias:\>`, etc. match real pwsh's default.
+        var display = CarbidePwsh.Runtime.PathQualifier.PromptDisplay(
+            _host.Interpreter.CurrentDrive, ctx.Vfs.CurrentLocation);
+        return $"PS {display}> ";
+    }
 
     public string BuildContinuationPrompt(ShellExecutionContext ctx) => ">> ";
 }

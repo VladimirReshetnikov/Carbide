@@ -26,6 +26,7 @@ public enum TokenKind
     DollarLParen,       // $(
     Comma,              // ,
     Dot,                // .
+    Colon,              // : (drive qualifier like Env:FOO)
     ColonColon,         // ::
     DotDot,             // ..
     Equal,              // =

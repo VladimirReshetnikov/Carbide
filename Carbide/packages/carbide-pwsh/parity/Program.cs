@@ -288,5 +288,17 @@ internal static class Scenarios
         ("nested hash access",   "(@{a=@{b=42}}).a.b"),
         ("set and read var",     "$x = 42; $x"),
         ("multi-assign",         "$a, $b = 1, 2; \"$a,$b\""),
+
+        // Providers.
+        ("env read via $env",    "$env:PARITY_ONE = 'hi'; $env:PARITY_ONE"),
+        ("env read via Get-Item","$env:PARITY_TWO = 'ok'; (Get-Item Env:PARITY_TWO).Value"),
+        ("env Test-Path exists", "$env:PARITY_THREE = 'x'; Test-Path Env:PARITY_THREE"),
+        ("env Test-Path absent", "Test-Path Env:NEVER_SET_ZZZZ999"),
+        ("variable via $var:",   "$xv = 7; $variable:xv"),
+        ("variable Get-Item",    "$xvi = 7; (Get-Item Variable:xvi).Value"),
+        ("cd Variable then pwd", "Set-Location Variable:; (Get-Location).ToString()"),
+        ("cd Function then pwd", "Set-Location Function:; (Get-Location).ToString()"),
+        ("cd Alias then pwd",    "Set-Location Alias:; (Get-Location).ToString()"),
+        ("cd Env then pwd",      "Set-Location Env:; (Get-Location).ToString()"),
     };
 }

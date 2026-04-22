@@ -69,6 +69,10 @@ public sealed class ShellHost
         Interpreter.RunScriptFile = RunScriptFileFromVfs;
         Interpreter.RunApp = RunAppFromVfs;
 
+        // Route $env: through the session-shared EnvVarStore so env mutations are coherent
+        // with any cmd / bash kernel sharing the dispatcher.
+        Interpreter.Scope.Env = Env;
+
         Interpreter.Scope.Set("global", "PSVersionTable", BuildVersionTable());
         Interpreter.Scope.Set("global", "HOME", VfsPath.HomePath);
         Interpreter.Scope.Set("global", "?", true);
@@ -95,8 +99,8 @@ public sealed class ShellHost
 
     public string BuildPrompt()
     {
-        var pwd = Vfs.CurrentLocation;
-        return $"PS {pwd}> ";
+        var display = Runtime.PathQualifier.PromptDisplay(Interpreter.CurrentDrive, Vfs.CurrentLocation);
+        return $"PS {display}> ";
     }
 
     public string ContinuationPrompt() => ">> ";
@@ -273,6 +277,8 @@ public sealed class ShellHost
         r.Register(() => new NewItemCommand());
         r.Register(() => new RemoveItemCommand());
         r.Register(() => new TestPathCommand());
+        r.Register(() => new GetItemCommand());
+        r.Register(() => new SetItemCommand());
         r.Register(() => new SetLocationCommand());
         r.Register(() => new GetLocationCommand());
         r.Register(() => new ResolvePathCommand());

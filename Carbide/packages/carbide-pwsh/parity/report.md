@@ -2,7 +2,7 @@
 
 - Reference: `C:\Program Files\PowerShell\7\pwsh.exe`
 - Candidate: in-process `CarbidePwsh.Host.ShellHost`
-- Scenarios: 54
+- Scenarios: 64
 
 ## int arithmetic  ✅
 
@@ -845,6 +845,156 @@ $a, $b = 1, 2; "$a,$b"
 
 ```
 1,2⟨CR⟩
+
+```
+
+</details>
+
+## env read via $env  ✅
+
+```powershell
+$env:PARITY_ONE = 'hi'; $env:PARITY_ONE
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+hi⟨CR⟩
+
+```
+
+</details>
+
+## env read via Get-Item  ✅
+
+```powershell
+$env:PARITY_TWO = 'ok'; (Get-Item Env:PARITY_TWO).Value
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+ok⟨CR⟩
+
+```
+
+</details>
+
+## env Test-Path exists  ✅
+
+```powershell
+$env:PARITY_THREE = 'x'; Test-Path Env:PARITY_THREE
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+True⟨CR⟩
+
+```
+
+</details>
+
+## env Test-Path absent  ✅
+
+```powershell
+Test-Path Env:NEVER_SET_ZZZZ999
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+False⟨CR⟩
+
+```
+
+</details>
+
+## variable via $var:  ✅
+
+```powershell
+$xv = 7; $variable:xv
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+7⟨CR⟩
+
+```
+
+</details>
+
+## variable Get-Item  ✅
+
+```powershell
+$xvi = 7; (Get-Item Variable:xvi).Value
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+7⟨CR⟩
+
+```
+
+</details>
+
+## cd Variable then pwd  ✅
+
+```powershell
+Set-Location Variable:; (Get-Location).ToString()
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+Variable:\⟨CR⟩
+
+```
+
+</details>
+
+## cd Function then pwd  ✅
+
+```powershell
+Set-Location Function:; (Get-Location).ToString()
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+Function:\⟨CR⟩
+
+```
+
+</details>
+
+## cd Alias then pwd  ✅
+
+```powershell
+Set-Location Alias:; (Get-Location).ToString()
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+Alias:\⟨CR⟩
+
+```
+
+</details>
+
+## cd Env then pwd  ✅
+
+```powershell
+Set-Location Env:; (Get-Location).ToString()
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+Env:\⟨CR⟩
 
 ```
 

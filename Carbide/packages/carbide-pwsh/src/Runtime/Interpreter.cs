@@ -48,6 +48,14 @@ public sealed class Interpreter
     public CarbideShellCore.Dispatch.ShellDispatcher? Dispatcher { get; set; }
     public CarbideShellCore.Env.EnvVarStore? Env { get; set; }
 
+    /// <summary>
+    /// Active pwsh drive — <c>FileSystem</c> by default, or one of <c>Env</c>, <c>Alias</c>,
+    /// <c>Function</c>, <c>Variable</c> when the user <c>cd</c>'d into a provider. Read by
+    /// the prompt builder and by the item cmdlets when no drive qualifier is present on
+    /// the supplied path. <c>Set-Location X:</c> is the only thing that mutates it.
+    /// </summary>
+    public PwshDriveKind CurrentDrive { get; set; } = PwshDriveKind.FileSystem;
+
     /// <summary>Raised to run a script file path when the interpreter encounters it as a
     /// command name. Set by <see cref="Host.ShellHost"/>; returns the result of the script.</summary>
     public Func<string, bool, IReadOnlyList<object?>, object?>? RunScriptFile { get; set; }
