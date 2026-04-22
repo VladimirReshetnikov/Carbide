@@ -154,9 +154,27 @@ Each PR title prefix: `carbide-core: ` (the umbrella package tag). Each one is i
 
 - **Decision gate.** UI-M0 does not start until the proposal §13 decisions are made: (1) companion-project vision amendment accepted; (2) Avalonia target version picked; (3) .NET version confirmed (`net10.0-browser`); (4) npm scope finalised. Without (1), the whole directory should not appear in the tree.
 
-## 5. UI-M1 — reference pack
+## 5. UI-M1 — reference pack  ✓ shipped 2026-04-21
 
 **Goal.** `@carbide-ui/refs-avalonia` ships the compile-time reference DLLs for Avalonia. Mirrors the build script shape of `@carbide/refs-net10.0` (see `packages/refs-net10.0/scripts/build.mjs`). Enables Carbide callers to compile Avalonia-referencing C# without the runtime bundle.
+
+**Shipped artefacts (2026-04-21, Avalonia 12.0.1):**
+
+- [`packages/refs-avalonia/scripts/build.mjs`](../../../Carbide.UI/packages/refs-avalonia/scripts/build.mjs) — downloads Avalonia 12.0.1 from `api.nuget.org`, verifies SHA256, filters to `lib/<tfm>/` DLLs per UI-I8, writes `ref/net10.0-browser/` and `refpack.json`. Runs at `postinstall` and on demand via `npm run build`. Idempotent: subsequent runs print "up to date" when the manifest matches the pinned version.
+- 8 extracted DLLs (`Avalonia.dll`, `Avalonia.Base.dll`, `Avalonia.Controls.dll`, `Avalonia.Markup.dll`, `Avalonia.Markup.Xaml.dll`, `Avalonia.Markup.Xaml.Loader.dll`, `Avalonia.Browser.dll`, `Avalonia.Themes.Fluent.dll`), total 4.93 MB uncompressed.
+- [`refpack.json`](../../../Carbide.UI/packages/refs-avalonia/refpack.json) — schema version 1; records `avaloniaVersion`, per-DLL `{name, sha256, sizeBytes, sourceId}`, per-source `{id, version, url, sha256, sourceTfm}`. Shape parallels [`@carbide/refs-net10.0`'s `ref-manifest.json`](../../../Carbide/packages/refs-net10.0/ref-manifest.json).
+- [`THIRD_PARTY_NOTICES.md`](../../../Carbide.UI/packages/refs-avalonia/THIRD_PARTY_NOTICES.md) — Avalonia MIT licence reproduced.
+- [`README.md`](../../../Carbide.UI/packages/refs-avalonia/README.md) — consumption instructions, pinning workflow, DLL inventory.
+
+**Size measurement:**
+
+```
+[OK  ] @carbide-ui/refs-avalonia  1.643 MB  (budget 2.000 MB)
+```
+
+Compressed tarball 1.64 MB against the 2 MB compressed budget; 4.93 MB against the 5 MB uncompressed budget. Both UI-I2 gates green.
+
+**Acceptance deferrals:** the "Carbide consumer compiles an Avalonia-referencing program via `session.initializeAsync({ sideload: [...] })`" end-to-end check is blocked on core-P1 (`CarbideOptions.sideload`). Before core-P1 lands, consumers can feed refs manually via `session.addReference(bytes, name)` using `refpack.json` — the DLL bytes and manifest are already shipping.
 
 ### 5.1 Acceptance
 
