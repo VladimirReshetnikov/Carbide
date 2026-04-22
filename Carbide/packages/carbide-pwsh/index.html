@@ -64,7 +64,8 @@
       return out.join("\n");
     };
 
-    const SOURCE_FILES = [
+    // carbide-pwsh-local sources.
+    const PWSH_SOURCE_FILES = [
       "src/Program.cs",
       "src/Errors/SourceLocation.cs",
       "src/Errors/PwshException.cs",
@@ -91,11 +92,6 @@
       "src/Runtime/FunctionRegistry.cs",
       "src/Runtime/RuntimeClass.cs",
       "src/Runtime/RuntimeEnum.cs",
-      "src/Runtime/AppRegistry.cs",
-      "src/Vfs/VfsPath.cs",
-      "src/Vfs/VfsNode.cs",
-      "src/Vfs/VirtualFileSystem.cs",
-      "src/Vfs/VfsSnapshot.cs",
       "src/Cmdlets/Cmdlet.cs",
       "src/Cmdlets/ParameterBinding.cs",
       "src/Cmdlets/CmdletRegistry.cs",
@@ -124,20 +120,37 @@
       "src/Cmdlets/Fs/CopyMoveCommands.cs",
       "src/Cmdlets/Sys/SystemCommands.cs",
       "src/Cmdlets/App/AppCommands.cs",
+      "src/Cmdlets/Shell/CrossShellCommands.cs",
       "src/Host/Banner.cs",
       "src/Host/OutputFormatter.cs",
       "src/Host/ShellHost.cs",
     ];
 
+    // Shared carbide-shell-core sources compiled into the same project on the browser
+    // side — the WASM path is source-list-based, not assembly-reference-based.
+    const SHARED_SOURCE_FILES = [
+      "src/Errors/ShellException.cs",
+      "src/Vfs/VfsPath.cs",
+      "src/Vfs/VfsNode.cs",
+      "src/Vfs/VirtualFileSystem.cs",
+      "src/Vfs/VfsSnapshot.cs",
+      "src/Apps/AppRegistry.cs",
+      "src/Env/EnvVarStore.cs",
+      "src/Dispatch/IShellKernel.cs",
+      "src/Dispatch/ShellExecutionContext.cs",
+      "src/Dispatch/ShellDispatcher.cs",
+      "src/Io/ShellArgTokenizer.cs",
+    ];
+
     async function loadSources() {
-      const entries = await Promise.all(
-        SOURCE_FILES.map(async (rel) => {
-          const r = await fetch(`/packages/carbide-pwsh/${rel}`);
-          if (!r.ok) throw new Error(`failed to fetch ${rel}: HTTP ${r.status}`);
-          return [rel.replace(/^src\//, ""), await r.text()];
-        }),
-      );
-      return entries;
+      const fetchOne = async (pkg, rel) => {
+        const r = await fetch(`/packages/${pkg}/${rel}`);
+        if (!r.ok) throw new Error(`failed to fetch ${pkg}/${rel}: HTTP ${r.status}`);
+        return [`${pkg}/${rel.replace(/^src\//, "")}`, await r.text()];
+      };
+      const pwsh = PWSH_SOURCE_FILES.map((rel) => fetchOne("carbide-pwsh", rel));
+      const shared = SHARED_SOURCE_FILES.map((rel) => fetchOne("carbide-shell-core", rel));
+      return Promise.all([...pwsh, ...shared]);
     }
 
     async function main() {

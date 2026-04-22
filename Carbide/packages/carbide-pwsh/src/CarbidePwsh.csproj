@@ -24,4 +24,8 @@
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <TrimmerSingleWarn>true</TrimmerSingleWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\carbide-shell-core\src\CarbideShellCore.csproj" />
+  </ItemGroup>
 </Project>

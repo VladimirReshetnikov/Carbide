@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace CarbidePwsh.Vfs;
+namespace CarbideShellCore.Vfs;
 
 /// <summary>
 /// Serializes a VFS tree to/from JSON. File content is base64-encoded to preserve arbitrary
