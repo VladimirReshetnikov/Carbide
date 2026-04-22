@@ -25,7 +25,8 @@ const runnerProgram = exportsRoot?.Carbide?.UI?.Runner?.RunnerProgram;
 if (!runnerProgram || typeof runnerProgram.OnLoadMessage !== "function") {
     throw new Error(
         "@carbide-ui/avalonia-runner: Carbide.UI.Runner.RunnerProgram.OnLoadMessage " +
-        "was not reachable through the assembly exports tree."
+        "was not reachable through the assembly exports tree. keys: " +
+        JSON.stringify(Object.keys(exportsRoot ?? {}))
     );
 }
 globalThis.__carbideRunnerInterop = runnerProgram;

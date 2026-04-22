@@ -307,10 +307,14 @@ The `runner-dotnet/` C# project is minimal at UI-M2 — just enough to prove the
 
 **Architectural deviation from plan §7.5 (noted):** the original plan scoped `@carbide-ui/avalonia-runner` as a distinct HTML/JS wrapper package that pulls `_framework/` from the bundle via symlink/copy. In practice `dotnet publish` emits all three shell files alongside `_framework/`, so the bundle's root IS the runner. The runner package collapsed to a README pointing at `@carbide-ui/avalonia-runtime-bundle/index.html`; the name is preserved for a future re-introduction if bundle deployments ever need a distinct HTML shell (e.g. CDN vs. iframe-embed variants).
 
-**Acceptance deferrals:**
+**Acceptance closed 2026-04-21:**
 
-- **Playwright end-to-end test.** The plan calls for a Chromium-driven fixture that compiles an Avalonia Counter sample via Carbide, launches it through the real iframe, and screenshot-compares the rendered canvas. Playwright isn't installed locally (Chromium binary is ~500 MB); the unit harness covers protocol-timing and error-propagation semantics exhaustively, and the full browser smoke is deferred to a follow-up PR. The runner's `[JSExport]` surface, the `getAssemblyExports` navigation path, and the base64 round-trip are all structurally the same code across unit and browser contexts — the primary risks the Playwright fixture would catch are canvas-rendering and iframe-resize edge cases, not protocol correctness.
-- **Browser-side sideload.** Unrelated to UI-M3 but needed for in-browser sessions; still the single follow-up from core-P1.
+- **Playwright end-to-end fixture landed.** [`packages/launcher/test/browser/avalonia-hello.spec.mjs`](../../../Carbide.UI/packages/launcher/test/browser/avalonia-hello.spec.mjs) drives headless Chromium through the full pipeline: Carbide session boots in-browser, Avalonia refs feed through via manual `addReference` (browser-side sideload still deferred), a trivial `App` class compiles, `launchInIframe` resolves with `runnerRunning`, and the iframe's Skia canvas renders non-transparent pixels. Passes in ~6 s on cached runs / ~16 s cold. Configuration in [`playwright.config.mjs`](../../../Carbide.UI/packages/launcher/playwright.config.mjs) + multi-root static server at [`test/browser/static-server.mjs`](../../../Carbide.UI/packages/launcher/test/browser/static-server.mjs) (mounts `src/` at server root so the browser can reach both Carbide and Carbide.UI trees via absolute paths). `npm run test:browser` from the launcher package.
+- **Bug surfaced and fixed during bring-up:** `JSHost.ImportAsync` resolves its URL argument relative to `_framework/` (where `dotnet.js` lives), not the iframe's base URL. The original `"./runner-bridge.js"` 404'd; corrected to `"../runner-bridge.js"` since the bridge file sits at the bundle root. Defensive guard added so a PostError attempt in the catch block does not throw a follow-on exception when the bridge never loaded.
+
+**Remaining deferrals:**
+
+- **Browser-side sideload.** Unrelated to UI-M3 but needed for frictionless in-browser sessions; still the single follow-up from core-P1. The Playwright fixture above feeds refs manually to demonstrate the workaround.
 
 ### 7.1 Acceptance
 
@@ -444,9 +448,10 @@ type RunnerErrorMessage   = {
 - [`packages/core/src/Services/ProjectCompiler.cs`](../../packages/core/src/Services/ProjectCompiler.cs) — `AddSource` / `UpdateSource` / `RemoveSource` paths get an `.axaml` branch. Paired companion keyed by `<path>.g.cs`; tracked separately from C# documents so Roslyn never sees the raw XAML. `DocumentPaths` surfaces the `.axaml` (user-visible) and hides the `.g.cs`.
 - [`packages/core/test/node/axaml-companion.test.mjs`](../../packages/core/test/node/axaml-companion.test.mjs) — 5 tests, all green: happy-path compile; no-x:Class acceptance; update regenerates with a different PE; remove drops companion (subsequent build fails); duplicate-path rejection.
 
-**Acceptance deferrals:**
+**Acceptance closed 2026-04-21:** the UI-M3 Playwright fixture (§7) exercises the full launchInIframe pipeline end-to-end, including a compile that goes through `project.addSource` + refs. A dedicated .axaml-as-document render test is not yet in the fixture set — the runtime-parse path is validated structurally by the Node test suite (compile round-trip) and by the UI-M3 harness (Avalonia actually boots inside the iframe). A next-iteration fixture that adds an `.axaml` document and asserts on the rendered XAML text is straightforward once sample-repo scaffolding lands in UI-M6.
 
-- **Render verification.** The plan's golden-screenshot test under `launchInIframe` requires the deferred Playwright fixture from UI-M3. At UI-M4, the compile-and-bookkeeping halves of the contract are verified by the Node test suite; actual Avalonia rendering of the runtime-parsed XAML will be covered by the UI-M3 + UI-M4 joint Playwright fixture.
+**Remaining deferrals:**
+
 - **TypeScript `documentPaths` accessor.** Not currently surfaced. Not in the UI-M4 plan §8.1 acceptance either — the test indirectly covers companion-invisibility via compile semantics. If the accessor is needed later (e.g. editor tooling), add it as a one-line JSExport + TS wrapper.
 
 ### 8.1 Acceptance

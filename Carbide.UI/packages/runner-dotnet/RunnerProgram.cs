@@ -30,7 +30,9 @@ public static partial class RunnerProgram
         {
             // JSHost.ImportAsync runs the module's top-level code, which installs the
             // `window.addEventListener("message", ...)` listener in runner-bridge.js.
-            await JSHost.ImportAsync("runner-bridge", "./runner-bridge.js").ConfigureAwait(false);
+            // Path is resolved relative to _framework/ (where dotnet.js lives), so the
+            // runner-bridge at the bundle root needs a `../` prefix.
+            await JSHost.ImportAsync("runner-bridge", "../runner-bridge.js").ConfigureAwait(false);
             PostReady();
             // Mono-WASM browser ends the process when Main returns. A never-completing
             // awaiter keeps the runtime alive so [JSExport]-invoked OnLoadMessage runs
@@ -39,7 +41,11 @@ public static partial class RunnerProgram
         }
         catch (Exception ex)
         {
-            PostError($"runner boot failed: {ex}");
+            // PostError may itself fail if ImportAsync never completed (PostError is an
+            // [JSImport] bound to runner-bridge which isn't loaded yet). Swallow the
+            // inner failure so the original exception propagates unobstructed.
+            Console.WriteLine($"[runner-cs] boot FAILED: {ex}");
+            try { PostError($"runner boot failed: {ex}"); } catch { /* swallow */ }
             throw;
         }
     }
