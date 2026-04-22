@@ -1,0 +1,126 @@
+<!doctype html>
+<!-- UI-M3 + UI-M4 + core-P1 (browser sideload) joint integration fixture. Loads
+     @carbide/core + @carbide-ui/launcher in a browser, sideloads the Avalonia ref-pack
+     via the browser adapter, compiles an Avalonia Application that renders a
+     TextBlock, and launches it into an iframe via launchInIframe. Reports the outcome
+     on #result[data-status]. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Carbide.UI — avalonia-hello smoke</title>
+  </head>
+  <body>
+    <pre id="result">pending</pre>
+    <iframe id="preview" style="width: 400px; height: 200px; border: none;"></iframe>
+
+    <script type="module">
+      import { CarbideSession, BrowserHostAdapter }
+        from "/Carbide/packages/core/dist/index.js";
+      import { launchInIframe }
+        from "/Carbide.UI/packages/launcher/dist/index.js";
+
+      const resultEl = document.getElementById("result");
+      const iframe   = document.getElementById("preview");
+
+      window.addEventListener("error", (e) => {
+        if (resultEl.dataset.status == null) {
+          resultEl.textContent = "UNCAUGHT: " + e.message;
+          resultEl.dataset.status = "error";
+        }
+      });
+      window.addEventListener("unhandledrejection", (e) => {
+        if (resultEl.dataset.status == null) {
+          const reason = e.reason;
+          resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+          resultEl.dataset.status = "error";
+        }
+      });
+
+      const HELLO_APP_SOURCE = `
+        using Avalonia;
+        using Avalonia.Controls;
+        using Avalonia.Controls.ApplicationLifetimes;
+        using Avalonia.Themes.Fluent;
+
+        namespace CarbideHello;
+
+        public class App : Application
+        {
+            public override void Initialize()
+            {
+                Styles.Add(new FluentTheme());
+            }
+
+            public override void OnFrameworkInitializationCompleted()
+            {
+                if (ApplicationLifetime is ISingleViewApplicationLifetime svl)
+                {
+                    svl.MainView = new TextBlock
+                    {
+                        Text = "Hello, Carbide + Avalonia",
+                        Margin = new Thickness(16),
+                    };
+                }
+                base.OnFrameworkInitializationCompleted();
+            }
+        }
+      `.trim();
+
+      async function runSmoke() {
+        // sideloadBaseUrl points at `/scoped/` — the static server rewrites
+        // `/scoped/@carbide-ui/<pkg>/...` to the monorepo's `/Carbide.UI/packages/<pkg>/...`
+        // layout so the fixture can sideload the real scoped npm name. Production
+        // consumers would use `"/node_modules"` against an npm-installed tree where the
+        // scoped path exists natively.
+        const adapter = new BrowserHostAdapter({
+          frameworkAssetsBaseUrl: new URL(
+            "/Carbide/packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+            window.location.origin,
+          ).toString(),
+          sideloadBaseUrl: new URL("/scoped/", window.location.origin).toString(),
+        });
+
+        const session = await CarbideSession.initializeAsync({
+          hostAdapter: adapter,
+          sideload: ["@carbide-ui/refs-avalonia"],
+        });
+        try {
+          const project = session.createProject({ assemblyName: "CarbideHello" });
+          project.addSource("App.cs", HELLO_APP_SOURCE);
+
+          const build = await project.build();
+          if (!build.success) {
+            throw new Error(
+              "compile failed: " +
+              JSON.stringify(build.diagnostics.filter((d) => d.severity === "error"))
+            );
+          }
+
+          const runnerSrc = new URL(
+            "/Carbide.UI/packages/runtime-bundle/index.html",
+            window.location.origin,
+          ).toString();
+
+          const handle = await launchInIframe(build, iframe, {
+            appClass: "CarbideHello.App",
+            runnerSrc,
+            readyTimeoutMs: 120_000,
+          });
+          return { success: true, primaryAssemblyName: build.primaryAssemblyName };
+        } finally {
+          await session.shutdown();
+        }
+      }
+
+      runSmoke()
+        .then((payload) => {
+          resultEl.textContent = JSON.stringify(payload);
+          resultEl.dataset.status = "ok";
+        })
+        .catch((err) => {
+          resultEl.textContent = "ERR: " + (err?.stack ?? err);
+          resultEl.dataset.status = "error";
+        });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- UI-M6 multi-preview fixture. Drives three iframes from a single CarbideSession,
+     each rendering a different Avalonia sample program. Verifies the runner + launcher
+     architecture tolerates concurrent iframe instances without cross-talk (plan §9.1).
+     Reports outcome on #result[data-status]. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Carbide.UI — multi-preview smoke</title>
+    <style>
+      body { margin: 0; font-family: sans-serif; }
+      #previews { display: flex; gap: 8px; padding: 8px; }
+      iframe { width: 300px; height: 180px; border: 1px solid #ccc; }
+      #result { padding: 8px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="result">pending</pre>
+    <div id="previews">
+      <iframe id="p-hello"></iframe>
+      <iframe id="p-counter"></iframe>
+      <iframe id="p-xaml"></iframe>
+    </div>
+
+    <script type="module">
+      import { CarbideSession, BrowserHostAdapter }
+        from "/Carbide/packages/core/dist/index.js";
+      import { launchInIframe }
+        from "/Carbide.UI/packages/launcher/dist/index.js";
+
+      const resultEl = document.getElementById("result");
+      window.addEventListener("error", (e) => {
+        if (resultEl.dataset.status == null) {
+          resultEl.textContent = "UNCAUGHT: " + e.message;
+          resultEl.dataset.status = "error";
+        }
+      });
+      window.addEventListener("unhandledrejection", (e) => {
+        if (resultEl.dataset.status == null) {
+          const reason = e.reason;
+          resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+          resultEl.dataset.status = "error";
+        }
+      });
+
+      const SAMPLES = [
+        { iframeId: "p-hello",   assemblyName: "HelloCodeOnly",    appClass: "HelloCodeOnly.App",
+          source: "/Carbide.UI/samples/hello-code-only/App.cs" },
+        { iframeId: "p-counter", assemblyName: "CarbideCounter",   appClass: "CarbideCounter.App",
+          source: "/Carbide.UI/samples/counter/App.cs" },
+        { iframeId: "p-xaml",    assemblyName: "HelloRuntimeXaml", appClass: "HelloRuntimeXaml.App",
+          source: "/Carbide.UI/samples/hello-runtime-xaml-string/App.cs" },
+      ];
+
+      async function runSmoke() {
+        const adapter = new BrowserHostAdapter({
+          frameworkAssetsBaseUrl: new URL(
+            "/Carbide/packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+            window.location.origin,
+          ).toString(),
+          sideloadBaseUrl: new URL("/scoped/", window.location.origin).toString(),
+        });
+
+        const session = await CarbideSession.initializeAsync({
+          hostAdapter: adapter,
+          sideload: ["@carbide-ui/refs-avalonia"],
+        });
+        try {
+          // Phase 1: compile each sample serially (Carbide's compile path is main-thread
+          // single-threaded). Serial compiles cost more wall time than Promise.all would
+          // but make debugging deterministic.
+          const builds = [];
+          for (const s of SAMPLES) {
+            const src = await fetch(s.source).then((r) => r.text());
+            const project = session.createProject({ assemblyName: s.assemblyName });
+            project.addSource("App.cs", src);
+            const build = await project.build();
+            if (!build.success) {
+              throw new Error(
+                `compile failed for ${s.assemblyName}: ` +
+                JSON.stringify(build.diagnostics.filter((d) => d.severity === "error"))
+              );
+            }
+            builds.push({ ...s, build });
+          }
+
+          // Phase 2: launch every iframe concurrently. Each runner is its own
+          // main-thread .NET runtime; no cross-iframe coordination is needed.
+          const runnerSrc = new URL(
+            "/Carbide.UI/packages/runtime-bundle/index.html",
+            window.location.origin,
+          ).toString();
+          const handles = await Promise.all(builds.map((b) => {
+            const iframe = document.getElementById(b.iframeId);
+            return launchInIframe(b.build, iframe, {
+              appClass: b.appClass,
+              runnerSrc,
+              readyTimeoutMs: 180_000,
+            });
+          }));
+          return {
+            success: true,
+            previewCount: handles.length,
+            handleIds: handles.map((h) => h.id),
+          };
+        } finally {
+          await session.shutdown();
+        }
+      }
+
+      runSmoke()
+        .then((payload) => {
+          resultEl.textContent = JSON.stringify(payload);
+          resultEl.dataset.status = "ok";
+        })
+        .catch((err) => {
+          resultEl.textContent = "ERR: " + (err?.stack ?? err);
+          resultEl.dataset.status = "error";
+        });
+    </script>
+  </body>
+</html>
