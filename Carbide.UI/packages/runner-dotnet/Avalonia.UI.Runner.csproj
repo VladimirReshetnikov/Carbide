@@ -2,16 +2,33 @@
   <PropertyGroup>
     <TargetFramework>net10.0-browser</TargetFramework>
     <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WasmMainJSPath>wwwroot/main.js</WasmMainJSPath>
 
-    <!-- UI-M0: no trimming. The runner will load user PEs via AssemblyLoadContext.LoadFromStream
-         at UI-M3; the trimmer cannot see through that edge. Overrides the Carbide.UI
-         Directory.Build.props defaults. -->
+    <!-- UI-M2: loose trimming. The runner will LoadFromStream a user PE at UI-M3,
+         which the trimmer cannot see through. Avalonia's XAML loader also uses
+         reflection heavily. Publishing trimmed today breaks both paths — leave
+         trimming off until a later hardening pass can tune roots.xml. -->
     <IsTrimmable>false</IsTrimmable>
     <PublishTrimmed>false</PublishTrimmed>
     <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
 
+    <!-- Avalonia requires InvariantGlobalization=false to render non-ASCII text. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Don't fingerprint assets — the bundle is consumed as a static _framework/ tree
+         indexed by exact filenames from bundle-manifest.json. -->
+    <WasmFingerprintAssets>false</WasmFingerprintAssets>
+
     <RootNamespace>Carbide.UI.Runner</RootNamespace>
     <AssemblyName>Avalonia.UI.Runner</AssemblyName>
   </PropertyGroup>
+
+  <!-- Avalonia versions pinned to match @carbide-ui/refs-avalonia (plan §10.3 triple-pin). -->
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Browser" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
+    <PackageReference Include="Avalonia.Markup.Xaml.Loader" Version="12.0.1" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,18 @@
-// @carbide-ui/avalonia-runner — C# entry point. UI-M0 stub.
-// At UI-M2 this gains a trivial Avalonia bootstrap; at UI-M3 it becomes RunnerProgram
-// with the full postMessage bridge. See plan §7.4.
+// @carbide-ui/avalonia-runner — UI-M2 bootstrap.
+// Boots Avalonia.Browser into the iframe's <div id="out">. At UI-M3 this grows a
+// postMessage bridge (RunnerProgram) that accepts user PE payloads and mounts them
+// via a collectible AssemblyLoadContext.
 
-Console.WriteLine("stub runner");
+using Avalonia;
+using Avalonia.Browser;
+
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("browser")]
+
+internal sealed class Program
+{
+    public static Task Main(string[] args) =>
+        BuildAvaloniaApp().StartBrowserAppAsync("out");
+
+    public static AppBuilder BuildAvaloniaApp()
+        => AppBuilder.Configure<Carbide.UI.Runner.App>();
+}

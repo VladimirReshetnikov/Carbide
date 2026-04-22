@@ -222,9 +222,30 @@ Compressed tarball 1.64 MB against the 2 MB compressed budget; 4.93 MB against t
 - **UI-M1-R1. Avalonia nupkg structure differs from `Microsoft.NETCore.App.Ref`'s flat `ref/net10.0/` layout.** Avalonia's `.nupkg` contains `ref/net8.0/` (and possibly `ref/net10.0-browser/`) plus build-task stuff. Mitigation: probe the actual pinned version's layout up front; the build script's TFM selector is a config constant. Out-of-band follow-up: record the observed layout in the build script's header comment so future maintainers don't re-derive it.
 - **UI-M1-R2. `SkiaSharp` native binaries in the nupkg balloon the download.** Filter at extraction time: `ref/` content only; no `runtimes/` content goes into the ref-pack.
 
-## 6. UI-M2 — runtime bundle
+## 6. UI-M2 — runtime bundle  ✓ shipped 2026-04-21
 
 **Goal.** `@carbide-ui/avalonia-runtime-bundle` ships the prebuilt Avalonia.Browser `_framework/` tree. This is the bytes-only package the runner embeds in its HTML shell.
+
+**Shipped artefacts (2026-04-21, Avalonia 12.0.1 / .NET 10.0.6):**
+
+- [`packages/runner-dotnet/Avalonia.UI.Runner.csproj`](../../../Carbide.UI/packages/runner-dotnet/Avalonia.UI.Runner.csproj) — `Microsoft.NET.Sdk.WebAssembly`, `net10.0-browser`, pinned `Avalonia.Browser`/`Avalonia.Themes.Fluent`/`Avalonia.Markup.Xaml.Loader` at 12.0.1.
+- [`Program.cs`](../../../Carbide.UI/packages/runner-dotnet/Program.cs) + [`App.cs`](../../../Carbide.UI/packages/runner-dotnet/App.cs) — minimal Avalonia boot with a splash `TextBlock`. Becomes `RunnerProgram` at UI-M3.
+- [`wwwroot/index.html`](../../../Carbide.UI/packages/runner-dotnet/wwwroot/index.html) + [`wwwroot/main.js`](../../../Carbide.UI/packages/runner-dotnet/wwwroot/main.js) — iframe-embeddable HTML shell + `_framework/dotnet.js` boot module.
+- [`packages/runtime-bundle/build.mjs`](../../../Carbide.UI/packages/runtime-bundle/build.mjs) — runs `dotnet publish -c Release` on the runner csproj, copies `_framework/` + `shell/` (HTML + JS) into the package, computes per-file SHA256, writes `bundle-manifest.json`. Not wired to `postinstall` — the publish step requires the .NET 10 SDK + `wasm-tools` workload, which most consumers won't have; maintainers run `npm run build` on demand and commit the generated artefacts.
+- [`bundle-manifest.json`](../../../Carbide.UI/packages/runtime-bundle/bundle-manifest.json) — schema v1; triple-pin block `{avalonia, dotnet, carbide}` (carbide still null until UI-M3 wires the protocol); `sizeBytes` records on-disk and effective-Brotli-cold-load; `framework[]` + `shell[]` arrays with `{path, sizeBytes, sha256}` per file.
+- [`test-shell.html`](../../../Carbide.UI/packages/runtime-bundle/test-shell.html) — throwaway smoke fixture; excluded from the published tarball.
+
+**Measurements:**
+
+```
+[OK  ] @carbide-ui/avalonia-runtime-bundle  25.118 MB  (budget 35.000 MB)
+```
+
+- 414 files bundled (412 framework + 2 shell); 49.64 MB on disk (raw + `.br` siblings); 25.12 MB npm tarball; **11.00 MB** effective cold-load in a Brotli-capable browser. Under UI-I2's 35 MB compressed budget with ~10 MB headroom.
+
+**Design deviation from original §6 acceptance:** the plan originally said "Brotli + gzip files both committed". The bundle ships **only raw + `.br`**; `.gz` siblings are dropped. Rationale: modern browsers (99%+) accept Brotli; `.gz` is redundant compression that adds ~15 MB to the tarball for marginal compat gain. Any consumer that genuinely needs gzip can recompress the raw files at deploy time. Documented in [`packages/runtime-bundle/README.md`](../../../Carbide.UI/packages/runtime-bundle/README.md).
+
+**Acceptance deferrals:** the plan-specified "opening `test-shell.html` in a browser boots Avalonia and renders the default splash" is a manual smoke step. It has not been auto-tested in CI at UI-M2 (no Playwright harness yet); UI-M3 introduces the first integration test suite.
 
 ### 6.1 Acceptance
 

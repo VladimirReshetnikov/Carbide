@@ -1,10 +1,11 @@
 {
   "name": "@carbide-ui/avalonia-runtime-bundle",
   "version": "0.0.0-dev.0",
-  "description": "Pre-built Avalonia.Browser WASM runtime bundle for Carbide's cross-frame runner. UI-M0 stub; real contents ship at UI-M2.",
+  "description": "Pre-built Avalonia.Browser WASM runtime bundle for Carbide's cross-frame runner. Contains the published _framework/ tree plus a minimal HTML/JS shell.",
   "type": "module",
   "files": [
     "_framework/**/*",
+    "shell/**/*",
     "bundle-manifest.json",
     "README.md"
   ],
