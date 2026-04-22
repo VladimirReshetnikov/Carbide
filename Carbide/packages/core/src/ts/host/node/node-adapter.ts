@@ -1,8 +1,8 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { access, readFile } from "node:fs/promises";
-import type { HostAdapter, ReferencePackDescriptor } from "../adapter.js";
+import { access, readdir, readFile } from "node:fs/promises";
+import type { HostAdapter, ReferencePackDescriptor, SideloadedRefPack } from "../adapter.js";
 import { type AssetServerHandle, startAssetServer } from "./asset-server.js";
 
 export type NodeAdapterAssetDelivery = "file" | "http";
@@ -102,6 +102,55 @@ export class NodeHostAdapter implements HostAdapter {
 
     private refPackServer: AssetServerHandle | null = null;
 
+    /**
+     * core-P1 (plan §10.1): resolve `<packageName>/refpack.json` via Node's
+     * createRequire (walks node_modules from this module), read the manifest, and
+     * stream each listed DLL's bytes into memory. Returns a descriptor the session
+     * applies via `addReference(bytes, dllName)` during `initializeAsync`.
+     *
+     * Throws with a self-descriptive message when the package isn't installed, the
+     * manifest is malformed, or any listed DLL is missing on disk — sideload is
+     * explicit; silent partial success would confuse consumers.
+     */
+    async loadSideloadRefPack(packageName: string): Promise<SideloadedRefPack> {
+        const manifestPath = await locateSideloadManifest(packageName);
+        let manifest: { refDirectory?: string; dlls?: Array<{ name?: string }> };
+        try {
+            manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+        } catch (err) {
+            throw new Error(
+                `[sideload] ${packageName}: failed to parse refpack.json at ${manifestPath}: ${(err as Error).message}`,
+            );
+        }
+        if (!manifest.refDirectory) {
+            throw new Error(
+                `[sideload] ${packageName}: refpack.json is missing the 'refDirectory' field.`,
+            );
+        }
+        const dllList = (manifest.dlls ?? []).filter((d): d is { name: string } => typeof d?.name === "string");
+        if (dllList.length === 0) {
+            throw new Error(`[sideload] ${packageName}: refpack.json lists no DLLs.`);
+        }
+        const packageDir = path.dirname(manifestPath);
+        const dllDir = path.resolve(packageDir, manifest.refDirectory);
+        const dlls = await Promise.all(
+            dllList.map(async (d) => {
+                const dllPath = path.join(dllDir, d.name);
+                try {
+                    const bytes = await readFile(dllPath);
+                    return { name: d.name, bytes: new Uint8Array(bytes) };
+                } catch (err) {
+                    throw new Error(
+                        `[sideload] ${packageName}: missing DLL at ${dllPath}. ` +
+                        `Run 'npm install' or 'npm run build' in that package to regenerate the ref/ tree. ` +
+                        `(fs reported: ${(err as Error).message})`,
+                    );
+                }
+            }),
+        );
+        return { packageName, manifestPath, dlls };
+    }
+
     async dispose(): Promise<void> {
         if (this.serverHandle) {
             await this.serverHandle.close();
@@ -111,6 +160,66 @@ export class NodeHostAdapter implements HostAdapter {
             await this.refPackServer.close();
             this.refPackServer = null;
         }
+    }
+}
+
+/**
+ * core-P1: resolve a sideload package's refpack.json. Tries Node's own resolver first
+ * (normal case for consumers who `npm install`ed the package), then falls back to a
+ * monorepo-sibling walk-up — matches the precedent set by `locateRefPack` for
+ * `@carbide/refs-net10.0`. Throws a self-descriptive error when neither strategy works.
+ */
+async function locateSideloadManifest(packageName: string): Promise<string> {
+    try {
+        const require = createRequire(import.meta.url);
+        return require.resolve(`${packageName}/refpack.json`);
+    } catch {
+        // Fall through to the monorepo walk-up.
+    }
+
+    const unscoped = packageName.replace(/^@[^/]+\//, "");
+    const thisDir = path.dirname(fileURLToPath(import.meta.url));
+    const candidates: string[] = [];
+    let dir = thisDir;
+    // Walk up 10 ancestors. At each level probe:
+    //   - packages/<unscoped>/refpack.json (same monorepo root as @carbide/core)
+    //   - <unscoped>/refpack.json (adjacent layout)
+    //   - <sibling>/packages/<unscoped>/refpack.json for every immediate child
+    //     of this ancestor — covers cross-root layouts like @carbide-ui/* living
+    //     under src/Carbide.UI/packages/ while @carbide/core lives under
+    //     src/Carbide/packages/.
+    for (let i = 0; i < 10; i++) {
+        candidates.push(path.join(dir, "packages", unscoped, "refpack.json"));
+        candidates.push(path.join(dir, unscoped, "refpack.json"));
+        try {
+            const siblings = await readdir(dir);
+            for (const sibling of siblings) {
+                if (sibling.startsWith(".")) continue;
+                candidates.push(path.join(dir, sibling, "packages", unscoped, "refpack.json"));
+            }
+        } catch {
+            // Directory not readable at this ancestor — skip sibling scan for this level.
+        }
+        const parent = path.dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    for (const candidate of candidates) {
+        if (await fileExists(candidate)) return candidate;
+    }
+    throw new Error(
+        `[sideload] cannot locate ${packageName}/refpack.json — is the package installed ` +
+        `(via npm) or present as a monorepo sibling (looked for packages/${unscoped}/)? ` +
+        `First few candidates: ${candidates.slice(0, 4).join(", ")}`,
+    );
+}
+
+async function fileExists(p: string): Promise<boolean> {
+    try {
+        await access(p);
+        return true;
+    } catch {
+        return false;
     }
 }
 

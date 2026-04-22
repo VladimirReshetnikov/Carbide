@@ -36,6 +36,17 @@ export interface BuildResult {
     pdb?: Uint8Array;
     diagnostics: Diagnostic[];
     durationMs: number;
+    /**
+     * core-P3: version of the PE/PDB wire contract. Always `1` in v1; undefined on failed
+     * builds. Exists so downstream consumers (e.g. `@carbide-ui/launcher`) can guard
+     * against shape changes without inspecting Carbide's own `schemaVersion`.
+     */
+    peSchemaVersion?: number;
+    /**
+     * core-P3: the compilation's primary assembly name (e.g. `"MyApp"`). Useful as a
+     * fallback for caller-supplied app-class inference. Undefined on failed builds.
+     */
+    primaryAssemblyName?: string;
 }
 
 export interface ProjectOptions {

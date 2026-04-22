@@ -12,6 +12,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text;
 using System.Threading;
 using Carbide.Core.Hosting;
@@ -112,25 +113,68 @@ internal sealed class ProjectCompiler : IDisposable
     // intentionally not in this map so it can't leak into AddSource/UpdateSource/RemoveSource.
     private readonly Dictionary<string, DocumentId> _documentsByPath = new(StringComparer.Ordinal);
 
+    // UI-M4: axaml path → DocumentId of the paired auto-generated .g.cs. Tracks only the
+    // generated companion; the .axaml content itself is not handed to Roslyn (it would be
+    // mis-parsed as C#). The user-facing source lives as a string in _axamlSources and is
+    // re-read on UpdateSource to regenerate the companion.
+    private readonly Dictionary<string, DocumentId> _axamlCompanionIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _axamlSources = new(StringComparer.Ordinal);
+
     // Set of attached reference ids (session-scoped). Looked up through _referenceRegistry at
     // rebuild time — if the registry removes a ref while it's still attached here, the next
     // rebuild silently skips the orphan (architecture §3.1).
     private readonly HashSet<string> _attachedReferenceIds = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// The set of user-visible document paths currently in the project, in insertion order.
-    /// Exposed for diagnostics and tests; callers must not mutate it.
+    /// The set of user-visible document paths currently in the project. Includes both
+    /// C# sources (backed by Roslyn documents) and .axaml sources (UI-M4; backed by a
+    /// generated companion, not a Roslyn document). Auto-generated <c>.g.cs</c>
+    /// companions are intentionally excluded — they are an implementation detail.
+    /// Callers must not mutate either collection.
     /// </summary>
-    public IReadOnlyCollection<string> DocumentPaths => _documentsByPath.Keys;
+    public IReadOnlyCollection<string> DocumentPaths
+    {
+        get
+        {
+            if (_axamlSources.Count == 0) return _documentsByPath.Keys;
+            var combined = new List<string>(_documentsByPath.Count + _axamlSources.Count);
+            combined.AddRange(_documentsByPath.Keys);
+            combined.AddRange(_axamlSources.Keys);
+            return combined;
+        }
+    }
 
     public void AddSource(string path, string code)
     {
         ValidatePath(path);
-        if (_documentsByPath.ContainsKey(path))
+        if (_documentsByPath.ContainsKey(path) || _axamlSources.ContainsKey(path))
         {
             throw new InvalidOperationException(
                 $"Document path '{path}' is already in the project; use UpdateSource to replace its content. " +
                 "Note: paths are compared byte-for-byte, so casing and slash direction matter.");
+        }
+
+        // UI-M4: .axaml documents are paired with a generated .g.cs companion that wires
+        // InitializeComponent() to AvaloniaRuntimeXamlLoader.Load. The .axaml itself is
+        // not added as a Roslyn document — it would be mis-parsed as C# — but its
+        // content is retained for UpdateSource-driven regeneration and diagnostics.
+        if (IsAxamlPath(path))
+        {
+            _axamlSources[path] = code;
+            var companion = AxamlCompanionGenerator.Generate(path, code);
+            if (companion is not null)
+            {
+                var companionPath = AxamlCompanionGenerator.CompanionPath(path);
+                var companionId = DocumentId.CreateNewId(_projectId, companionPath);
+                Solution = Solution.AddDocument(
+                    companionId, companionPath, SourceText.From(companion, Encoding.UTF8),
+                    filePath: companionPath);
+                _axamlCompanionIds[path] = companionId;
+                Workspace.TryApplyChanges(Solution);
+            }
+            _logger.LogTrace("AddSource('{Path}') [.axaml] -> companion {HasCompanion}.",
+                path, _axamlCompanionIds.ContainsKey(path));
+            return;
         }
 
         var id = DocumentId.CreateNewId(_projectId, path);
@@ -142,9 +186,54 @@ internal sealed class ProjectCompiler : IDisposable
         _logger.LogTrace("AddSource('{Path}') -> now {Count} user document(s).", path, _documentsByPath.Count);
     }
 
+    private static bool IsAxamlPath(string path) =>
+        path.EndsWith(".axaml", StringComparison.OrdinalIgnoreCase);
+
     public void UpdateSource(string path, string code)
     {
         ValidatePath(path);
+
+        // UI-M4: an .axaml update regenerates the paired .g.cs companion. If the updated
+        // XAML removes x:Class, the existing companion is dropped (the .axaml becomes a
+        // manual-load artefact for this update). Adding x:Class back on a later update
+        // re-creates the companion.
+        if (IsAxamlPath(path))
+        {
+            if (!_axamlSources.ContainsKey(path))
+            {
+                throw new InvalidOperationException(
+                    $"Unknown document path '{path}'; call AddSource first. " +
+                    "Note: paths are compared byte-for-byte, so casing and slash direction matter.");
+            }
+            _axamlSources[path] = code;
+            var companion = AxamlCompanionGenerator.Generate(path, code);
+            if (_axamlCompanionIds.TryGetValue(path, out var existingId))
+            {
+                if (companion is null)
+                {
+                    Solution = Solution.RemoveDocument(existingId);
+                    _axamlCompanionIds.Remove(path);
+                }
+                else
+                {
+                    Solution = Solution.WithDocumentText(existingId, SourceText.From(companion, Encoding.UTF8));
+                }
+            }
+            else if (companion is not null)
+            {
+                var companionPath = AxamlCompanionGenerator.CompanionPath(path);
+                var newId = DocumentId.CreateNewId(_projectId, companionPath);
+                Solution = Solution.AddDocument(
+                    newId, companionPath, SourceText.From(companion, Encoding.UTF8),
+                    filePath: companionPath);
+                _axamlCompanionIds[path] = newId;
+            }
+            Workspace.TryApplyChanges(Solution);
+            _logger.LogTrace("UpdateSource('{Path}') [.axaml] -> companion {HasCompanion}.",
+                path, _axamlCompanionIds.ContainsKey(path));
+            return;
+        }
+
         if (!_documentsByPath.TryGetValue(path, out var id))
         {
             throw new InvalidOperationException(
@@ -212,6 +301,21 @@ internal sealed class ProjectCompiler : IDisposable
     public void RemoveSource(string path)
     {
         ValidatePath(path);
+
+        // UI-M4: dropping an .axaml drops its paired companion too.
+        if (IsAxamlPath(path) && _axamlSources.ContainsKey(path))
+        {
+            if (_axamlCompanionIds.TryGetValue(path, out var companionId))
+            {
+                Solution = Solution.RemoveDocument(companionId);
+                _axamlCompanionIds.Remove(path);
+            }
+            _axamlSources.Remove(path);
+            Workspace.TryApplyChanges(Solution);
+            _logger.LogTrace("RemoveSource('{Path}') [.axaml].", path);
+            return;
+        }
+
         if (!_documentsByPath.TryGetValue(path, out var id))
         {
             // Silent no-op per architecture M2 D16: teardown code commonly tries to clean
@@ -290,7 +394,7 @@ internal sealed class ProjectCompiler : IDisposable
         sw.Stop();
         return pe is null
             ? BuildResult.Failed(emitDiagnostics, sw.Elapsed.TotalMilliseconds)
-            : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds);
+            : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds, compilation.AssemblyName);
     }
 
     private static OutputKind InferOutputKind(Compilation compilation)
@@ -393,9 +497,19 @@ internal sealed class ProjectCompiler : IDisposable
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
 
+        // core-P2 (plan §10.2): load the user PE and its references into a per-run
+        // collectible AssemblyLoadContext. Previously used Assembly.Load(byte[]), which
+        // lands in the default ALC and accumulates across runs — browser sessions that
+        // built/ran many programs leaked every prior PE. A per-run collectible ALC frees
+        // the assemblies when RunAsync returns (or throws) so memory usage stays bounded.
+        // Also prerequisite for the UI-M3 runner's teardown/reload flow.
+        var runContext = new AssemblyLoadContext(
+            name: $"CarbideRun-{Guid.NewGuid():N}",
+            isCollectible: true);
+
         // Pre-load every attached reference so the runtime can resolve them by identity when
         // the user's PE references their types. Key the loaded assemblies by simple name so
-        // the AssemblyResolve handler below can answer requests that arrive during JIT.
+        // the Resolving handler below can answer requests that arrive during JIT.
         var loadedReferences = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
         foreach (var refId in _attachedReferenceIds)
         {
@@ -405,7 +519,7 @@ internal sealed class ProjectCompiler : IDisposable
             }
             try
             {
-                var refAssembly = LoadAssembly(refBytes);
+                var refAssembly = LoadAssembly(runContext, refBytes);
                 var simpleName = refAssembly.GetName().Name;
                 if (!string.IsNullOrEmpty(simpleName))
                 {
@@ -415,26 +529,28 @@ internal sealed class ProjectCompiler : IDisposable
             catch (Exception ex) when (ex is FileLoadException or BadImageFormatException)
             {
                 _logger.LogWarning(
-                    "Attached reference '{Id}' could not be loaded into the AppDomain: {Message}",
+                    "Attached reference '{Id}' could not be loaded into the run context: {Message}",
                     refId, ex.Message);
             }
         }
 
         // Mono-WASM's default AssemblyLoadContext does not always find assemblies loaded via
-        // Assembly.Load(byte[]) when resolving references from a later Assembly.Load(byte[]).
-        // An AssemblyResolve handler fills the gap by answering by simple name.
-        ResolveEventHandler resolveHandler = (sender, args) =>
+        // LoadFromStream when resolving references from a later LoadFromStream. A Resolving
+        // handler scoped to the run context fills the gap by answering by simple name.
+        Func<AssemblyLoadContext, AssemblyName, Assembly?> resolveHandler = (_, name) =>
         {
-            var simpleName = new AssemblyName(args.Name).Name;
+            var simpleName = name.Name;
             return simpleName is not null && loadedReferences.TryGetValue(simpleName, out var found)
                 ? found
                 : null;
         };
-        // Wrap everything from the AssemblyResolve subscription onward in a try/finally
-        // so the handler is unsubscribed regardless of where in the path a failure lands.
-        // Review R1 C1 / R2 §1: a throw in LoadAssembly or Console.SetOut used to leak
-        // the handler into subsequent runs ("everything is weird after one failed run").
-        AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
+        // Wrap everything from the Resolving subscription onward in a try/finally so the
+        // handler is detached and the ALC is unloaded regardless of where in the path a
+        // failure lands. Review R1 C1 / R2 §1: a throw in LoadAssembly or Console.SetOut
+        // used to leak the handler into subsequent runs ("everything is weird after one
+        // failed run") — scoping to the run context eliminates that class of bug entirely
+        // because the whole context goes away after each call.
+        runContext.Resolving += resolveHandler;
         using var stdOutCapture = new StringWriter();
         using var stdErrCapture = new StringWriter();
 
@@ -443,7 +559,7 @@ internal sealed class ProjectCompiler : IDisposable
 
         try
         {
-            var assembly = LoadAssembly(peBytes);
+            var assembly = LoadAssembly(runContext, peBytes);
             var declaredEntry = assembly.EntryPoint
                 ?? throw new InvalidOperationException(
                     $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
@@ -528,7 +644,12 @@ internal sealed class ProjectCompiler : IDisposable
         }
         finally
         {
-            AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
+            runContext.Resolving -= resolveHandler;
+            // Mark the context unloadable. Actual collection happens when GC runs and
+            // no references to types from this context remain — we only hand strings /
+            // ints / diagnostics back to the caller, so the `assembly` local and all
+            // reference assemblies become unreachable as soon as this frame returns.
+            runContext.Unload();
         }
 
         sw.Stop();
@@ -544,7 +665,14 @@ internal sealed class ProjectCompiler : IDisposable
         "Trimming",
         "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code",
         Justification = "The in-memory emitted assembly is the user's program; reflection into it is expected and not subject to trimming.")]
-    private static Assembly LoadAssembly(byte[] bytes) => Assembly.Load(bytes);
+    private static Assembly LoadAssembly(AssemblyLoadContext context, byte[] bytes)
+    {
+        // Wrap the byte[] in a MemoryStream for AssemblyLoadContext.LoadFromStream. The
+        // MemoryStream wraps the existing array without copying; after the call returns
+        // the ALC has internalised the image bytes and the stream can be disposed.
+        using var stream = new MemoryStream(bytes, writable: false);
+        return context.LoadFromStream(stream);
+    }
 
     // U2 — reflection into Console's internal `s_in` (or `_in`) field. Bypasses both the
     // `[UnsupportedOSPlatform("browser")]` code-analysis guard and the runtime-side
@@ -712,10 +840,15 @@ internal sealed class ProjectCompiler : IDisposable
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
 
-        // Reference pre-load and AssemblyResolve wiring — mirrors RunAsync. The duplication
-        // is intentional: keeping the two run paths independent is cheaper than factoring
-        // out a shared helper that has to carry the entire instance surface (_attachedReferenceIds,
-        // _referenceRegistry, _logger). If a third run path lands, revisit the refactor.
+        // Reference pre-load and Resolving wiring — mirrors RunAsync. core-P2: per-run
+        // collectible ALC so interactive runs don't leak PEs or references across sessions
+        // either. The duplication with RunAsync is intentional: keeping the two run paths
+        // independent is cheaper than factoring out a shared helper that has to carry the
+        // entire instance surface (_attachedReferenceIds, _referenceRegistry, _logger).
+        // If a third run path lands, revisit the refactor.
+        var runContext = new AssemblyLoadContext(
+            name: $"CarbideRunInteractive-{Guid.NewGuid():N}",
+            isCollectible: true);
         var loadedReferences = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
         foreach (var refId in _attachedReferenceIds)
         {
@@ -725,7 +858,7 @@ internal sealed class ProjectCompiler : IDisposable
             }
             try
             {
-                var refAssembly = LoadAssembly(refBytes);
+                var refAssembly = LoadAssembly(runContext, refBytes);
                 var simpleName = refAssembly.GetName().Name;
                 if (!string.IsNullOrEmpty(simpleName))
                 {
@@ -735,23 +868,24 @@ internal sealed class ProjectCompiler : IDisposable
             catch (Exception ex) when (ex is FileLoadException or BadImageFormatException)
             {
                 _logger.LogWarning(
-                    "Attached reference '{Id}' could not be loaded into the AppDomain: {Message}",
+                    "Attached reference '{Id}' could not be loaded into the run context: {Message}",
                     refId, ex.Message);
             }
         }
 
-        ResolveEventHandler resolveHandler = (sender, args) =>
+        Func<AssemblyLoadContext, AssemblyName, Assembly?> resolveHandler = (_, name) =>
         {
-            var simpleName = new AssemblyName(args.Name).Name;
+            var simpleName = name.Name;
             return simpleName is not null && loadedReferences.TryGetValue(simpleName, out var found)
                 ? found
                 : null;
         };
-        // Wrap everything from the AssemblyResolve subscription onward in try/finally.
+        // Wrap everything from the Resolving subscription onward in try/finally.
         // Review R1 C1 / R2 §1: a throw in LoadAssembly, EntryPoint reflection, or any of
         // the Console.SetOut / SetConsoleInField calls used to leak the handler and the
-        // SynchronizationContext into later runs.
-        AppDomain.CurrentDomain.AssemblyResolve += resolveHandler;
+        // SynchronizationContext into later runs — scoping Resolving to the run context
+        // plus unloading the context in finally closes that class of bug.
+        runContext.Resolving += resolveHandler;
 
         // Tee each flushed chunk into a StringBuilder (for the RunResult trailer) while also
         // pushing it through the JS bridge. Stderr gets its SGR wrap on the JS-bound path
@@ -780,7 +914,7 @@ internal sealed class ProjectCompiler : IDisposable
 
         try
         {
-            var assembly = LoadAssembly(peBytes);
+            var assembly = LoadAssembly(runContext, peBytes);
             var declaredEntry = assembly.EntryPoint
                 ?? throw new InvalidOperationException(
                     $"Entry point '{entryPoint.ContainingType}.{entryPoint.Name}' was resolved by Roslyn but not reflected from the emitted assembly.");
@@ -898,7 +1032,8 @@ internal sealed class ProjectCompiler : IDisposable
         }
         finally
         {
-            AppDomain.CurrentDomain.AssemblyResolve -= resolveHandler;
+            runContext.Resolving -= resolveHandler;
+            runContext.Unload();
         }
 
         sw.Stop();

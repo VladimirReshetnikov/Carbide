@@ -1,0 +1,25 @@
+{
+  "name": "@carbide-ui/avalonia-runtime-bundle",
+  "version": "0.0.0-dev.0",
+  "description": "Pre-built Avalonia.Browser WASM runtime bundle for Carbide's cross-frame runner. Contains the published _framework/ tree plus a minimal HTML/JS shell.",
+  "type": "module",
+  "files": [
+    "_framework/**/*",
+    "index.html",
+    "main.js",
+    "runner-bridge.js",
+    "bundle-manifest.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "avalonia",
+    "webassembly",
+    "ui"
+  ],
+  "license": "Apache-2.0",
+  "private": true
+}

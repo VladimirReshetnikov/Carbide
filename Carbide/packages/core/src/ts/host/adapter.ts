@@ -51,6 +51,15 @@ export interface HostAdapter {
         import("../runtime/dotnet-types.js").EmscriptenModuleOverlays
     >;
 
+    /**
+     * core-P1 (plan §10.1): resolve an additional ref-pack by npm package name,
+     * read its `refpack.json`, and load the listed DLL bytes. The session applies
+     * them to the current session via `addReference` during `initializeAsync` when
+     * the caller sets `CarbideOptions.sideload`. Adapters that don't implement this
+     * method cause session init to throw when sideload is non-empty.
+     */
+    loadSideloadRefPack?(packageName: string): Promise<SideloadedRefPack>;
+
     /** Release any resources acquired by the adapter (HTTP server sockets, buffered captures). */
     dispose(): Promise<void>;
 }
@@ -60,4 +69,13 @@ export interface ReferencePackDescriptor {
     readonly baseUrl: string;
     /** DLL file names; the boot joins each against `baseUrl` to form the full URL. */
     readonly dllNames: readonly string[];
+}
+
+export interface SideloadedRefPack {
+    /** The npm package name that was resolved (e.g. `"@carbide-ui/refs-avalonia"`). */
+    readonly packageName: string;
+    /** Absolute path or URL to the resolved `refpack.json` — useful for diagnostics. */
+    readonly manifestPath: string;
+    /** DLL bytes keyed by file name. The session calls `addReference(bytes, name)` per entry. */
+    readonly dlls: readonly { readonly name: string; readonly bytes: Uint8Array }[];
 }

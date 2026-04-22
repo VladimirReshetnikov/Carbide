@@ -671,13 +671,15 @@ Document COOP/COEP requirements. Provide a pre-built HTTP server (`@carbide-ui/s
 
 Called out explicitly so decisions are visible and re-openable.
 
-- **Q.1 npm namespace.** `@carbide-ui/*` is the working name. If `@carbide` is taken (vision §12 R9), the companion family will follow whatever renamed scope Carbide chooses. No hyphen/no-scope considered; keep them distinct.
-- **Q.2 App-class discovery.** `LaunchOptions.appClass` is required in v1. Alternatives: attribute (`[assembly: CarbideAvaloniaApp(typeof(MyApp))]`) scanned reflectively, or inference from `AssemblyName + ".App"`. **Position:** required in v1; infer as a v1.1 addition once the common convention is known.
-- **Q.3 Teardown semantics across runs.** v1 swaps `MainView` on re-run, reusing the Avalonia `Application`. This avoids the full `AppBuilder` teardown cost but means static state in the previous user `App` lingers. **Position:** v1 documents this; v2 supports full `Application` swap.
-- **Q.4 `Console.WriteLine` forwarding.** v1 does not forward user stdout to the launcher. **Position:** add `{ type: "stdout", text: string }` in v2 if users ask; the runner can already intercept via `Console.SetOut`.
+**Ratification record.** Q.2, Q.3, Q.4, Q.6, Q.7 ratified 2026-04-21 (owner Vladimir, delegated): accept stated **Position** in each case. Re-opening requires editing the question here with a dated revision line.
+
+- **Q.1 npm namespace.** `@carbide-ui/*` is the working name. If `@carbide` is taken (vision §12 R9), the companion family will follow whatever renamed scope Carbide chooses. No hyphen/no-scope considered; keep them distinct. **Resolved 2026-04-21:** `@carbide-ui/*` is the final scope (see §13 item 4 below).
+- **Q.2 App-class discovery.** `LaunchOptions.appClass` is required in v1. Alternatives: attribute (`[assembly: CarbideAvaloniaApp(typeof(MyApp))]`) scanned reflectively, or inference from `AssemblyName + ".App"`. **Position:** required in v1; infer as a v1.1 addition once the common convention is known. **Ratified 2026-04-21.**
+- **Q.3 Teardown semantics across runs.** v1 swaps `MainView` on re-run, reusing the Avalonia `Application`. This avoids the full `AppBuilder` teardown cost but means static state in the previous user `App` lingers. **Position:** v1 documents this; v2 supports full `Application` swap. **Ratified 2026-04-21.**
+- **Q.4 `Console.WriteLine` forwarding.** v1 does not forward user stdout to the launcher. **Position:** add `{ type: "stdout", text: string }` in v2 if users ask; the runner can already intercept via `Console.SetOut`. **Ratified 2026-04-21.**
 - **Q.5 Interactive input devices.** Clipboard, file dialogs, geolocation, etc. all work through Avalonia's normal browser APIs in the runner iframe. No extra wiring needed. Subject to browser gesture requirements. Documented.
-- **Q.6 XAML without Carbide M12.** v1 supports runtime XAML. Users who cannot tolerate the (microsecond-scale) parse cost must wait for UI-M7. **Position:** document prominently; pitch v1 as the 95% solution.
-- **Q.7 Ref-pack delivery.** Initially published via npm (`@carbide-ui/refs-avalonia`). A CDN + IndexedDB path is a future option if npm install cost becomes problematic.
+- **Q.6 XAML without Carbide M12.** v1 supports runtime XAML. Users who cannot tolerate the (microsecond-scale) parse cost must wait for UI-M7. **Position:** document prominently; pitch v1 as the 95% solution. **Ratified 2026-04-21.**
+- **Q.7 Ref-pack delivery.** Initially published via npm (`@carbide-ui/refs-avalonia`). A CDN + IndexedDB path is a future option if npm install cost becomes problematic. **Ratified 2026-04-21.**
 
 ## 13. Decisions the owner needs to make before UI-M0 starts
 
@@ -689,6 +691,15 @@ This proposal is ready to drive implementation, but four calls belong to the own
 4. **Confirm the npm scope (`@carbide-ui` vs alternative).** Subject to final naming (Q.1).
 
 Items 2–4 are short decisions. Item 1 is the material one.
+
+**Decisions recorded 2026-04-21** (owner Vladimir; items 2 and 4 delegated to Claude):
+
+1. **Approved.** The "Companion projects" paragraph was added to `carbide-vision.md` §13 in the same change window.
+2. **Avalonia 12.x, latest stable patch at UI-M1 build time.** 13.0 is speculative as of the decision date; 12.x is the stated public stable per the proposal text. The specific patch is pinned in `@carbide-ui/refs-avalonia`'s `scripts/build.mjs` when UI-M1 opens; bumping the patch is a routine PR, bumping the minor (12.x → 12.y) requires the drift-report workflow of §10.5 of the plan.
+3. **`net10.0-browser`**, matching Carbide core's implicit TFM alignment.
+4. **`@carbide-ui/*` is the final scope.** Matches the vision amendment's `@carbide-<topic>/*` pattern exactly. If Carbide's own `@carbide` scope is renamed in the future (Q.1 fallback), the companion family follows in lockstep.
+
+UI-M0 opens as of 2026-04-21 on the strength of these decisions.
 
 ## 14. Risks and mitigations
 

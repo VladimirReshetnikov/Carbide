@@ -1,4 +1,4 @@
-import type { HostAdapter } from "../adapter.js";
+import type { HostAdapter, SideloadedRefPack } from "../adapter.js";
 import type { EmscriptenModuleOverlays } from "../../runtime/dotnet-types.js";
 import type { TerminalBridgeSink } from "../../terminal/bridge.js";
 import { uninstallBridge } from "../../terminal/bridge.js";
@@ -98,6 +98,22 @@ export class BrowserHostAdapter implements HostAdapter {
     /** T1 — release the terminal sink. Called by the session shell's teardown. */
     detachTerminalSink(): void {
         this._terminalSink = null;
+    }
+
+    /**
+     * core-P1: browser-side sideload is deferred — the Node adapter ships the full
+     * implementation. Consumers who need to feed a ref-pack's DLLs into a browser
+     * session today should resolve the refpack.json URL themselves (e.g. via
+     * `fetch`), decode each listed DLL, and call `session.addReference` directly.
+     * A future adapter enhancement will take a `sideloadBaseUrl` option and match
+     * the Node resolver's semantics.
+     */
+    loadSideloadRefPack(packageName: string): Promise<SideloadedRefPack> {
+        return Promise.reject(new Error(
+            `[sideload] ${packageName}: browser adapter does not implement loadSideloadRefPack yet. ` +
+            `Fetch refpack.json manually and feed DLLs via session.addReference(bytes, name). ` +
+            `Tracked in plan core-P1 follow-up.`,
+        ));
     }
 
     dispose(): Promise<void> {

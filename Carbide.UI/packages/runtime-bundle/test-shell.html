@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Throwaway smoke fixture for @carbide-ui/avalonia-runtime-bundle (UI-M2).
+     Opening this file via a static HTTP server (e.g. `python -m http.server` from the
+     package root) should boot Avalonia.Browser and render the "Carbide.UI runner —
+     UI-M2 splash" TextBlock placeholder. Not shipped to consumers; excluded from the
+     published tarball via the package.json "files" list. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Carbide.UI runtime-bundle — smoke test</title>
+    <style>
+      html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+      #out { width: 100vw; height: 100vh; display: block; }
+    </style>
+  </head>
+  <body>
+    <div id="out"></div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "@carbide-ui/refs-avalonia",
+  "version": "0.0.0-dev.0",
+  "description": "Compile-time Avalonia reference assemblies for Carbide. Extracts from the pinned Avalonia nupkgs at install time; see THIRD_PARTY_NOTICES.md.",
+  "type": "module",
+  "main": "./refpack.json",
+  "files": [
+    "refpack.json",
+    "ref/**/*.dll",
+    "scripts/build.mjs",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "postinstall": "node scripts/build.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "avalonia",
+    "reference-assemblies",
+    "ui"
+  ],
+  "license": "Apache-2.0",
+  "private": true
+}
