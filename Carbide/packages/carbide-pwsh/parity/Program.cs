@@ -309,5 +309,13 @@ internal static class Scenarios
         ("cd Function then pwd", "Set-Location Function:; (Get-Location).ToString()"),
         ("cd Alias then pwd",    "Set-Location Alias:; (Get-Location).ToString()"),
         ("cd Env then pwd",      "Set-Location Env:; (Get-Location).ToString()"),
+
+        // Generic type literals.
+        ("HashSet[string]",      "$h = [System.Collections.Generic.HashSet[string]]::new(); $h.Add('a') | Out-Null; $h.Add('b') | Out-Null; $h.Add('a') | Out-Null; $h.Count"),
+        ("HashSet contains",     "$h = [System.Collections.Generic.HashSet[string]]::new(); $h.Add('x') | Out-Null; $h.Contains('x')"),
+        ("Dictionary kv",        "$d = [System.Collections.Generic.Dictionary[string,int]]::new(); $d.Add('k', 42); $d['k']"),
+        ("List[int]",            "$l = [System.Collections.Generic.List[int]]::new(); $l.Add(1); $l.Add(2); $l.Count"),
+        ("regex split",          "[regex]::Split('a,b,c', ',')"),
+        ("regex match",          "[regex]::IsMatch('hello', 'h.*o')"),
     };
 }

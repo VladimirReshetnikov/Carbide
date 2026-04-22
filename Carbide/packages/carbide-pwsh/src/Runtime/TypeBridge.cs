@@ -18,6 +18,30 @@ public sealed class TypeBridge
     {
         if (_typeCache.TryGetValue(typeName, out var cached)) return cached;
 
+        // pwsh-style generics inside a string: `HashSet[string]`,
+        // `Dictionary[string,int]`, `List[HashSet[int]]`. Real pwsh parses these at
+        // script-lex time; when we receive one as a string (e.g. from `New-Object` with a
+        // quoted type name), we parse and recurse to resolve.
+        if (TryParsePwshGenericName(typeName, out var baseName, out var genericArgs, out var arrayRank))
+        {
+            Type closed;
+            if (genericArgs.Count > 0)
+            {
+                // Resolve the open-generic definition: `HashSet` → `HashSet`1`.
+                var arity = genericArgs.Count;
+                var open = ResolveType($"{baseName}`{arity}", location);
+                var args = genericArgs.Select(a => ResolveType(a, location)).ToArray();
+                closed = open.MakeGenericType(args);
+            }
+            else
+            {
+                closed = ResolveType(baseName, location);
+            }
+            for (int i = 0; i < arrayRank; i++) closed = closed.MakeArrayType();
+            _typeCache[typeName] = closed;
+            return closed;
+        }
+
         // Aliases first.
         if (TypeAliases.Aliases.TryGetValue(typeName, out var aliased))
         {
@@ -52,9 +76,80 @@ public sealed class TypeBridge
                     return tp;
                 }
             }
+            // Users commonly type `HashSet[string]` / `List[int]` without qualifying the
+            // namespace; reflection accepts arity-suffixed names (`HashSet`1`). Probe the
+            // stock generic-collection namespaces when the name contains a backtick.
+            if (typeName.Contains('`'))
+            {
+                foreach (var ns in s_genericProbeNamespaces)
+                {
+                    var candidate = asm.GetType(ns + "." + typeName, throwOnError: false, ignoreCase: true);
+                    if (candidate != null)
+                    {
+                        _typeCache[typeName] = candidate;
+                        return candidate;
+                    }
+                }
+            }
         }
 
         throw new PwshTypeNotFoundException(typeName, location);
+    }
+
+    private static readonly string[] s_genericProbeNamespaces =
+    {
+        "System.Collections.Generic",
+        "System.Collections.Concurrent",
+        "System.Collections.ObjectModel",
+    };
+
+    /// <summary>
+    /// Parse a pwsh-style generic type name (<c>HashSet[string]</c>,
+    /// <c>Dictionary[string, List[int]]</c>, <c>List[int][]</c>) into
+    /// (base-name, generic-args, array-rank). Returns <see langword="false"/> when the
+    /// name has no brackets or the bracket structure doesn't balance.
+    /// </summary>
+    private static bool TryParsePwshGenericName(string name, out string baseName, out List<string> genericArgs, out int arrayRank)
+    {
+        baseName = name;
+        genericArgs = new List<string>();
+        arrayRank = 0;
+        int firstBracket = name.IndexOf('[');
+        if (firstBracket < 0) return false;
+        baseName = name.Substring(0, firstBracket).Trim();
+        int i = firstBracket;
+        while (i < name.Length)
+        {
+            if (name[i] != '[') return false;
+            if (i + 1 < name.Length && name[i + 1] == ']')
+            {
+                arrayRank++;
+                i += 2;
+                continue;
+            }
+            int depth = 1;
+            int argStart = i + 1;
+            i++;
+            while (i < name.Length && depth > 0)
+            {
+                if (name[i] == '[') depth++;
+                else if (name[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0) break;
+                }
+                else if (name[i] == ',' && depth == 1)
+                {
+                    genericArgs.Add(name.Substring(argStart, i - argStart).Trim());
+                    argStart = i + 1;
+                }
+                i++;
+            }
+            if (depth != 0) return false;
+            genericArgs.Add(name.Substring(argStart, i - argStart).Trim());
+            i++;
+        }
+        return true;
     }
 
     // ---------------- Static member access ----------------

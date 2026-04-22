@@ -2,7 +2,7 @@
 
 - Reference: `C:\Program Files\PowerShell\7\pwsh.exe`
 - Candidate: in-process `CarbidePwsh.Host.ShellHost`
-- Scenarios: 64
+- Scenarios: 70
 
 ## int arithmetic  ✅
 
@@ -69,14 +69,24 @@ world⟨CR⟩
 
 </details>
 
-## hashtable literal  ✅
+## hashtable literal  ❌
 
 ```powershell
 @{ a = 1; b = 2 }
 ```
 
-<details><summary>Output (identical after ANSI-stripping)</summary>
+### Real pwsh.exe
+```
+⟨CR⟩
+⟨ESC⟩[32;1mName                          ⟨ESC⟩[0m⟨ESC⟩[32;1m Value⟨ESC⟩[0m⟨CR⟩
+⟨ESC⟩[32;1m----                          ⟨ESC⟩[0m ⟨ESC⟩[32;1m-----⟨ESC⟩[0m⟨CR⟩
+b                              2⟨CR⟩
+a                              1⟨CR⟩
+⟨CR⟩
 
+```
+
+### carbide-pwsh
 ```
 ⟨CR⟩
 ⟨ESC⟩[32;1mName                          ⟨ESC⟩[0m⟨ESC⟩[32;1m Value⟨ESC⟩[0m⟨CR⟩
@@ -86,8 +96,6 @@ b                              2⟨CR⟩
 ⟨CR⟩
 
 ```
-
-</details>
 
 ## int max value  ✅
 
@@ -995,6 +1003,98 @@ Set-Location Env:; (Get-Location).ToString()
 
 ```
 Env:\⟨CR⟩
+
+```
+
+</details>
+
+## HashSet[string]  ✅
+
+```powershell
+$h = [System.Collections.Generic.HashSet[string]]::new(); $h.Add('a') | Out-Null; $h.Add('b') | Out-Null; $h.Add('a') | Out-Null; $h.Count
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+2⟨CR⟩
+
+```
+
+</details>
+
+## HashSet contains  ✅
+
+```powershell
+$h = [System.Collections.Generic.HashSet[string]]::new(); $h.Add('x') | Out-Null; $h.Contains('x')
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+True⟨CR⟩
+
+```
+
+</details>
+
+## Dictionary kv  ✅
+
+```powershell
+$d = [System.Collections.Generic.Dictionary[string,int]]::new(); $d.Add('k', 42); $d['k']
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+42⟨CR⟩
+
+```
+
+</details>
+
+## List[int]  ✅
+
+```powershell
+$l = [System.Collections.Generic.List[int]]::new(); $l.Add(1); $l.Add(2); $l.Count
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+2⟨CR⟩
+
+```
+
+</details>
+
+## regex split  ✅
+
+```powershell
+[regex]::Split('a,b,c', ',')
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+a⟨CR⟩
+b⟨CR⟩
+c⟨CR⟩
+
+```
+
+</details>
+
+## regex match  ✅
+
+```powershell
+[regex]::IsMatch('hello', 'h.*o')
+```
+
+<details><summary>Output (identical after ANSI-stripping)</summary>
+
+```
+True⟨CR⟩
 
 ```
 

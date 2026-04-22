@@ -460,12 +460,35 @@ public sealed class Interpreter
 
     private object ResolveTypeExpression(TypeLiteralAst tl)
     {
-        if (Classes != null)
+        // User-defined class / enum (no generics / arrays at this layer).
+        if (tl.GenericArguments.Count == 0 && tl.ArrayRank == 0 && Classes != null)
         {
             if (Classes.TryGetClass(tl.TypeName, out var cls) && cls != null) return cls;
             if (Classes.TryGetEnum(tl.TypeName, out var en) && en != null) return en;
         }
-        return Types.ResolveType(tl.TypeName, tl.Location);
+
+        Type baseType;
+        if (tl.GenericArguments.Count > 0)
+        {
+            // `[HashSet[string]]` → resolve the arity-suffixed open definition `HashSet`1`
+            // directly; bypass the non-generic name (it doesn't exist in the BCL).
+            var arity = tl.GenericArguments.Count;
+            baseType = Types.ResolveType($"{tl.TypeName}`{arity}", tl.Location);
+            var typeArgs = tl.GenericArguments
+                .Select(ga => (Type)ResolveTypeExpression(ga))
+                .ToArray();
+            baseType = baseType.MakeGenericType(typeArgs);
+        }
+        else
+        {
+            baseType = Types.ResolveType(tl.TypeName, tl.Location);
+        }
+
+        if (tl.ArrayRank > 0)
+        {
+            for (int i = 0; i < tl.ArrayRank; i++) baseType = baseType.MakeArrayType();
+        }
+        return baseType;
     }
 
     private object? EvalVariable(VariableAst v)
@@ -730,13 +753,24 @@ public sealed class Interpreter
         // onto any value — scalars answer 1, arrays answer their element count, strings
         // answer their character count (already a native .Length). Real pwsh also makes
         // `Count` an alias for `Length` on arrays. Handle those before falling through to
-        // reflected-member lookup so `.Count` on `object[]` doesn't throw.
+        // reflected-member lookup so `.Count` on `object[]` doesn't throw. For BCL
+        // collections (HashSet<T>, Dictionary<K,V>, List<T>) prefer the real instance
+        // `.Count` via reflection so we report the actual population rather than the
+        // scalar=1 fallback.
         if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)
             || m.MemberName.Equals("Length", StringComparison.OrdinalIgnoreCase))
         {
             if (receiver is Array a) return a.Length;
             if (receiver is System.Collections.ICollection col) return col.Count;
             if (receiver is string s) return s.Length;
+            // Types that don't implement non-generic ICollection (most generic collections —
+            // HashSet<T>, Dictionary<K,V>) still expose a real `Count` or `Length`
+            // instance property. Use it when present so the scalar-fallback doesn't
+            // mask the real count.
+            var real = receiver.GetType().GetProperty(m.MemberName,
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.IgnoreCase);
+            if (real is not null) return real.GetValue(receiver);
             // Scalar — real pwsh returns 1 for `.Count` on any non-null scalar.
             if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)) return 1;
         }
