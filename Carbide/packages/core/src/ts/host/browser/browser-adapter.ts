@@ -12,6 +12,19 @@ export interface BrowserAdapterOptions {
     frameworkAssetsBaseUrl?: string;
     /** Module URL used to derive the default base URL. */
     moduleUrl?: string;
+    /**
+     * core-P1 browser follow-up: base URL the browser adapter joins against to resolve
+     * sideload packages. Each package name is fetched as
+     * `${sideloadBaseUrl}/${packageName}/refpack.json`. Typical values:
+     *
+     * - Vite/Webpack dev server: `"/node_modules"` — the dev server serves it directly.
+     * - Production deploy with an npm-installed tree: whatever path serves `node_modules/`.
+     * - CDN: e.g. `"https://unpkg.com"` (refpack.json + ref/*.dll must all be reachable).
+     *
+     * When omitted, `loadSideloadRefPack` rejects with a message telling the caller to
+     * set this option. No URL is silently guessed.
+     */
+    sideloadBaseUrl?: string;
 }
 
 /**
@@ -25,6 +38,7 @@ export interface BrowserAdapterOptions {
 export class BrowserHostAdapter implements HostAdapter {
     public readonly hostKind = "browser" as const;
     private readonly baseUrl: string;
+    private readonly sideloadBaseUrl: string | undefined;
     /**
      * Non-null while an interactive terminal session is live. The emscripten `print` /
      * `printErr` multiplexers consult this slot on each invocation; switching sessions is
@@ -34,6 +48,10 @@ export class BrowserHostAdapter implements HostAdapter {
     private _terminalSink: TerminalBridgeSink | null = null;
 
     constructor(options: BrowserAdapterOptions = {}) {
+        this.sideloadBaseUrl = options.sideloadBaseUrl
+            ? ensureTrailingSlash(options.sideloadBaseUrl)
+            : undefined;
+
         if (options.frameworkAssetsBaseUrl) {
             this.baseUrl = ensureTrailingSlash(options.frameworkAssetsBaseUrl);
             return;
@@ -101,19 +119,74 @@ export class BrowserHostAdapter implements HostAdapter {
     }
 
     /**
-     * core-P1: browser-side sideload is deferred — the Node adapter ships the full
-     * implementation. Consumers who need to feed a ref-pack's DLLs into a browser
-     * session today should resolve the refpack.json URL themselves (e.g. via
-     * `fetch`), decode each listed DLL, and call `session.addReference` directly.
-     * A future adapter enhancement will take a `sideloadBaseUrl` option and match
-     * the Node resolver's semantics.
+     * core-P1 browser follow-up: fetch `{sideloadBaseUrl}/{packageName}/refpack.json`
+     * and stream each listed DLL over HTTP. Mirrors the Node adapter's semantics so a
+     * `CarbideOptions.sideload` declaration works uniformly across host kinds.
+     *
+     * Rejects with a self-descriptive error when:
+     *   - `sideloadBaseUrl` was not supplied to the adapter constructor
+     *   - the manifest fetch returns non-2xx
+     *   - the manifest is malformed (no `refDirectory` or empty `dlls` array)
+     *   - any referenced DLL returns non-2xx
+     *
+     * On success the session applies the returned refs via `addReference` during
+     * `initializeAsync`; the DLLs are also auto-attached to every project created
+     * from the session per core-P1's default-reference semantics.
      */
-    loadSideloadRefPack(packageName: string): Promise<SideloadedRefPack> {
-        return Promise.reject(new Error(
-            `[sideload] ${packageName}: browser adapter does not implement loadSideloadRefPack yet. ` +
-            `Fetch refpack.json manually and feed DLLs via session.addReference(bytes, name). ` +
-            `Tracked in plan core-P1 follow-up.`,
-        ));
+    async loadSideloadRefPack(packageName: string): Promise<SideloadedRefPack> {
+        if (!this.sideloadBaseUrl) {
+            throw new Error(
+                `[sideload] ${packageName}: browser adapter needs a sideloadBaseUrl to resolve ` +
+                `package URLs. Pass it when constructing BrowserHostAdapter, e.g. ` +
+                `new BrowserHostAdapter({ ..., sideloadBaseUrl: "/node_modules" }).`,
+            );
+        }
+        // npm package names (including scoped ones like "@carbide-ui/refs-avalonia")
+        // are valid URL path segments as-is — `@` and `/` are RFC 3986 pchar and
+        // delimiter respectively; no component encoding needed.
+        const manifestUrl = new URL(
+            `${packageName}/refpack.json`,
+            this.sideloadBaseUrl,
+        ).toString();
+        const manifestResp = await fetch(manifestUrl);
+        if (!manifestResp.ok) {
+            throw new Error(
+                `[sideload] ${packageName}: failed to fetch ${manifestUrl} ` +
+                `(${manifestResp.status} ${manifestResp.statusText}).`,
+            );
+        }
+        const manifest = (await manifestResp.json()) as {
+            refDirectory?: string;
+            dlls?: Array<{ name?: string }>;
+        };
+        if (!manifest.refDirectory) {
+            throw new Error(
+                `[sideload] ${packageName}: refpack.json is missing the 'refDirectory' field.`,
+            );
+        }
+        const dllList = (manifest.dlls ?? []).filter(
+            (d): d is { name: string } => typeof d?.name === "string",
+        );
+        if (dllList.length === 0) {
+            throw new Error(`[sideload] ${packageName}: refpack.json lists no DLLs.`);
+        }
+        const pkgBase = new URL(`${packageName}/`, this.sideloadBaseUrl);
+        const refBase = new URL(ensureTrailingSlash(manifest.refDirectory), pkgBase);
+        const dlls = await Promise.all(
+            dllList.map(async (d) => {
+                const dllUrl = new URL(d.name, refBase).toString();
+                const resp = await fetch(dllUrl);
+                if (!resp.ok) {
+                    throw new Error(
+                        `[sideload] ${packageName}: failed to fetch DLL ${d.name} from ${dllUrl} ` +
+                        `(${resp.status} ${resp.statusText}).`,
+                    );
+                }
+                const bytes = new Uint8Array(await resp.arrayBuffer());
+                return { name: d.name, bytes };
+            }),
+        );
+        return { packageName, manifestPath: manifestUrl, dlls };
     }
 
     dispose(): Promise<void> {

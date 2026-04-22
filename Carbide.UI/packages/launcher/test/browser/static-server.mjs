@@ -27,10 +27,29 @@ function guessMime(filePath) {
     return "application/octet-stream";
 }
 
+// Scoped-package name shim: map `@carbide-ui/<pkg>/...` to the monorepo's
+// `Carbide.UI/packages/<pkg>/...` layout so the fixture can exercise sideload with
+// the real scoped npm name. Real deployments don't need this — production consumers
+// install into node_modules where the scoped path already exists.
+const SCOPED_NAME_SHIMS = [
+    { prefix: "/scoped/@carbide-ui/", rewriteTo: "/Carbide.UI/packages/" },
+];
+
+function applyScopedShim(pathname) {
+    for (const shim of SCOPED_NAME_SHIMS) {
+        const withSlash = pathname.startsWith("/") ? pathname : `/${pathname}`;
+        if (withSlash.startsWith(shim.prefix)) {
+            return shim.rewriteTo.replace(/^\//, "") + withSlash.slice(shim.prefix.length);
+        }
+    }
+    return pathname;
+}
+
 const server = createServer(async (req, res) => {
     try {
         const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
-        const pathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+        const rawPathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+        const pathname = applyScopedShim(rawPathname);
         const abs = path.resolve(SRC_ROOT, pathname);
         if (!abs.startsWith(SRC_ROOT)) {
             res.writeHead(403);
