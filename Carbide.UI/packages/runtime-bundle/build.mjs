@@ -29,7 +29,6 @@ const AVALONIA_VERSION = "12.0.1";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RUNNER_CSPROJ_DIR = path.resolve(HERE, "..", "runner-dotnet");
 const OUT_FRAMEWORK_DIR = path.join(HERE, "_framework");
-const OUT_SHELL_DIR = path.join(HERE, "shell");
 const MANIFEST_PATH = path.join(HERE, "bundle-manifest.json");
 
 function sha256(buf) {
@@ -69,9 +68,13 @@ function publishShellFiles() {
         "publish",
         "wwwroot",
     );
+    // UI-M3: runner-bridge.js joins index.html + main.js. Emitted at the bundle's root
+    // so the bundle is directly usable as the runner's iframe src (plan §7.5 — runner
+    // package collapsed into runtime-bundle; launcher defaults point here).
     return [
-        { src: path.join(wwwroot, "index.html"), dest: "index.html" },
-        { src: path.join(wwwroot, "main.js"),    dest: "main.js"    },
+        { src: path.join(wwwroot, "index.html"),        dest: "index.html" },
+        { src: path.join(wwwroot, "main.js"),           dest: "main.js"    },
+        { src: path.join(wwwroot, "runner-bridge.js"),  dest: "runner-bridge.js" },
     ];
 }
 
@@ -153,18 +156,23 @@ async function buildBundle() {
 
     // Wipe prior outputs to keep the manifest in sync with a clean copy.
     await rm(OUT_FRAMEWORK_DIR, { recursive: true, force: true });
-    await rm(OUT_SHELL_DIR, { recursive: true, force: true });
+    for (const { dest } of publishShellFiles()) {
+        await rm(path.join(HERE, dest), { force: true });
+    }
 
     await copyTree(srcFramework, OUT_FRAMEWORK_DIR);
 
-    await mkdir(OUT_SHELL_DIR, { recursive: true });
+    const shellFiles = [];
     for (const { src, dest } of publishShellFiles()) {
         if (!existsSync(src)) continue;
-        await copyFile(src, path.join(OUT_SHELL_DIR, dest));
+        const destPath = path.join(HERE, dest);
+        await copyFile(src, destPath);
+        const bytes = await readFile(destPath);
+        shellFiles.push({ path: dest, sizeBytes: bytes.length, sha256: sha256(bytes) });
     }
+    shellFiles.sort((a, b) => a.path.localeCompare(b.path));
 
     const frameworkFiles = await hashTree(OUT_FRAMEWORK_DIR);
-    const shellFiles = existsSync(OUT_SHELL_DIR) ? await hashTree(OUT_SHELL_DIR) : [];
 
     const totalBytes = frameworkFiles.reduce((sum, f) => sum + f.sizeBytes, 0)
                      + shellFiles.reduce((sum, f) => sum + f.sizeBytes, 0);

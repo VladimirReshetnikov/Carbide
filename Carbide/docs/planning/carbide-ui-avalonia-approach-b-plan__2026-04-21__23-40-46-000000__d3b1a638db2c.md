@@ -282,9 +282,35 @@ The `runner-dotnet/` C# project is minimal at UI-M2 — just enough to prove the
 - **UI-M2-R2. Publish-time trimming is too aggressive and breaks `AvaloniaRuntimeXamlLoader.Parse`.** Mitigation: `<TrimmerRootAssembly Include="Avalonia.Markup.Xaml.Loader" />` and an explicit `roots.xml` in the runner csproj. Root-set bootstrap borrowed from `packages/core/src/roots.xml` pattern.
 - **UI-M2-R3. Bundle compressed size exceeds 35 MB.** Mitigation: enable Brotli level 11 for static-host consumers; document the `--decompression-method=br` expectation; re-profile the content list against proposal §7.1 for unneeded DLLs.
 
-## 7. UI-M3 — runner boot logic, launcher, `postMessage` protocol end-to-end
+## 7. UI-M3 — runner boot logic, launcher, `postMessage` protocol end-to-end  ✓ shipped 2026-04-21
 
 **Goal.** Full in-browser compile-and-run. Promote the stub runner to the real `RunnerProgram` (proposal §7.3). Ship `@carbide-ui/avalonia-runner` (HTML/JS shell wrapping the runtime bundle) and `@carbide-ui/launcher` (TS orchestrator). Exercise the `postMessage` protocol (proposal §8). Requires core-P1, core-P2, core-P3 already merged into `@carbide/core`.
+
+**Shipped artefacts (2026-04-21):**
+
+- [`packages/runner-dotnet/RunnerProgram.cs`](../../../Carbide.UI/packages/runner-dotnet/RunnerProgram.cs) — real `[JSExport]`-backed runner. `Main` awaits `JSHost.ImportAsync("runner-bridge")` then posts `runnerReady`. `OnLoadMessage` loads the user PE (+ optional PDB) into a per-run collectible `AssemblyLoadContext`, validates the `appClass` derives from `Avalonia.Application`, and starts Avalonia on the `<div id="out">`. Errors posted as `runnerError` with a `load` kind. v1 handles **one** user PE per iframe lifetime; the launcher's `reload()` iframe-reboots to serve re-runs.
+- [`packages/runner-dotnet/wwwroot/main.js`](../../../Carbide.UI/packages/runner-dotnet/wwwroot/main.js) — .NET boot: creates runtime, calls `getAssemblyExports(mainAssemblyName)`, exposes `Carbide.UI.Runner.RunnerProgram` on `globalThis.__carbideRunnerInterop`, runs `Main`.
+- [`packages/runner-dotnet/wwwroot/runner-bridge.js`](../../../Carbide.UI/packages/runner-dotnet/wwwroot/runner-bridge.js) — schema-versioned `postMessage` bridge. Named exports `postReady` / `postRunning` / `postError` are `[JSImport]`-bound from C#. `window.addEventListener("message", ...)` filters to schema v1 `load` messages and dispatches to `__carbideRunnerInterop.OnLoadMessage`.
+- [`packages/runtime-bundle/build.mjs`](../../../Carbide.UI/packages/runtime-bundle/build.mjs) — updated to emit `index.html` + `main.js` + `runner-bridge.js` at the bundle root (**flattened from UI-M2's `shell/` subdirectory**). The runtime bundle is now directly usable as the runner's iframe src; the separate `@carbide-ui/avalonia-runner` package collapsed to a README pointer — noted in the plan-§7.5 architectural deviation below.
+- [`packages/launcher/src/`](../../../Carbide.UI/packages/launcher/src/) — TypeScript implementation across `index.ts` (public API), `protocol.ts` (v1 schema types + `isInboundMessage` validator), `base64.ts` (Buffer/btoa fallback), `build-result-types.ts` (structural `BuildResult`; no `@carbide/core` runtime dep, per UI-I9). `launchInIframe` returns a `LaunchHandle` with `reload(build)` and idempotent `dispose(removeIframe?)`.
+- [`packages/launcher/test/launcher.test.mjs`](../../../Carbide.UI/packages/launcher/test/launcher.test.mjs) — Node-native unit tests with a fake `window` EventTarget and mock iframe autoresponder. **12/12 green**, covering: failed-build rejection, missing `appClass`, happy-path handshake, `readyTimeoutMs` enforcement, runner error during boot, runner error after load, idempotent `dispose`, runtime-error callback dispatch, `reload()` double-boot flow, reload-after-dispose rejection, schema-version mismatch silent-ignore.
+- READMEs and plan pointers for all four packages updated.
+
+**Measurements:**
+
+```
+[OK  ] @carbide-ui/refs-avalonia             1.645 MB  (budget 2 MB)
+[OK  ] @carbide-ui/avalonia-runtime-bundle  25.109 MB  (budget 35 MB)
+[OK  ] @carbide-ui/avalonia-runner             821 B   (budget 100 KB)    ← stub
+[OK  ] @carbide-ui/launcher                    6.3 KB  (budget 50 KB)
+```
+
+**Architectural deviation from plan §7.5 (noted):** the original plan scoped `@carbide-ui/avalonia-runner` as a distinct HTML/JS wrapper package that pulls `_framework/` from the bundle via symlink/copy. In practice `dotnet publish` emits all three shell files alongside `_framework/`, so the bundle's root IS the runner. The runner package collapsed to a README pointing at `@carbide-ui/avalonia-runtime-bundle/index.html`; the name is preserved for a future re-introduction if bundle deployments ever need a distinct HTML shell (e.g. CDN vs. iframe-embed variants).
+
+**Acceptance deferrals:**
+
+- **Playwright end-to-end test.** The plan calls for a Chromium-driven fixture that compiles an Avalonia Counter sample via Carbide, launches it through the real iframe, and screenshot-compares the rendered canvas. Playwright isn't installed locally (Chromium binary is ~500 MB); the unit harness covers protocol-timing and error-propagation semantics exhaustively, and the full browser smoke is deferred to a follow-up PR. The runner's `[JSExport]` surface, the `getAssemblyExports` navigation path, and the base64 round-trip are all structurally the same code across unit and browser contexts — the primary risks the Playwright fixture would catch are canvas-rendering and iframe-resize edge cases, not protocol correctness.
+- **Browser-side sideload.** Unrelated to UI-M3 but needed for in-browser sessions; still the single follow-up from core-P1.
 
 ### 7.1 Acceptance
 

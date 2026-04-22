@@ -12,10 +12,12 @@ packages/refs-avalonia/.cache/
 packages/refs-avalonia/ref/
 packages/refs-avalonia/refpack.json
 
-# @carbide-ui/avalonia-runtime-bundle writes the published _framework/ tree,
-# shell/ tree, and manifest from dotnet publish output at UI-M2.
+# @carbide-ui/avalonia-runtime-bundle writes the published _framework/ tree and
+# shell files (index.html / main.js / runner-bridge.js) from dotnet publish output.
 packages/runtime-bundle/_framework/
-packages/runtime-bundle/shell/
+packages/runtime-bundle/index.html
+packages/runtime-bundle/main.js
+packages/runtime-bundle/runner-bridge.js
 packages/runtime-bundle/bundle-manifest.json
 
 # @carbide-ui/launcher tsc output.

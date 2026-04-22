@@ -16,7 +16,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --test-force-exit test/launcher.test.mjs"
   },
   "keywords": [
     "carbide",

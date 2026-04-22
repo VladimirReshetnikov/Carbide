@@ -5,7 +5,9 @@
   "type": "module",
   "files": [
     "_framework/**/*",
-    "shell/**/*",
+    "index.html",
+    "main.js",
+    "runner-bridge.js",
     "bundle-manifest.json",
     "README.md"
   ],

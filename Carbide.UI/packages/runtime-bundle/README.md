@@ -8,11 +8,15 @@ After `npm run build` (maintainer-only; requires .NET 10 SDK + `wasm-tools` work
 
 ```
 _framework/              # Published Avalonia.Browser + .NET runtime assets (~412 files).
-shell/
-    index.html           # Avalonia's <div id="out"> host page.
-    main.js              # .NET boot module: imports _framework/dotnet.js and runs Main.
+index.html               # Iframe-embeddable shell with <div id="out">.
+main.js                  # .NET boot entry: imports _framework/dotnet.js, exposes
+                         #   Carbide.UI.Runner.RunnerProgram on globalThis, runs Main.
+runner-bridge.js         # postMessage protocol bridge (schema v1). Loaded at runtime
+                         #   via JSHost.ImportAsync; not imported from main.js directly.
 bundle-manifest.json     # { pinned, sizeBytes, framework[], shell[] } — SHA256 per file.
 ```
+
+The shell files sit at the bundle's root (flattened in UI-M3) so the bundle is directly usable as the runner's iframe src. `@carbide-ui/launcher` defaults `runnerSrc` to `@carbide-ui/avalonia-runtime-bundle/index.html`.
 
 ## Pinning
 
