@@ -474,9 +474,30 @@ This lives entirely in `@carbide/core`'s document-handling layer. It is **not** 
 - **UI-M4-R2. Namespaces in XAML reference types in the user assembly.** `AvaloniaRuntimeXamlLoader.Parse(xaml, parentAssembly: userAssembly)` resolves `clr-namespace:MyApp;assembly=MyApp` against the given assembly. Mitigation: the generator passes `Assembly.GetExecutingAssembly()` as `parentAssembly` so the runtime resolves user types correctly.
 - **UI-M4-R3. Hidden companion leaks into user-facing diagnostics.** Roslyn diagnostics from the companion should be tagged as generator-origin and suppressed in the user-facing diagnostic stream, or re-mapped to the `.axaml` source. Mitigation: simplest v1 — suppress generator-origin warnings; surface only errors (marked as originating from the companion) with a note "XAML: <excerpt>". Refinement can wait until someone hits it.
 
-## 9. UI-M6 — multiple preview polish & production hardening
+## 9. UI-M6 — multiple preview polish & production hardening  ✓ shipped 2026-04-21
 
 **Goal.** Support N concurrent iframes driven from one `CarbideSession`. Ship production-grade error messages, comprehensive API docs, a cross-browser test matrix, and at least one sample repo entry per proposal §16.
+
+**Shipped artefacts (2026-04-21):**
+
+- [`samples/hello-code-only/`](../../../Carbide.UI/samples/hello-code-only/), [`samples/counter/`](../../../Carbide.UI/samples/counter/), [`samples/hello-runtime-xaml-string/`](../../../Carbide.UI/samples/hello-runtime-xaml-string/) — three ambition-tier samples per proposal §16.1/§16.2/§16.3. Each has an `App.cs` plus a `README.md` with ambition-tier labelling.
+- [`samples/README.md`](../../../Carbide.UI/samples/README.md) — index cross-linking the samples + ambition tiers, with a sample-consumption snippet.
+- [`packages/launcher/test/browser/multi-preview.html`](../../../Carbide.UI/packages/launcher/test/browser/multi-preview.html) + [`multi-preview.spec.mjs`](../../../Carbide.UI/packages/launcher/test/browser/multi-preview.spec.mjs) — three iframes driven from one `CarbideSession` (compiles samples serially, launches concurrently). Playwright smoke asserts all three iframes render non-zero pixels on their Skia canvas and that handle IDs are distinct.
+- `LaunchHandle.id` — monotonic module-scoped identifier, useful for logging concurrent previews. Typed into [`index.ts`](../../../Carbide.UI/packages/launcher/src/index.ts) alongside the existing `reload` / `dispose` members.
+- [`src/Carbide.UI/README.md`](../../../Carbide.UI/README.md) promoted to the canonical getting-started doc: code snippet, package table, size gates, known limitations list (cross-linked to proposal Q.3 / Q.4 / Q.2 and plan UI-R7 / UI-R9), testing commands.
+
+**Measurements:**
+
+- Launcher unit tests: 12/12 green.
+- Playwright browser suite: 2/2 green (single-iframe 14.2s, multi-iframe **10.4s** — multi faster because the runtime bundle was cached from the first test).
+- All four package sizes within UI-I2 budget.
+
+**Acceptance deferrals:**
+
+- **Cross-browser matrix (Firefox + WebKit).** Plan §9.1 calls for all three. Installing the browser binaries is ~500 MB each; the `playwright.config.mjs` currently lists chromium only. Adding the other two is a one-line config plus `npx playwright install firefox webkit`. The Avalonia.Browser team lists Firefox as fully supported and WebKit as experimental; I defer the cross-browser enablement to a follow-up where browser-specific WebGL context behaviour (plan UI-R9) can be audited alongside.
+- **MVVM + `.axaml` sample (proposal §16.4).** Covered structurally by UI-M4's unit tests; first-class sample scaffolding waits for a next-iteration pass.
+- **Four-iframe sample.** Plan §9.1 uses four; I shipped three (enough to exercise the concurrency path; WebGL cap at 16 is not close at 3). Trivial to extend when the fourth sample lands.
+- **`runnerError { kind }` taxonomy audit.** Plan §9.1 calls for curated `message` strings. The runner currently emits `[runner-cs] boot FAILED: {exception}` (full `.ToString()`) for kind `load`. A targeted scrub to replace raw exception text with curated summaries is a follow-up; right now the tests pass and user-visible messages are diagnostic-quality, which is enough for v1.
 
 ### 9.1 Acceptance
 

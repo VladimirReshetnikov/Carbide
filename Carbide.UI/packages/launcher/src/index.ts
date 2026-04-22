@@ -39,6 +39,10 @@ export interface LaunchOptions {
 }
 
 export interface LaunchHandle {
+    /** Opaque stable identifier for this handle. Useful for logging / diagnostics when
+     *  multiple previews run concurrently in the same session. Monotonically assigned
+     *  within the launcher module lifetime; not a UUID, not stable across reloads. */
+    readonly id: string;
     /** Replace the running UI with a new build. v1 implementation performs an iframe
      *  re-boot (the runner only handles one load per iframe lifetime); rejects if
      *  the handle has been disposed. */
@@ -48,6 +52,7 @@ export interface LaunchHandle {
 }
 
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
+let handleCounter = 0;
 
 export async function launchInIframe(
     build: BuildResult,
@@ -75,7 +80,9 @@ export async function launchInIframe(
     window.addEventListener("message", runtimeErrorListener);
 
     let disposed = false;
+    const id = `launch-${++handleCounter}`;
     const handle: LaunchHandle = {
+        id,
         async reload(newBuild: BuildResult): Promise<void> {
             if (disposed) throw new Error("@carbide-ui/launcher: LaunchHandle has been disposed.");
             assertSuccessfulBuild(newBuild);
