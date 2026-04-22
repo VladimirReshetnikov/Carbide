@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-20T18:23:55Z
-Repository HEAD: e4e53b7638153472a3db0e2115b9345cb6e84283
+Updated (UTC): 2026-04-22T23:13:56Z
+Repository HEAD: b2dfbc1c772a37400b616ffe645ab508a54958df
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -36,6 +36,9 @@ This directory holds the design material for **Carbide** — a working codename 
 ## Feature proposals
 
 - [JS↔C# interop bridge proposal](proposals/carbide-js-interop-bridge-proposal__2026-04-18__22-00-00-000000__a2d2955163d1.md) — design for an ES6-Proxy-based object-graph bridge over `[JSExport]` plus a compile-time surface manifest, targeting ClearScript-level ergonomics for user C# compiled in-sandbox. Introduces `@carbide/bridge` (TS) and `Carbide.Core.Bridge` (C#) as a peer of the existing control-plane `CompilationInterop`. Companion to the Carbide-local [JS↔C# WASM interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md).
+- [PowerShell-subset shell for Carbide + xterm.js](proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md) — proposal for a clean-room PowerShell-flavored shell with a VFS, cmdlet catalog, script execution, and Carbide-app invocation, hosted directly inside Carbide's browser/Node runtime.
+- [Multi-shell (cmd + bash alongside pwsh) with cross-shell invocation](proposals/carbide-multi-shell-proposal__2026-04-21__23-30-00-000000__d9a71f3c5b68.md) — proposal for `carbide-cmd`, `carbide-bash`, and a shared `carbide-shell-core`, giving one Carbide session a pwsh/cmd/bash stack with shared VFS, env, and exit-code flow.
+- [Virtual executable stubs for common `System32` and Git `usr/bin` tools in `carbide-multishell`](proposals/carbide-multishell-vfs-executable-stubs-proposal__2026-04-22__23-10-39-000000__6827e976e1d5.md) — proposal for a broader multishell tool catalog beyond shell stubs, including `robocopy.exe`, `grep.exe`, `sed.exe`, `awk.exe`, `findstr.exe`, `tar.exe`, search-path rules, command-name collision handling, and per-tool feature commitments.
 
 ## Companion-project proposals
 
