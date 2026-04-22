@@ -9,6 +9,15 @@ public sealed record ScriptAst(IReadOnlyList<StatementAst> Statements, SourceLoc
 public sealed record ExpressionStatementAst(ExpressionAst Expression, SourceLocation Location)
     : StatementAst(Location);
 
+/// <summary>
+/// A statement that is really a sequence of sub-statements executed in order. Used for
+/// top-level <c>param(...)</c> blocks (which expand to a run of default-value assignments)
+/// and other places where one <see cref="StatementAst"/> slot needs to hold multiple
+/// logical statements.
+/// </summary>
+public sealed record BlockStatementAst(IReadOnlyList<StatementAst> Statements, SourceLocation Location)
+    : StatementAst(Location);
+
 public sealed record AssignmentStatementAst(
     ExpressionAst Target,
     AssignmentOp Op,

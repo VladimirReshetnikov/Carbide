@@ -82,8 +82,16 @@ public sealed class Interpreter
         FunctionDefinitionAst fd => ExecuteFunctionDefinition(fd),
         ClassDefinitionAst cd => ExecuteClassDefinition(cd),
         EnumDefinitionAst ed => ExecuteEnumDefinition(ed),
+        BlockStatementAst bs => ExecuteBlock(bs),
         _ => throw new PwshRuntimeException($"Unsupported statement node: {statement.GetType().Name}", statement.Location),
     };
+
+    private object? ExecuteBlock(BlockStatementAst block)
+    {
+        object? last = null;
+        foreach (var s in block.Statements) last = EvaluateStatement(s);
+        return last;
+    }
 
     // ---------- Control flow ----------
 

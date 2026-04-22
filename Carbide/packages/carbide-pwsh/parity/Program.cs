@@ -11,6 +11,13 @@ using System.Diagnostics;
 using System.Text;
 using CarbidePwsh.Host;
 
+// Sub-commands. Default mode is the parity matrix; `parse <file>` is a focused
+// parse-only check used when we aim carbide-pwsh at a real-world script.
+if (args.Length >= 1 && args[0] == "parse")
+{
+    return CarbidePwsh.Parity.ParseFile.Run(args);
+}
+
 var pwshPath = Environment.GetEnvironmentVariable("PWSH")
     ?? @"C:\Program Files\PowerShell\7\pwsh.exe";
 
@@ -91,6 +98,8 @@ if (writeReportPath is not null)
     await File.WriteAllTextAsync(writeReportPath, report.ToString());
     Console.WriteLine($"wrote report: {writeReportPath}");
 }
+
+return diffed == 0 ? 0 : 1;
 
 static string RunRealPwsh(string exe, string source)
 {

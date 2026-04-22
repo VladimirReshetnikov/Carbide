@@ -283,11 +283,17 @@ public sealed class ShellHost
         r.Register(() => new GetLocationCommand());
         r.Register(() => new ResolvePathCommand());
         r.Register(() => new JoinPathCommand());
+        r.Register(() => new SplitPathCommand());
         r.Register(() => new CopyItemCommand());
         r.Register(() => new MoveItemCommand());
+        r.Register(() => new RenameItemCommand());
+        r.Register(() => new NewObjectCommand());
 
         // System.
         r.Register(() => new ClearHostCommand());
+        r.Register(() => new SetStrictModeCommand());
+        r.Register(() => new OutNullCommand());
+        r.Register(() => new WriteWarningCommand());
         r.Register(() => new StartSleepCommand());
         r.Register(() => new GetDateCommand());
         r.Register(() => new GetRandomCommand());

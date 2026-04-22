@@ -79,6 +79,14 @@ public sealed class Parser
 
     private StatementAst ParseStatement()
     {
+        // Skip any leading attribute specifiers (`[CmdletBinding(...)]`, `[ValidateSet(...)]`,
+        // …). Phase 1 treats them as no-ops; they exist purely so real-world scripts parse.
+        while (IsAttributeSpec())
+        {
+            ConsumeAttributeSpec();
+            SkipNewlines();
+        }
+
         var loc = Current.Location;
 
         // Statement-start Identifier → either a keyword statement (if/while/try/…) or command
@@ -96,6 +104,7 @@ public sealed class Parser
                 case "foreach": return ParseForEachStatement();
                 case "switch": return ParseSwitchStatement();
                 case "function": case "filter": return ParseFunctionDefinition();
+                case "param": return ParseTopLevelParamBlock();
                 case "try": return ParseTryStatement();
                 case "throw": return ParseThrowStatement();
                 case "return": return ParseReturnStatement();
@@ -520,6 +529,52 @@ public sealed class Parser
         return depth == 0;
     }
 
+    /// <summary>
+    /// Return <see langword="true"/> if the current position begins a pwsh attribute
+    /// specifier like <c>[CmdletBinding(…)]</c>, <c>[Parameter(Mandatory=$true)]</c>, or
+    /// <c>[ValidateSet('a','b')]</c>. Distinguished from a plain type literal by the
+    /// presence of a left-paren after the type name.
+    /// </summary>
+    private bool IsAttributeSpec()
+    {
+        if (Current.Kind != TokenKind.LBracket) return false;
+        int i = _cursor + 1;
+        if (i >= _tokens.Count || _tokens[i].Kind != TokenKind.Identifier) return false;
+        i++;
+        while (i < _tokens.Count && _tokens[i].Kind == TokenKind.Dot)
+        {
+            i++;
+            if (i >= _tokens.Count || _tokens[i].Kind != TokenKind.Identifier) return false;
+            i++;
+        }
+        return i < _tokens.Count && _tokens[i].Kind == TokenKind.LParen;
+    }
+
+    /// <summary>
+    /// Consume and discard an attribute specifier. Phase 1 treats attributes as semantic
+    /// no-ops — we don't enforce <c>[ValidateSet]</c>, we don't honor
+    /// <c>[CmdletBinding(SupportsShouldProcess)]</c>, and we don't mirror them into the
+    /// parameter AST. The parser just has to accept them so real-world scripts parse.
+    /// </summary>
+    private void ConsumeAttributeSpec()
+    {
+        Consume(TokenKind.LBracket);
+        int depth = 1;
+        while (depth > 0 && !IsAt(TokenKind.EndOfInput))
+        {
+            if (IsAt(TokenKind.LBracket)) depth++;
+            else if (IsAt(TokenKind.RBracket))
+            {
+                depth--;
+                Advance();
+                if (depth == 0) return;
+                continue;
+            }
+            Advance();
+        }
+        throw new PwshParseException("Unterminated attribute specifier.", Current.Location);
+    }
+
     private TypeLiteralAst ParseTypeLiteral()
     {
         var start = Current.Location;
@@ -527,9 +582,68 @@ public sealed class Parser
         var typeName = ParseTypeName();
         var genericArgs = new List<TypeLiteralAst>();
         int arrayRank = 0;
-        // Phase 1: accept [Name] and [Name.Sub], no generic args inside the type literal itself.
-        // (Generic args would need nested [T] at this position.)
+        // After the name, pwsh accepts two different bracketed suffixes:
+        //   `[]` — array rank increment (zero inside the brackets).
+        //   `[T1,T2,...]` — generic type arguments (pwsh's shorthand for `HashSet<T>`).
+        // Distinguished by whether the inner `[` is immediately followed by `]`.
+        while (IsAt(TokenKind.LBracket))
+        {
+            if (Peek(1).Kind == TokenKind.RBracket)
+            {
+                Advance(); Advance();
+                arrayRank++;
+                continue;
+            }
+            // Generic arguments.
+            Advance();
+            SkipNewlines();
+            genericArgs.Add(ParseTypeLiteralInner());
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                genericArgs.Add(ParseTypeLiteralInner());
+                SkipNewlines();
+            }
+            Consume(TokenKind.RBracket);
+        }
         Consume(TokenKind.RBracket);
+        return new TypeLiteralAst(typeName, genericArgs, arrayRank, start);
+    }
+
+    /// <summary>
+    /// Parse a type literal in a context that has already consumed the opening `[` — i.e.
+    /// inside generic-argument brackets. Handles the same name / array / generic / trailing-
+    /// bracket shape as <see cref="ParseTypeLiteral"/> without the outer brackets.
+    /// </summary>
+    private TypeLiteralAst ParseTypeLiteralInner()
+    {
+        var start = Current.Location;
+        var typeName = ParseTypeName();
+        var genericArgs = new List<TypeLiteralAst>();
+        int arrayRank = 0;
+        while (IsAt(TokenKind.LBracket))
+        {
+            if (Peek(1).Kind == TokenKind.RBracket)
+            {
+                Advance(); Advance();
+                arrayRank++;
+                continue;
+            }
+            Advance();
+            SkipNewlines();
+            genericArgs.Add(ParseTypeLiteralInner());
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                genericArgs.Add(ParseTypeLiteralInner());
+                SkipNewlines();
+            }
+            Consume(TokenKind.RBracket);
+        }
         return new TypeLiteralAst(typeName, genericArgs, arrayRank, start);
     }
 
@@ -668,11 +782,16 @@ public sealed class Parser
                 Advance();
                 SkipNewlines();
                 // Allow a command/pipeline inside parens. If the first token is an identifier
-                // that's not a keyword in expression context, treat the whole paren as a
-                // sub-pipeline whose final value is yielded as a subexpression.
-                if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
+                // that's not a keyword in expression context, OR a `&` call operator, treat
+                // the whole paren as a sub-pipeline whose final value is yielded as a
+                // subexpression. `(& $scriptblock $arg)`, `(Get-Date)`, `($x | Sort-Object)`
+                // all hit this path.
+                if ((IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
+                    || IsAt(TokenKind.Ampersand))
                 {
-                    var pipelineStmt = ParseCommandPipeline(t.Location);
+                    var pipelineStmt = IsAt(TokenKind.Ampersand)
+                        ? ParseCallOperatorStatement(t.Location)
+                        : ParseCommandPipeline(t.Location);
                     SkipNewlines();
                     if (!IsAt(TokenKind.RParen))
                     {
@@ -685,6 +804,30 @@ public sealed class Parser
                 }
                 var inner = ParseLogicalOr();
                 SkipNewlines();
+                // Parenthesized pipelines: `($xs | ForEach-Object { $_ * 2 })`. When the
+                // first expression is followed by `|`, stitch additional pipeline stages
+                // until we reach the closing `)`. Real pwsh treats the whole paren as the
+                // subexpression whose final stage's output is yielded.
+                if (IsAt(TokenKind.Pipe))
+                {
+                    var stages = new List<AstNode> { inner };
+                    while (IsAt(TokenKind.Pipe))
+                    {
+                        Advance();
+                        SkipNewlines();
+                        stages.Add(ParsePipelineStage());
+                    }
+                    SkipNewlines();
+                    if (!IsAt(TokenKind.RParen))
+                    {
+                        if (IsAt(TokenKind.EndOfInput))
+                            throw new PwshIncompleteInputException("Unterminated '(' — expected ')'.", t.Location);
+                        throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
+                    }
+                    Advance();
+                    var pipeline = new PipelineAst(stages, t.Location);
+                    return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, t.Location), t.Location);
+                }
                 if (!IsAt(TokenKind.RParen))
                 {
                     if (IsAt(TokenKind.EndOfInput))
@@ -743,9 +886,13 @@ public sealed class Parser
         var statements = new List<StatementAst>();
         while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
         {
-            statements.Add(ParseStatement());
+            var stmt = ParseStatement();
+            statements.Add(stmt);
             if (IsAt(TokenKind.RBrace) || IsAt(TokenKind.EndOfInput)) break;
-            if (!IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+            // Same relaxation as ParseBraceBlock — a param() block is separator-terminated
+            // by its closing `)`, so `{ param($x) body }` on one line is valid.
+            bool afterParam = IsFromParamBlock(stmt);
+            if (!afterParam && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
                 throw new PwshParseException(
                     $"Expected statement separator inside script block, got {Current.Kind} '{Current.Text}'.", Current.Location);
             SkipNewlinesAndSemicolons();
@@ -777,6 +924,28 @@ public sealed class Parser
         return new ArrayExpressionAst(elements, start);
     }
 
+    /// <summary>
+    /// Parse an expression in a context where pwsh allows "statement-as-expression" —
+    /// hashtable values (<c>@{x = if (…) { … }}</c>), assignment RHS, command-argument
+    /// expressions. The statement keywords <c>if</c>, <c>while</c>, <c>foreach</c>,
+    /// <c>switch</c>, <c>try</c> fold into a <see cref="SubExpressionAst"/> that the
+    /// interpreter evaluates to the last statement's value.
+    /// </summary>
+    private ExpressionAst ParseValueExpression()
+    {
+        if (IsAt(TokenKind.Identifier))
+        {
+            var kw = Current.Text.ToLowerInvariant();
+            if (kw is "if" or "while" or "do" or "for" or "foreach" or "switch" or "try")
+            {
+                var loc = Current.Location;
+                var stmt = ParseStatement();
+                return new SubExpressionAst(new ScriptAst(new[] { stmt }, loc), loc);
+            }
+        }
+        return ParseLogicalOr();
+    }
+
     private HashtableExpressionAst ParseHashtableLiteral()
     {
         var start = Consume(TokenKind.AtLBrace).Location;
@@ -788,7 +957,7 @@ public sealed class Parser
             SkipNewlines();
             Consume(TokenKind.Equal);
             SkipNewlines();
-            var value = ParseLogicalOr();
+            var value = ParseValueExpression();
             entries.Add((key, value));
             SkipNewlinesAndSemicolons();
             // Allow optional comma as well.
@@ -908,12 +1077,23 @@ public sealed class Parser
                !IsAt(TokenKind.Semicolon) &&
                !IsAt(TokenKind.Pipe) &&
                !IsAt(TokenKind.RParen) &&
-               !IsAt(TokenKind.RBrace) &&
-               !IsAt(TokenKind.RBracket))
+               !IsAt(TokenKind.RBrace))
         {
             // First token: always consume. Subsequent: only if adjacent (no whitespace).
             if (sb.Length > 0 && Current.Location.Offset != endOffset)
                 break;
+            // In bare-word position, accept an adjacent `[]` pair as a suffix — pwsh treats
+            // `byte[]` as the type name `System.Byte[]` when passed as a command argument
+            // (e.g. `New-Object byte[] (…)`). Stop on any other stray `[` or `]`.
+            if (IsAt(TokenKind.RBracket)) break;
+            if (IsAt(TokenKind.LBracket))
+            {
+                if (Peek(1).Kind != TokenKind.RBracket) break;
+                sb.Append("[]");
+                endOffset = Peek(1).Location.Offset + Peek(1).Location.Length;
+                Advance(); Advance();
+                continue;
+            }
             sb.Append(Current.Text);
             endOffset = Current.Location.Offset + Current.Location.Length;
             Advance();
@@ -963,6 +1143,37 @@ public sealed class Parser
         return true;
     }
 
+    /// <summary>
+    /// Parse a condition inside `if (...)`, `while (...)`, `do-while (...)`, `for (;cond;)`.
+    /// If the first token is an Identifier that isn't an expression keyword, treat the
+    /// whole paren as a command-pipeline sub-expression (matches real pwsh: `if (Test-Path
+    /// /foo)` is valid). Pipelines with `|` stitch through, same as the parenthesized-
+    /// pipeline path in primary expressions.
+    /// </summary>
+    private ExpressionAst ParseConditionExpression()
+    {
+        var loc = Current.Location;
+        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
+        {
+            var cmd = ParseCommandPipeline(loc);
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { cmd }, loc), loc);
+        }
+        var expr = ParseLogicalOr();
+        if (IsAt(TokenKind.Pipe))
+        {
+            var stages = new List<AstNode> { expr };
+            while (IsAt(TokenKind.Pipe))
+            {
+                Advance();
+                SkipNewlines();
+                stages.Add(ParsePipelineStage());
+            }
+            var pipeline = new PipelineAst(stages, loc);
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
+        }
+        return expr;
+    }
+
     private IfStatementAst ParseIfStatement()
     {
         var start = ConsumeKeyword("if").Location;
@@ -973,7 +1184,7 @@ public sealed class Parser
         {
             Consume(TokenKind.LParen);
             SkipNewlines();
-            var cond = ParseLogicalOr();
+            var cond = ParseConditionExpression();
             SkipNewlines();
             Consume(TokenKind.RParen);
             SkipNewlines();
@@ -984,6 +1195,11 @@ public sealed class Parser
         ParseBranch();
         while (true)
         {
+            // Look past any newlines WITHOUT committing — pwsh allows `} elseif` on the
+            // same line or after a newline, but a newline followed by an unrelated
+            // statement ends the if. If the next meaningful keyword isn't `elseif` /
+            // `else`, rewind so ParseScript sees the newline as a statement separator.
+            var save = _cursor;
             SkipNewlines();
             if (IsKeyword("elseif"))
             {
@@ -996,7 +1212,9 @@ public sealed class Parser
                 Advance();
                 SkipNewlines();
                 elseBody = ParseBraceBlock();
+                break;
             }
+            _cursor = save;
             break;
         }
         return new IfStatementAst(branches, elseBody, start);
@@ -1007,7 +1225,7 @@ public sealed class Parser
         var start = ConsumeKeyword("while").Location;
         Consume(TokenKind.LParen);
         SkipNewlines();
-        var cond = ParseLogicalOr();
+        var cond = ParseConditionExpression();
         SkipNewlines();
         Consume(TokenKind.RParen);
         SkipNewlines();
@@ -1027,7 +1245,7 @@ public sealed class Parser
         else throw new PwshParseException("Expected 'while' or 'until' after do-block.", Current.Location);
         Consume(TokenKind.LParen);
         SkipNewlines();
-        var cond = ParseLogicalOr();
+        var cond = ParseConditionExpression();
         SkipNewlines();
         Consume(TokenKind.RParen);
         return new DoWhileStatementAst(body, cond, isUntil, start);
@@ -1145,13 +1363,42 @@ public sealed class Parser
         return new ContinueStatementAst(label, start);
     }
 
+    /// <summary>
+    /// Parse the value after `return` or `throw`. Real pwsh lets the right-hand side be a
+    /// full command pipeline (<c>return Get-ChildItem | Sort-Object</c>), not just an
+    /// expression. If the first token is an Identifier that isn't an expression keyword,
+    /// treat the tail as a command-pipeline sub-expression.
+    /// </summary>
+    private ExpressionAst ParseReturnOrThrowValue(Errors.SourceLocation loc)
+    {
+        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
+        {
+            var cmd = ParseCommandPipeline(loc);
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { cmd }, loc), loc);
+        }
+        var expr = ParseLogicalOr();
+        if (IsAt(TokenKind.Pipe))
+        {
+            var stages = new List<AstNode> { expr };
+            while (IsAt(TokenKind.Pipe))
+            {
+                Advance();
+                SkipNewlines();
+                stages.Add(ParsePipelineStage());
+            }
+            var pipeline = new PipelineAst(stages, loc);
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
+        }
+        return expr;
+    }
+
     private ReturnStatementAst ParseReturnStatement()
     {
         var start = ConsumeKeyword("return").Location;
         ExpressionAst? value = null;
         if (!IsStatementTerminator() && !IsAt(TokenKind.RBrace))
         {
-            value = ParseLogicalOr();
+            value = ParseReturnOrThrowValue(start);
         }
         return new ReturnStatementAst(value, start);
     }
@@ -1162,7 +1409,7 @@ public sealed class Parser
         ExpressionAst? value = null;
         if (!IsStatementTerminator() && !IsAt(TokenKind.RBrace))
         {
-            value = ParseLogicalOr();
+            value = ParseReturnOrThrowValue(start);
         }
         return new ThrowStatementAst(value, start);
     }
@@ -1314,9 +1561,66 @@ public sealed class Parser
         return new FunctionDefinitionAst(name, parameters, beginBlock, processBlock, endBlock, simpleBody, start);
     }
 
+    /// <summary>
+    /// Top-level <c>param(...)</c> block at script start. Each declared parameter becomes
+    /// an assignment to its name in the current scope, using its default expression when
+    /// one is supplied. Attributes on the parameter (<c>[Parameter(Mandatory)]</c>,
+    /// <c>[ValidateSet(...)]</c>, etc.) are accepted but not enforced in Phase 1.
+    /// </summary>
+    private StatementAst ParseTopLevelParamBlock()
+    {
+        var start = ConsumeKeyword("param").Location;
+        SkipNewlines();
+        Consume(TokenKind.LParen);
+        SkipNewlines();
+        var parameters = new List<ParameterAst>();
+        if (!IsAt(TokenKind.RParen))
+        {
+            parameters.Add(ParseParameter());
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                parameters.Add(ParseParameter());
+                SkipNewlines();
+            }
+        }
+        Consume(TokenKind.RParen);
+        // Represent the param block as a sequence of assignment statements so the
+        // interpreter doesn't need a new AST node. A parameter without a default evaluates
+        // to $null; a [switch]$Flag without a default becomes $false (matching real pwsh).
+        var assignments = new List<StatementAst>();
+        foreach (var p in parameters)
+        {
+            ExpressionAst rhs = p.DefaultValue
+                ?? (IsSwitchType(p.TypeConstraint) ? (ExpressionAst)new BooleanLiteralAst(false, start) : new NullLiteralAst(start));
+            var lhs = new VariableAst(null, p.Name, start);
+            assignments.Add(new AssignmentStatementAst(lhs, AssignmentOp.Assign, rhs, start));
+        }
+        // Always emit a BlockStatementAst (even for 0 or 1 assignments) so the brace-block
+        // parser can reliably detect "we just finished a param() block" via a type check
+        // and relax its separator requirement. Matches real pwsh's `{ param($x) body }`.
+        return new BlockStatementAst(assignments, start);
+    }
+
+    private static bool IsSwitchType(TypeLiteralAst? type)
+    {
+        if (type is null) return false;
+        return string.Equals(type.TypeName, "switch", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type.TypeName, "System.Management.Automation.SwitchParameter", StringComparison.OrdinalIgnoreCase);
+    }
+
     private ParameterAst ParseParameter()
     {
         var loc = Current.Location;
+        // Skip any leading attribute specifiers — `[Parameter(…)]`, `[ValidateSet(…)]`,
+        // etc. can appear in any order before the optional type literal and the variable.
+        while (IsAttributeSpec())
+        {
+            ConsumeAttributeSpec();
+            SkipNewlines();
+        }
         TypeLiteralAst? type = null;
         if (IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
         {
@@ -1458,9 +1762,16 @@ public sealed class Parser
         var statements = new List<StatementAst>();
         while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
         {
-            statements.Add(ParseStatement());
+            var stmt = ParseStatement();
+            statements.Add(stmt);
             if (IsAt(TokenKind.RBrace) || IsAt(TokenKind.EndOfInput)) break;
-            if (!IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+            // A param() block at the top of a scriptblock is separator-terminated by its
+            // closing `)` — `{ param($x) body }` is valid pwsh on a single line. Allow
+            // the following statement without a newline/semicolon when the previous one
+            // came from ParseTopLevelParamBlock (which is the only emitter of
+            // BlockStatementAst / AssignmentStatementAst-from-param in Phase 1).
+            bool afterParam = IsFromParamBlock(stmt);
+            if (!afterParam && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
                 throw new PwshParseException(
                     $"Expected statement separator, got {Current.Kind} '{Current.Text}'.", Current.Location);
             SkipNewlinesAndSemicolons();
@@ -1469,6 +1780,21 @@ public sealed class Parser
             throw new PwshIncompleteInputException("Unterminated brace block.", start);
         Consume(TokenKind.RBrace);
         return new ScriptAst(statements, start);
+    }
+
+    /// <summary>
+    /// Mark each BlockStatementAst emitted by a top-level param block with a flag so that
+    /// ParseBraceBlock can relax its statement-separator requirement immediately after
+    /// one. In Phase 1 we use a sentinel empty location to avoid threading a second field
+    /// through the AST record.
+    /// </summary>
+    private static bool IsFromParamBlock(StatementAst stmt)
+    {
+        // BlockStatementAst is only emitted from ParseTopLevelParamBlock today, and param
+        // blocks without defaults produce a single AssignmentStatementAst — we recognise
+        // that shape too (assignment of a VariableAst to a null-or-boolean literal at a
+        // param-block's own source location).
+        return stmt is BlockStatementAst;
     }
 
     private bool IsPathLikeCommand()
