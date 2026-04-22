@@ -19,10 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\carbide-shell-core\src\CarbideShellCore.csproj" />
-    <ProjectReference Include="..\carbide-pwsh\src\CarbidePwsh.csproj" />
-    <ProjectReference Include="..\carbide-cmd\src\CarbideCmd.csproj" />
-    <ProjectReference Include="..\carbide-bash\src\CarbideBash.csproj" />
+    <ProjectReference Include="..\carbide-multishell\src\CarbideMultishell.csproj" />
   </ItemGroup>
 
   <ItemGroup>

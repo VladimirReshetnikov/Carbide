@@ -44,7 +44,7 @@ public sealed class InvokeCmdCommand : Cmdlet
         }
         else
         {
-            var code = dispatcher.RunInteractive(kernel, ctx);
+            var code = dispatcher.EnterSubShell(kernel, ctx);
             context.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         }
         yield break;
@@ -60,10 +60,14 @@ public sealed class InvokeCmdCommand : Cmdlet
 
     internal static (TextReader Stdin, TextWriter Stdout, TextWriter Stderr) StreamsFor(IEnumerable<object?>? input, CmdletContext context)
     {
-        // If upstream produced input, forward it as stdin. Otherwise pass a null reader.
+        // If upstream produced input, forward it as stdin so `Get-Content … | Invoke-Bash`
+        // works. Otherwise fall through to Console.In so bare cross-shell invocation
+        // (which enters interactive mode in the target shell) reads from the terminal.
+        // pwsh's PwshKernel.Execute rebinds Console.In to the caller's stream before
+        // dispatching cmdlets, so this correctly follows whatever the outer shell set up.
         var stdout = context.Output;
         var stderr = context.Error;
-        if (input is null) return (TextReader.Null, stdout, stderr);
+        if (input is null) return (Console.In, stdout, stderr);
         var materialized = string.Join('\n', input.Select(static v => Coercion.FormatAsString(v)));
         return (new StringReader(materialized), stdout, stderr);
     }
@@ -125,7 +129,8 @@ public sealed class InvokeBashCommand : Cmdlet
         }
         else
         {
-            throw new PwshRuntimeException("Invoke-Bash requires -Command or -File.");
+            var code = dispatcher.EnterSubShell(kernel, ctx);
+            context.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         }
         yield break;
     }

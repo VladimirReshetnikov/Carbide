@@ -1,4 +1,5 @@
 using CarbidePwsh.Errors;
+using CarbidePwsh.Runtime;
 using CarbideShellCore.Vfs;
 
 namespace CarbidePwsh.Cmdlets.Fs;
@@ -11,7 +12,19 @@ public sealed class SetLocationCommand : Cmdlet
     public override IEnumerable<object?> Invoke(IEnumerable<object?>? input, ParameterBinding binding, CmdletContext context)
     {
         var path = binding.GetValue<string>("Path", 0, null) ?? "~";
-        context.Vfs.SetLocation(path);
+        // Drive-qualified path (`Env:`, `Alias:…`, etc.) switches the active drive. A bare
+        // path routes to the FileSystem VFS as before.
+        var (drive, sub) = PathQualifier.Parse(path, PwshDriveKind.FileSystem);
+        if (drive != PwshDriveKind.FileSystem)
+        {
+            if (!string.IsNullOrEmpty(sub))
+                throw new PwshRuntimeException(
+                    $"The {PathQualifier.DriveName(drive)} provider does not support sub-paths; `cd {PathQualifier.DriveName(drive)}:` only.");
+            context.Interpreter.CurrentDrive = drive;
+            yield break;
+        }
+        context.Interpreter.CurrentDrive = PwshDriveKind.FileSystem;
+        context.Vfs.SetLocation(sub);
         yield break;
     }
 }
@@ -23,7 +36,7 @@ public sealed class GetLocationCommand : Cmdlet
 
     public override IEnumerable<object?> Invoke(IEnumerable<object?>? input, ParameterBinding binding, CmdletContext context)
     {
-        yield return context.Vfs.CurrentLocation;
+        yield return PathQualifier.PromptDisplay(context.Interpreter.CurrentDrive, context.Vfs.CurrentLocation);
     }
 }
 

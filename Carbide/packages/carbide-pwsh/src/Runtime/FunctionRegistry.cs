@@ -13,6 +13,8 @@ public sealed class FunctionRegistry
         return false;
     }
 
+    public bool Contains(string name) => _byName.ContainsKey(name);
+
     public void Remove(string name) => _byName.Remove(name);
 
     public IReadOnlyCollection<string> Names => _byName.Keys;

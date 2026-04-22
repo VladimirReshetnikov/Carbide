@@ -1,0 +1,24 @@
+{
+  "name": "@carbide/carbide-multishell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pwsh + cmd + bash session sharing one VFS, env, and dispatcher — compiled and run in the browser by Carbide.",
+  "type": "module",
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "keywords": [
+    "carbide",
+    "wasm",
+    "mono-wasm",
+    "powershell",
+    "pwsh",
+    "cmd",
+    "bash",
+    "shell",
+    "multishell",
+    "repl",
+    "xterm"
+  ]
+}

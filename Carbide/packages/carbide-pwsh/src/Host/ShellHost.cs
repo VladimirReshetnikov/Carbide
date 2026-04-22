@@ -69,6 +69,10 @@ public sealed class ShellHost
         Interpreter.RunScriptFile = RunScriptFileFromVfs;
         Interpreter.RunApp = RunAppFromVfs;
 
+        // Route $env: through the session-shared EnvVarStore so env mutations are coherent
+        // with any cmd / bash kernel sharing the dispatcher.
+        Interpreter.Scope.Env = Env;
+
         Interpreter.Scope.Set("global", "PSVersionTable", BuildVersionTable());
         Interpreter.Scope.Set("global", "HOME", VfsPath.HomePath);
         Interpreter.Scope.Set("global", "?", true);
@@ -95,8 +99,8 @@ public sealed class ShellHost
 
     public string BuildPrompt()
     {
-        var pwd = Vfs.CurrentLocation;
-        return $"PS {pwd}> ";
+        var display = Runtime.PathQualifier.PromptDisplay(Interpreter.CurrentDrive, Vfs.CurrentLocation);
+        return $"PS {display}> ";
     }
 
     public string ContinuationPrompt() => ">> ";
@@ -110,7 +114,8 @@ public sealed class ShellHost
         {
             return Interpreter.Evaluate(script);
         }
-        catch (Exception ex) when (ex is not PwshIncompleteInputException)
+        catch (Exception ex) when (ex is not PwshIncompleteInputException
+                                 && ex is not CarbideShellCore.Errors.RequestSubShellException)
         {
             var record = ex is PwshTerminatingException pt ? pt.Error : new ErrorRecord(ex);
             if (Interpreter.Scope.Get("global", "Error") is List<ErrorRecord> errors)
@@ -272,14 +277,23 @@ public sealed class ShellHost
         r.Register(() => new NewItemCommand());
         r.Register(() => new RemoveItemCommand());
         r.Register(() => new TestPathCommand());
+        r.Register(() => new GetItemCommand());
+        r.Register(() => new SetItemCommand());
         r.Register(() => new SetLocationCommand());
         r.Register(() => new GetLocationCommand());
         r.Register(() => new ResolvePathCommand());
         r.Register(() => new JoinPathCommand());
+        r.Register(() => new SplitPathCommand());
         r.Register(() => new CopyItemCommand());
         r.Register(() => new MoveItemCommand());
+        r.Register(() => new RenameItemCommand());
+        r.Register(() => new NewObjectCommand());
 
         // System.
+        r.Register(() => new ClearHostCommand());
+        r.Register(() => new SetStrictModeCommand());
+        r.Register(() => new OutNullCommand());
+        r.Register(() => new WriteWarningCommand());
         r.Register(() => new StartSleepCommand());
         r.Register(() => new GetDateCommand());
         r.Register(() => new GetRandomCommand());

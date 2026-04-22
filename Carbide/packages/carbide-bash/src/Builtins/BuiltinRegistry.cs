@@ -57,6 +57,7 @@ public static class BuiltinRegistry
         _map["declare"] = Builtins.Declare;
         _map["local"] = Builtins.Declare;
         _map["set"] = Builtins.SetBuiltin;
+        _map["clear"] = Builtins.Clear;
     }
 
     public static BashBuiltin? TryGet(string name)

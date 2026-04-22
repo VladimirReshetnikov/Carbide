@@ -48,6 +48,14 @@ public sealed class Interpreter
     public CarbideShellCore.Dispatch.ShellDispatcher? Dispatcher { get; set; }
     public CarbideShellCore.Env.EnvVarStore? Env { get; set; }
 
+    /// <summary>
+    /// Active pwsh drive — <c>FileSystem</c> by default, or one of <c>Env</c>, <c>Alias</c>,
+    /// <c>Function</c>, <c>Variable</c> when the user <c>cd</c>'d into a provider. Read by
+    /// the prompt builder and by the item cmdlets when no drive qualifier is present on
+    /// the supplied path. <c>Set-Location X:</c> is the only thing that mutates it.
+    /// </summary>
+    public PwshDriveKind CurrentDrive { get; set; } = PwshDriveKind.FileSystem;
+
     /// <summary>Raised to run a script file path when the interpreter encounters it as a
     /// command name. Set by <see cref="Host.ShellHost"/>; returns the result of the script.</summary>
     public Func<string, bool, IReadOnlyList<object?>, object?>? RunScriptFile { get; set; }
@@ -74,8 +82,16 @@ public sealed class Interpreter
         FunctionDefinitionAst fd => ExecuteFunctionDefinition(fd),
         ClassDefinitionAst cd => ExecuteClassDefinition(cd),
         EnumDefinitionAst ed => ExecuteEnumDefinition(ed),
+        BlockStatementAst bs => ExecuteBlock(bs),
         _ => throw new PwshRuntimeException($"Unsupported statement node: {statement.GetType().Name}", statement.Location),
     };
+
+    private object? ExecuteBlock(BlockStatementAst block)
+    {
+        object? last = null;
+        foreach (var s in block.Statements) last = EvaluateStatement(s);
+        return last;
+    }
 
     // ---------- Control flow ----------
 
@@ -383,6 +399,37 @@ public sealed class Interpreter
                 }
                 throw new PwshRuntimeException("Target is not indexable for assignment.", target.Location);
             }
+            case ArrayExpressionAst arrLhs:
+            {
+                // Destructuring: `$a, $b = 1, 2` assigns 1 to $a and 2 to $b. When the RHS
+                // has more elements than the LHS, pwsh puts the remainder as an array into
+                // the last target. When it has fewer, extra LHS targets receive $null.
+                var items = value switch
+                {
+                    null => Array.Empty<object?>(),
+                    string s => new object?[] { s },
+                    System.Collections.IEnumerable e when value is not System.Collections.IDictionary
+                        => e.Cast<object?>().ToArray(),
+                    _ => new object?[] { value },
+                };
+                int n = arrLhs.Elements.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    object? v;
+                    if (i == n - 1 && items.Length > n)
+                    {
+                        var rest = new object?[items.Length - n + 1];
+                        Array.Copy(items, i, rest, 0, rest.Length);
+                        v = rest;
+                    }
+                    else
+                    {
+                        v = i < items.Length ? items[i] : null;
+                    }
+                    AssignTo(arrLhs.Elements[i], v);
+                }
+                return;
+            }
             default:
                 throw new PwshRuntimeException(
                     $"Assignment target {target.GetType().Name} is not supported.", target.Location);
@@ -413,12 +460,35 @@ public sealed class Interpreter
 
     private object ResolveTypeExpression(TypeLiteralAst tl)
     {
-        if (Classes != null)
+        // User-defined class / enum (no generics / arrays at this layer).
+        if (tl.GenericArguments.Count == 0 && tl.ArrayRank == 0 && Classes != null)
         {
             if (Classes.TryGetClass(tl.TypeName, out var cls) && cls != null) return cls;
             if (Classes.TryGetEnum(tl.TypeName, out var en) && en != null) return en;
         }
-        return Types.ResolveType(tl.TypeName, tl.Location);
+
+        Type baseType;
+        if (tl.GenericArguments.Count > 0)
+        {
+            // `[HashSet[string]]` → resolve the arity-suffixed open definition `HashSet`1`
+            // directly; bypass the non-generic name (it doesn't exist in the BCL).
+            var arity = tl.GenericArguments.Count;
+            baseType = Types.ResolveType($"{tl.TypeName}`{arity}", tl.Location);
+            var typeArgs = tl.GenericArguments
+                .Select(ga => (Type)ResolveTypeExpression(ga))
+                .ToArray();
+            baseType = baseType.MakeGenericType(typeArgs);
+        }
+        else
+        {
+            baseType = Types.ResolveType(tl.TypeName, tl.Location);
+        }
+
+        if (tl.ArrayRank > 0)
+        {
+            for (int i = 0; i < tl.ArrayRank; i++) baseType = baseType.MakeArrayType();
+        }
+        return baseType;
     }
 
     private object? EvalVariable(VariableAst v)
@@ -480,13 +550,28 @@ public sealed class Interpreter
 
     private object[] EvalArray(ArrayExpressionAst a)
     {
-        var list = new List<object?>();
-        foreach (var e in a.Elements)
+        // pwsh's `@(...)` / comma-list semantics:
+        //  - Explicit comma-separated list (>= 2 elements) — each element is a slot in the
+        //    result, nested arrays are preserved: `@(@(1,2), @(3,4))` is a 2-element array
+        //    whose entries are the two inner arrays.
+        //  - Single-expression `@(expr)` — if `expr` yields an enumerable, flatten it to a
+        //    materialized array; if it yields a scalar, wrap to a one-element array. This
+        //    is the canonical `@(Get-Process)` idiom.
+        if (a.Elements.Count == 1)
         {
-            var v = Eval(e);
-            if (v is object[] inner) list.AddRange(inner);
-            else list.Add(v);
+            var single = Eval(a.Elements[0]);
+            return single switch
+            {
+                null => Array.Empty<object>(),
+                object[] arr => arr,
+                string s => new object[] { s },
+                System.Collections.IDictionary d => new object[] { d },
+                System.Collections.IEnumerable en => en.Cast<object>().ToArray(),
+                _ => new object[] { single },
+            };
         }
+        var list = new List<object?>(a.Elements.Count);
+        foreach (var e in a.Elements) list.Add(Eval(e));
         return list.ToArray()!;
     }
 
@@ -663,6 +748,33 @@ public sealed class Interpreter
                 return Types.InvokeStaticMethod(ctor.Type, "new", args, m.Location);
             return Types.InvokeInstanceMethod(receiver, m.MemberName, args, m.Location);
         }
+
+        // PowerShell-flavored synthetic members. Real pwsh projects `Count` and `Length`
+        // onto any value — scalars answer 1, arrays answer their element count, strings
+        // answer their character count (already a native .Length). Real pwsh also makes
+        // `Count` an alias for `Length` on arrays. Handle those before falling through to
+        // reflected-member lookup so `.Count` on `object[]` doesn't throw. For BCL
+        // collections (HashSet<T>, Dictionary<K,V>, List<T>) prefer the real instance
+        // `.Count` via reflection so we report the actual population rather than the
+        // scalar=1 fallback.
+        if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)
+            || m.MemberName.Equals("Length", StringComparison.OrdinalIgnoreCase))
+        {
+            if (receiver is Array a) return a.Length;
+            if (receiver is System.Collections.ICollection col) return col.Count;
+            if (receiver is string s) return s.Length;
+            // Types that don't implement non-generic ICollection (most generic collections —
+            // HashSet<T>, Dictionary<K,V>) still expose a real `Count` or `Length`
+            // instance property. Use it when present so the scalar-fallback doesn't
+            // mask the real count.
+            var real = receiver.GetType().GetProperty(m.MemberName,
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.IgnoreCase);
+            if (real is not null) return real.GetValue(receiver);
+            // Scalar — real pwsh returns 1 for `.Count` on any non-null scalar.
+            if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)) return 1;
+        }
+
         return Types.GetInstanceMember(receiver, m.MemberName, m.Location);
     }
 

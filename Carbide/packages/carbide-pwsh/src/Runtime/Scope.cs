@@ -37,6 +37,13 @@ public sealed class Scope
     public ScopeFrame ScriptFrame { get; private set; }
     public ScopeFrame CurrentFrame { get; private set; }
 
+    /// <summary>
+    /// Session-shared env-var store. When set, <c>$env:FOO</c> reads / writes route here
+    /// instead of the process-wide <see cref="Environment"/> so env mutations are coherent
+    /// with the cmd / bash kernels in a multishell session.
+    /// </summary>
+    public CarbideShellCore.Env.EnvVarStore? Env { get; set; }
+
     public Scope()
     {
         GlobalFrame = new ScopeFrame(ScopeKind.Global, null);
@@ -49,7 +56,9 @@ public sealed class Scope
         if (qualifier != null)
         {
             if (string.Equals(qualifier, "env", StringComparison.OrdinalIgnoreCase))
-                return Environment.GetEnvironmentVariable(name);
+                return Env?.Get(name) ?? Environment.GetEnvironmentVariable(name);
+            if (string.Equals(qualifier, "variable", StringComparison.OrdinalIgnoreCase))
+                return Get(null, name);
             if (string.Equals(qualifier, "global", StringComparison.OrdinalIgnoreCase))
                 return GlobalFrame.Variables.TryGetValue(name, out var gv) ? gv : null;
             if (string.Equals(qualifier, "script", StringComparison.OrdinalIgnoreCase))
@@ -74,7 +83,17 @@ public sealed class Scope
         {
             if (string.Equals(qualifier, "env", StringComparison.OrdinalIgnoreCase))
             {
+                if (Env is not null)
+                {
+                    Env.Set(name, value?.ToString());
+                    return;
+                }
                 Environment.SetEnvironmentVariable(name, value?.ToString());
+                return;
+            }
+            if (string.Equals(qualifier, "variable", StringComparison.OrdinalIgnoreCase))
+            {
+                Set(null, name, value);
                 return;
             }
             if (string.Equals(qualifier, "global", StringComparison.OrdinalIgnoreCase))
@@ -146,5 +165,45 @@ public sealed class Scope
             frame = frame.Parent;
         }
         return false;
+    }
+
+    /// <summary>Remove a variable from the innermost frame that defines it. Used by the
+    /// <c>Variable:</c> provider's <c>Remove-Item</c> path. Returns <see langword="true"/>
+    /// when a binding was actually removed.</summary>
+    public bool Remove(string? qualifier, string name)
+    {
+        if (qualifier != null)
+        {
+            if (string.Equals(qualifier, "global", StringComparison.OrdinalIgnoreCase))
+                return GlobalFrame.Variables.Remove(name);
+            if (string.Equals(qualifier, "script", StringComparison.OrdinalIgnoreCase))
+                return ScriptFrame.Variables.Remove(name);
+            if (string.Equals(qualifier, "local", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(qualifier, "private", StringComparison.OrdinalIgnoreCase))
+                return CurrentFrame.Variables.Remove(name);
+        }
+        var frame = CurrentFrame;
+        while (frame != null)
+        {
+            if (frame.Variables.Remove(name)) return true;
+            frame = frame.Parent;
+        }
+        return false;
+    }
+
+    /// <summary>Snapshot every variable reachable from the current scope chain as a
+    /// single merged dictionary (innermost wins). Used by the <c>Variable:</c> provider's
+    /// <c>Get-ChildItem</c> path.</summary>
+    public IReadOnlyDictionary<string, object?> SnapshotCurrent()
+    {
+        var merged = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        void Walk(ScopeFrame? frame)
+        {
+            if (frame is null) return;
+            Walk(frame.Parent);
+            foreach (var kv in frame.Variables) merged[kv.Key] = kv.Value;
+        }
+        Walk(CurrentFrame);
+        return merged;
     }
 }

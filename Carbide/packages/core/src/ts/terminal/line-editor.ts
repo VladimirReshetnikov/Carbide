@@ -92,6 +92,24 @@ export function attachLineEditor(options: LineEditorOptions): LineEditorControll
                 continue;
             }
 
+            if (ch === "\x0c") {
+                // Ctrl+L — clear screen and redraw the prompt + in-progress buffer.
+                // The prompt itself lives on the C# side and is already rendered at the
+                // current xterm row; we reconstruct it by reading that row's visible
+                // content before clearing. Cursor ends up at the end of the redrawn line,
+                // matching readline's Ctrl+L behavior.
+                const xbuf = terminal.buffer?.active;
+                let promptLine = "";
+                if (xbuf && typeof xbuf.getLine === "function") {
+                    const line = xbuf.getLine(xbuf.cursorY);
+                    promptLine = (line?.translateToString(true) ?? "").replace(/\s+$/u, "");
+                }
+                terminal.write("\x1b[2J\x1b[H");
+                terminal.write(promptLine);
+                i += 1;
+                continue;
+            }
+
             if (ch === "\x1b") {
                 // Escape sequence — handle a minimal vocabulary (left/right cursor), swallow
                 // the rest. Full line-editing with history is a T2 follow-up.

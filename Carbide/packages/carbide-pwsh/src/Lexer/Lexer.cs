@@ -157,6 +157,7 @@ public sealed class Lexer
         if (ch == ';' ) return OneCharToken(TokenKind.Semicolon, ";");
 
         if (ch == ':' && Peek(1) == ':') return TwoCharToken(TokenKind.ColonColon, "::");
+        if (ch == ':') return OneCharToken(TokenKind.Colon, ":");
         if (ch == '.' && Peek(1) == '.') return TwoCharToken(TokenKind.DotDot, "..");
         if (ch == '.') return OneCharToken(TokenKind.Dot, ".");
 
