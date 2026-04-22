@@ -133,6 +133,8 @@ public static partial class CompilationInterop
             PdbBase64 = result.Pdb is null ? null : Convert.ToBase64String(result.Pdb),
             Diagnostics = result.Diagnostics,
             DurationMs = result.DurationMs,
+            PeSchemaVersion = result.PeSchemaVersion,
+            PrimaryAssemblyName = result.PrimaryAssemblyName,
         };
         return JsonSerializer.Serialize(dto, CarbideJsonContext.Default.BuildResultDto);
     }
@@ -321,6 +323,11 @@ internal sealed class BuildResultDto
     public string? PdbBase64 { get; set; }
     public Carbide.Core.Services.Diagnostic[] Diagnostics { get; set; } = [];
     public double DurationMs { get; set; }
+
+    // core-P3 (plan §10.3): both optional on the wire, omitted when Success is false
+    // (DefaultIgnoreCondition = WhenWritingNull in the source-gen context trims them).
+    public int? PeSchemaVersion { get; set; }
+    public string? PrimaryAssemblyName { get; set; }
 }
 
 /// <summary>

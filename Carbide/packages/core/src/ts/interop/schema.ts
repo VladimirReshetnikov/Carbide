@@ -97,6 +97,10 @@ interface BuildResultWire {
     pdbBase64?: string | null;
     diagnostics: import("../types.js").Diagnostic[];
     durationMs: number;
+    /** core-P3: PE/PDB wire-contract version. `1` in v1; omitted on failed builds. */
+    peSchemaVersion?: number | null;
+    /** core-P3: compilation's primary assembly name. Omitted on failed builds. */
+    primaryAssemblyName?: string | null;
 }
 
 export function parseBuildResult(json: string): import("../types.js").BuildResult {
@@ -109,6 +113,8 @@ export function parseBuildResult(json: string): import("../types.js").BuildResul
         pdb: decodeBase64(parsed.pdbBase64),
         diagnostics: parsed.diagnostics ?? [],
         durationMs: parsed.durationMs,
+        peSchemaVersion: parsed.peSchemaVersion ?? undefined,
+        primaryAssemblyName: parsed.primaryAssemblyName ?? undefined,
     };
 }
 

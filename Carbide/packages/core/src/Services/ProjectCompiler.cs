@@ -291,7 +291,7 @@ internal sealed class ProjectCompiler : IDisposable
         sw.Stop();
         return pe is null
             ? BuildResult.Failed(emitDiagnostics, sw.Elapsed.TotalMilliseconds)
-            : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds);
+            : BuildResult.Succeeded(pe, pdb!, sw.Elapsed.TotalMilliseconds, compilation.AssemblyName);
     }
 
     private static OutputKind InferOutputKind(Compilation compilation)
