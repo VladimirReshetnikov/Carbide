@@ -17,6 +17,18 @@ export interface CarbideOptions {
      * the pre-U1 "chatty" behaviour (useful when debugging Carbide itself).
      */
     logLevel?: "trace" | "debug" | "information" | "warning" | "error" | "none";
+    /**
+     * core-P1 (plan §10.1): npm package names whose `refpack.json` manifests should be
+     * resolved at session init and whose listed DLLs should be fed through
+     * {@link CarbideSession.addReference}. Useful for adding a framework's compile-time
+     * API surface (e.g. `"@carbide-ui/refs-avalonia"`) without hand-writing the
+     * `addReference` loop. Node adapter resolves via `createRequire`; browser adapter
+     * currently rejects — feed refs manually in the browser until a future adapter
+     * revision lands. Non-empty `sideload` against an adapter that doesn't implement
+     * `loadSideloadRefPack` surfaces a self-descriptive error and shuts the session
+     * down before returning.
+     */
+    sideload?: readonly string[];
 }
 
 /** Mutable bag shared between session and its children so disposed-state propagates. */
@@ -30,6 +42,12 @@ interface MutableHandle {
 export class CarbideSession {
     private readonly handles = new Set<MutableHandle>();
     private shutdownStarted = false;
+    /**
+     * core-P1: references loaded via `CarbideOptions.sideload`. Every project created
+     * through {@link createProject} automatically attaches these. Populated at init;
+     * never mutated afterwards.
+     */
+    private readonly defaultReferences: ReferenceHandle[] = [];
 
     private constructor(
         /** @internal */ readonly adapter: HostAdapter,
@@ -46,7 +64,33 @@ export class CarbideSession {
             logLevel: options.logLevel,
         });
         const sessionId = interop.CreateSession(JSON.stringify({ schemaVersion: SCHEMA_VERSION }));
-        return new CarbideSession(adapter, interop, sessionId);
+        const session = new CarbideSession(adapter, interop, sessionId);
+
+        // core-P1 (plan §10.1): resolve each sideload package's refpack.json and feed its
+        // DLLs through addReference. Wrapped in try/catch so any failure (missing package,
+        // malformed manifest, missing DLL) tears the session down before rethrowing — otherwise
+        // a partial sideload would leak the C# session and hide its failure mode.
+        if (options.sideload && options.sideload.length > 0) {
+            try {
+                if (!adapter.loadSideloadRefPack) {
+                    throw new Error(
+                        `CarbideOptions.sideload is set but host adapter '${adapter.hostKind}' does not implement loadSideloadRefPack.`,
+                    );
+                }
+                for (const packageName of options.sideload) {
+                    const pack = await adapter.loadSideloadRefPack(packageName);
+                    for (const dll of pack.dlls) {
+                        const handle = session.addReference(dll.bytes, dll.name);
+                        session.defaultReferences.push(handle);
+                    }
+                }
+            } catch (err) {
+                await session.shutdown();
+                throw err;
+            }
+        }
+
+        return session;
     }
 
     createProject(options: ProjectOptions = {}): Project {
@@ -62,7 +106,14 @@ export class CarbideSession {
             defineConstants: options.defineConstants ?? null,
         };
         const projectId = this.interop.CreateProject(this.sessionId, JSON.stringify(request));
-        return new Project(this.interop, projectId, this.sessionId, this.adapter);
+        const project = new Project(this.interop, projectId, this.sessionId, this.adapter);
+        // core-P1: sideloaded refs (from CarbideOptions.sideload) auto-attach to every
+        // project created from this session. Matches the user expectation of "give me
+        // these refs for every project" without requiring per-project wiring.
+        for (const handle of this.defaultReferences) {
+            project.addReference(handle);
+        }
+        return project;
     }
 
     /**
