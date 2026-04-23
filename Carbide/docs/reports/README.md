@@ -1,8 +1,8 @@
 # Carbide — reports
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-20T18:23:55Z
-- Repository HEAD: e4e53b7638153472a3db0e2115b9345cb6e84283
+- Updated (UTC): 2026-04-23T00:13:05Z
+- Repository HEAD: 0a28ddb977c5286b608ad319f721a34b956c4703
 
 This directory holds project-local reports about Carbide's current behavior and usability.
 
@@ -15,6 +15,7 @@ This directory holds project-local reports about Carbide's current behavior and 
 - [Carbide T2.1 dispatcher experiment](carbide-T21-dispatcher-experiment__2026-04-20__19-30-00-000000.md) — ran the workarounds-research cheapest-prescription (Blazor-style `RendererSynchronizationContext` clone). Did NOT fix the trap; reverted. Narrows remaining fix candidates to "host Carbide inside a Blazor component", "move user execution to a WebWorker", or the in-browser debugger-break investigation.
 - [Carbide T2.1 runMain+queue experiment](carbide-T21-runmain-experiment__2026-04-21__00-36-24-000000.md) — implemented the external await-issue report's Workaround 2 (managed `Main` via `runtime.runMain`, JSExports enqueue into a `Channel<Func<Task>>` processed by `Main`). Queue pumps correctly (Dequeued=1/Completed=1) but user-code suspended awaits inside dequeued work items still trip. Reverted. The "runMain magic scope" extends only to awaits in Main's direct body, not to nested async lambdas.
 - [Carbide code review](carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide`, grounded in the current docs and focused on correctness, safety, lifecycle contracts, and semantic drift.
+- [Content-identified virtual executable stubs for `carbide-multishell`](carbide-multishell-content-identified-stubs-report__2026-04-23__00-08-04__f85c83692721.md) — evaluates the design variant where multishell tool identity comes from stub-file content rather than path registration; compares raw GUID, text-manifest, and pseudo-PE designs, and summarizes prior art from shebang scripts, `binfmt_misc`, BusyBox, Windows App Execution Aliases, and npm shims.
 - [Carbide usability report](Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests, with limitations and follow-up proposals.
 - [Feasibility: browser-hosted interactive C# console apps in Carbide via xterm.js](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — feasibility analysis for an xterm.js-backed browser terminal runner, including the gap between current Carbide and broad `System.Console` compatibility.
 - [Carbide xterm.js interactive console feasibility](carbide-xterm-interactive-console-feasibility__2026-04-19__21-55-15-000000.md) — what it would take to run C# console apps in the browser with an embedded xterm.js and conhost-like `System.Console` / ANSI behavior.

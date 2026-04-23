@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-22T23:13:56Z
-Repository HEAD: b2dfbc1c772a37400b616ffe645ab508a54958df
+Updated (UTC): 2026-04-23T00:13:05Z
+Repository HEAD: 0a28ddb977c5286b608ad319f721a34b956c4703
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -10,6 +10,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
 - [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
+- [Content-identified virtual executable stubs for `carbide-multishell`](reports/carbide-multishell-content-identified-stubs-report__2026-04-23__00-08-04__f85c83692721.md) — evaluates the path-vs-content identity trade for multishell executable stubs, compares raw GUID, text-manifest, and pseudo-PE designs, and grounds the recommendation in shebang, `binfmt_misc`, BusyBox, Windows App Execution Aliases, and npm shim prior art.
 - [Carbide T2.1 follow-up research report](reports/carbide-T21-follow-up-research-report__2026-04-20__18-20-09__6554172dc064.md) — reassessment of the browser interactive-async roadblock, including fresh local repros, upstream web research, git history, and updated recommendations.
 - [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
 - [Feasibility: browser-hosted interactive C# console apps in Carbide via xterm.js](reports/carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — feasibility analysis for an xterm.js-backed browser terminal runner and the runtime work required for substantial `System.Console` parity.
