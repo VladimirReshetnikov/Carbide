@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-23T00:13:05Z
-Repository HEAD: 0a28ddb977c5286b608ad319f721a34b956c4703
+Updated (UTC): 2026-04-23T01:18:24Z
+Repository HEAD: c1e734191d4326d3f6501084f30cd30226374804
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -24,6 +24,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [Carbide — architecture and implementation plan](planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
 - [Milestone planning index](planning/milestones/README.md) — detailed plans for M1, M2, M3, M4, M5, M6, and M9.
+- [Multishell virtual executable stubs plan](planning/carbide-multishell-vfs-executable-stubs-detailed-plan__2026-04-23__01-18-24-060735__6d4f2a9b1c7e.md) — implementation plan and execution record for the path-based executable catalog in `carbide-multishell`.
 
 ## Research reports
 

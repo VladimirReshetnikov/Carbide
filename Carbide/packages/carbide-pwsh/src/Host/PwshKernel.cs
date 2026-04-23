@@ -21,7 +21,7 @@ public sealed class PwshKernel : IShellKernel
     public PwshKernel(ShellHost host) { _host = host; }
 
     public string Name => "pwsh";
-    public IReadOnlyCollection<string> Aliases { get; } = new[] { "powershell" };
+    public IReadOnlyCollection<string> Aliases { get; } = new[] { "powershell", "pwsh.exe", "powershell.exe" };
     public IReadOnlyCollection<string> FileExtensions { get; } = new[] { ".ps1", ".psm1" };
 
     public int Execute(string source, ShellExecutionContext ctx)
@@ -79,7 +79,42 @@ public sealed class PwshKernel : IShellKernel
     {
         var file = ctx.Vfs.Resolve(absolutePath) as VfsFile;
         if (file is null) { ctx.Error.WriteLine($"pwsh: {absolutePath}: not found"); return 1; }
-        return Execute(file.ReadText(), ctx);
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+        var originalIn = Console.In;
+        bool swapOut = !ReferenceEquals(ctx.Output, originalOut);
+        bool swapErr = !ReferenceEquals(ctx.Error, originalErr);
+        bool swapIn = !ReferenceEquals(ctx.Input, originalIn);
+        try
+        {
+            if (swapOut) Console.SetOut(ctx.Output);
+            if (swapErr) Console.SetError(ctx.Error);
+            if (swapIn) Console.SetIn(ctx.Input);
+            try
+            {
+                return _host.ExecuteFileFromDispatcher(absolutePath, ctx);
+            }
+            catch (RequestSubShellException)
+            {
+                throw;
+            }
+            catch (PwshException ex)
+            {
+                ctx.Error.WriteLine(ex.Message);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                ctx.Error.WriteLine($"pwsh: {ex.Message}");
+                return 1;
+            }
+        }
+        finally
+        {
+            if (swapOut) Console.SetOut(originalOut);
+            if (swapErr) Console.SetError(originalErr);
+            if (swapIn) Console.SetIn(originalIn);
+        }
     }
 
     public bool IsCompleteInput(string source)

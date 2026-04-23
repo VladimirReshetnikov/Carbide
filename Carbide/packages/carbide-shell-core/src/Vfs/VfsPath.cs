@@ -16,7 +16,11 @@ public static class VfsPath
         => path.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
 
     public static bool IsAbsolute(string path)
-        => path.Length > 0 && (path[0] == '/' || path[0] == '\\' || path.StartsWith("~"));
+        => path.Length > 0
+        && (path[0] == '/'
+            || path[0] == '\\'
+            || path.StartsWith("~", StringComparison.Ordinal)
+            || IsDriveQualifiedAbsolute(path));
 
     /// <summary>
     /// Normalize a path relative to a current working location. Resolves <c>.</c>, <c>..</c>,
@@ -30,6 +34,8 @@ public static class VfsPath
         if (path == "~") path = HomePath;
         else if (path.StartsWith("~/") || path.StartsWith("~\\"))
             path = HomePath + "/" + path.Substring(2);
+        else if (IsDriveQualifiedAbsolute(path))
+            path = "/" + path.Substring(3);
 
         if (!IsAbsolute(path))
         {
@@ -52,6 +58,12 @@ public static class VfsPath
         }
         return stack.Count == 0 ? RootPath : "/" + string.Join('/', stack);
     }
+
+    private static bool IsDriveQualifiedAbsolute(string path)
+        => path.Length >= 3
+        && char.IsLetter(path[0])
+        && path[1] == ':'
+        && (path[2] == '/' || path[2] == '\\');
 
     public static string Join(string a, string b)
     {

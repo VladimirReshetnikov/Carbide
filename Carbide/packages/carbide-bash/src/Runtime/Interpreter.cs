@@ -408,9 +408,21 @@ public sealed class Interpreter
         }
 
         // Dispatcher.
-        var resolution = Context.Dispatcher.Resolve(name, Context);
+        var resolution = Context.Dispatcher.Resolve(name, Context, "bash");
         if (resolution.Kind == ResolutionKind.NamedShell && resolution.Kernel is not null)
             return CrossShellLauncher.Launch(resolution.Kernel, rest, Context, stdin, stdout, stderr);
+        if (resolution.Kind == ResolutionKind.VirtualExecutable
+            && resolution.VirtualExecutable is not null
+            && resolution.VirtualExecutablePath is not null)
+        {
+            var child = Context.With(args: rest, input: stdin, output: stdout, error: stderr);
+            return Context.Dispatcher.ExecuteVirtualExecutable(
+                resolution.VirtualExecutable,
+                resolution.VirtualExecutablePath,
+                name,
+                rest,
+                child);
+        }
         if (resolution.Kind == ResolutionKind.Script && resolution.Kernel is not null && resolution.ScriptPath is not null)
         {
             var child = Context.With(args: rest, input: stdin, output: stdout, error: stderr);

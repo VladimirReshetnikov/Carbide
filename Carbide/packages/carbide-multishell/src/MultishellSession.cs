@@ -37,10 +37,15 @@ public sealed class MultishellSession
         Vfs.CreateDirectory("/home/user");
         Vfs.CreateDirectory("/work");
         Vfs.CurrentLocation = "/home/user";
+        Env.Set("HOME", "/home/user");
+        Env.Set("USER", "user");
+        Env.Set("USERNAME", "user");
+        Env.Set("HOSTNAME", "carbide");
 
         Pwsh = new CarbidePwsh.Host.ShellHost(Vfs, Env, Apps, Dispatcher);
         Cmd = new CarbideCmd.Host.ShellHost(Vfs, Env, Apps, Dispatcher);
         Bash = new CarbideBash.Host.ShellHost(Vfs, Env, Apps, Dispatcher);
+        VirtualExecutableCatalog.Install(Vfs, Dispatcher);
     }
 
     /// <summary>

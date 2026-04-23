@@ -88,6 +88,9 @@ public sealed class ShellHost
             "/usr/bin/powershell",
             "/usr/bin/powershell.exe",
             "/bin/pwsh",
+            "/bin/pwsh.exe",
+            "/bin/powershell",
+            "/bin/powershell.exe",
             "/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
         });
     }
@@ -148,6 +151,15 @@ public sealed class ShellHost
         errorOutput.Write("\x1b[31merror:\x1b[0m ");
         errorOutput.WriteLine(message);
         if (Verbose) errorOutput.WriteLine(ex.StackTrace);
+    }
+
+    internal int ExecuteFileFromDispatcher(string absolutePath, ShellExecutionContext ctx)
+    {
+        Interpreter.PipelineOutput = ctx.Output;
+        Interpreter.PipelineError = ctx.Error;
+        var result = RunScriptFileFromVfs(absolutePath, dotSource: false, ctx.Args.Skip(1).Cast<object?>().ToArray());
+        RenderResult(result, ctx.Output);
+        return 0;
     }
 
     // ---------- Script loader ----------

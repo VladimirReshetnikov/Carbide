@@ -45,6 +45,7 @@ public sealed class ShellHost
             "/usr/bin/cmd.exe",
             "/bin/cmd",
             "/bin/cmd.exe",
+            "/Windows/System32/cmd",
             "/Windows/System32/cmd.exe",
         });
     }

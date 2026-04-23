@@ -43,6 +43,18 @@ public class ShellDispatcherTests
         public string BuildContinuationPrompt(ShellExecutionContext ctx) => ">> ";
     }
 
+    private sealed class FakeVirtualHandler : IVirtualExecutableHandler
+    {
+        public VirtualExecutableInvocation? LastInvocation { get; private set; }
+        public int Returns { get; set; }
+
+        public int Execute(VirtualExecutableInvocation invocation)
+        {
+            LastInvocation = invocation;
+            return Returns;
+        }
+    }
+
     private static ShellExecutionContext Context(VirtualFileSystem vfs, ShellDispatcher d, AppRegistry? apps = null)
         => new()
         {
@@ -125,6 +137,65 @@ public class ShellDispatcherTests
         var d = new ShellDispatcher();
         var res = d.Resolve("nope", Context(new VirtualFileSystem(), d));
         Assert.Equal(ResolutionKind.Unresolved, res.Kind);
+    }
+
+    [Fact]
+    public void ResolveFindsVirtualExecutableByBareNameAndExecutesHandler()
+    {
+        var d = new ShellDispatcher();
+        var handler = new FakeVirtualHandler { Returns = 9 };
+        var definition = new VirtualExecutableDefinition(
+            "gnu-grep",
+            VirtualExecutablePersonality.Gnu,
+            new[] { "/usr/bin/grep.exe" },
+            new[] { "grep.exe" },
+            "test-handler");
+        d.RegisterVirtualExecutable(definition, handler);
+
+        var vfs = new VirtualFileSystem();
+        vfs.CreateTextFile("/usr/bin/grep.exe", "#!carbide:exe:gnu-grep\n", overwrite: false);
+        var ctx = Context(vfs, d);
+
+        var resolution = d.Resolve("grep", ctx, "bash");
+
+        Assert.Equal(ResolutionKind.VirtualExecutable, resolution.Kind);
+        Assert.Equal("/usr/bin/grep.exe", resolution.VirtualExecutablePath);
+
+        var code = d.ExecuteVirtualExecutable(
+            resolution.VirtualExecutable!,
+            resolution.VirtualExecutablePath!,
+            "grep",
+            new[] { "-n", "needle", "/work/data.txt" },
+            ctx);
+
+        Assert.Equal(9, code);
+        Assert.Equal(9, d.LastExitCode);
+        Assert.NotNull(handler.LastInvocation);
+        Assert.Equal("grep", handler.LastInvocation!.InvokedAs);
+        Assert.Equal("/usr/bin/grep.exe", handler.LastInvocation.ResolvedPath);
+        Assert.Equal("needle", handler.LastInvocation.Args[1]);
+    }
+
+    [Fact]
+    public void ResolveFindsDriveQualifiedVirtualExecutablePath()
+    {
+        var d = new ShellDispatcher();
+        d.RegisterVirtualExecutable(
+            new VirtualExecutableDefinition(
+                "windows-where",
+                VirtualExecutablePersonality.Windows,
+                new[] { "/Windows/System32/where.exe" },
+                new[] { "where.exe" },
+                "test-handler"),
+            new FakeVirtualHandler());
+
+        var vfs = new VirtualFileSystem();
+        vfs.CreateTextFile("/Windows/System32/where.exe", "#!carbide:exe:windows-where\n", overwrite: false);
+
+        var resolution = d.Resolve(@"C:\Windows\System32\where", Context(vfs, d), "cmd");
+
+        Assert.Equal(ResolutionKind.VirtualExecutable, resolution.Kind);
+        Assert.Equal("/Windows/System32/where.exe", resolution.VirtualExecutablePath);
     }
 
     [Fact]

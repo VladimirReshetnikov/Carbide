@@ -9,7 +9,7 @@ public sealed class BashKernel : IShellKernel
 {
     public string Name => "bash";
 
-    public IReadOnlyCollection<string> Aliases { get; } = new[] { "sh" };
+    public IReadOnlyCollection<string> Aliases { get; } = new[] { "sh", "bash.exe", "sh.exe" };
 
     public IReadOnlyCollection<string> FileExtensions { get; } = new[] { ".sh" };
 

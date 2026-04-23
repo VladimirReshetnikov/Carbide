@@ -36,9 +36,17 @@ public sealed class ShellHost
         StubInstaller.Install(Vfs, Dispatcher, Kernel, new[]
         {
             "/usr/bin/bash",
+            "/usr/bin/bash.exe",
             "/usr/bin/sh",
+            "/usr/bin/sh.exe",
             "/bin/bash",
+            "/bin/bash.exe",
             "/bin/sh",
+            "/bin/sh.exe",
+            "/Program Files/Git/usr/bin/bash",
+            "/Program Files/Git/usr/bin/bash.exe",
+            "/Program Files/Git/usr/bin/sh",
+            "/Program Files/Git/usr/bin/sh.exe",
         });
     }
 

@@ -2,7 +2,7 @@
 
 - Created (UTC): 2026-04-22T23:10:39Z
 - Repository HEAD: b2dfbc1c772a37400b616ffe645ab508a54958df
-- Status: Proposal (draft, pre-implementation)
+- Status: Implemented
 - Audience: Vladimir; future Carbide contributors
 - Scope: VFS stub population, command-resolution rules, and runtime feature commitments for non-shell executables commonly used from pwsh, cmd, and bash scripts inside `packages/carbide-multishell`
 - Related code:
@@ -15,6 +15,7 @@
 - Related docs:
   - [Multi-shell (cmd + bash alongside pwsh) with cross-shell invocation](carbide-multi-shell-proposal__2026-04-21__23-30-00-000000__d9a71f3c5b68.md)
   - [PowerShell-subset shell for Carbide + xterm.js](carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md)
+  - [Detailed implementation plan: `carbide-multishell` virtual executable stubs](../planning/carbide-multishell-vfs-executable-stubs-detailed-plan__2026-04-23__01-18-24-060735__6d4f2a9b1c7e.md)
 
 ## Summary
 

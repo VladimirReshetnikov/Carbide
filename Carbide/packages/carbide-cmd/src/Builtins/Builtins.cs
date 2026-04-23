@@ -262,52 +262,157 @@ public static class Builtins
     {
         bool caseInsensitive = false;
         bool invert = false;
+        bool countOnly = false;
+        bool lineNumbers = false;
         string? pattern = null;
         var files = new List<string>();
         foreach (var a in args)
         {
             if (a.Equals("/I", StringComparison.OrdinalIgnoreCase)) { caseInsensitive = true; continue; }
             if (a.Equals("/V", StringComparison.OrdinalIgnoreCase)) { invert = true; continue; }
+            if (a.Equals("/C", StringComparison.OrdinalIgnoreCase)) { countOnly = true; continue; }
+            if (a.Equals("/N", StringComparison.OrdinalIgnoreCase)) { lineNumbers = true; continue; }
             if (pattern is null && a.StartsWith('"')) { pattern = StripOuterQuotes(a); continue; }
             if (pattern is null) { pattern = a; continue; }
             files.Add(StripOuterQuotes(a));
         }
         if (pattern is null) { stderr.WriteLine("FIND: Parameter format not correct"); return 2; }
         var cmp = caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        int matchesTotal = 0;
+        Action<TextReader, string> emit = (reader, label) =>
+        {
+            int lineNo = 0;
+            int localMatches = 0;
+            string? line;
+            while ((line = reader.ReadLine()) is not null)
+            {
+                lineNo++;
+                if (!((line.Contains(pattern, cmp)) ^ invert)) continue;
+                localMatches++;
+                matchesTotal++;
+                if (countOnly) continue;
+                if (lineNumbers) stdout.Write($"{lineNo}:");
+                stdout.WriteLine(line);
+            }
+            if (countOnly) stdout.WriteLine(localMatches);
+        };
+
         if (files.Count == 0)
         {
-            string? line;
-            while ((line = stdin.ReadLine()) is not null)
-            {
-                if ((line.Contains(pattern, cmp)) ^ invert) stdout.WriteLine(line);
-            }
-            return 0;
+            emit(stdin, "");
+            return matchesTotal == 0 ? 1 : 0;
         }
         foreach (var f in files)
         {
             var abs = interp.Context.Vfs.Normalize(f);
             var file = interp.Context.Vfs.Resolve(abs) as VfsFile;
-            if (file is null) { stderr.WriteLine($"FIND: File not found - {abs}"); continue; }
+            if (file is null) { stderr.WriteLine($"FIND: File not found - {abs}"); return 2; }
             stdout.WriteLine($"---------- {abs}");
-            foreach (var l in file.ReadText().Split('\n'))
-            {
-                if ((l.Contains(pattern, cmp)) ^ invert) stdout.WriteLine(l);
-            }
+            emit(new StringReader(file.ReadText()), abs);
         }
-        return 0;
+        return matchesTotal == 0 ? 1 : 0;
     }
 
     public static int FindStr(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
-        // Phase 1: delegate to FIND's substring behavior. /R regex support is Phase 2.
-        => Find(interp, args, stdin, stdout, stderr);
+    {
+        bool caseInsensitive = false, recursive = false, lineNumbers = false, namesOnly = false, invert = false, regexMode = false, literalMode = false;
+        string? pattern = null;
+        var files = new List<string>();
+        for (int i = 0; i < args.Count; i++)
+        {
+            var a = args[i];
+            if (a.Equals("/I", StringComparison.OrdinalIgnoreCase)) { caseInsensitive = true; continue; }
+            if (a.Equals("/S", StringComparison.OrdinalIgnoreCase)) { recursive = true; continue; }
+            if (a.Equals("/N", StringComparison.OrdinalIgnoreCase)) { lineNumbers = true; continue; }
+            if (a.Equals("/M", StringComparison.OrdinalIgnoreCase)) { namesOnly = true; continue; }
+            if (a.Equals("/V", StringComparison.OrdinalIgnoreCase)) { invert = true; continue; }
+            if (a.Equals("/R", StringComparison.OrdinalIgnoreCase)) { regexMode = true; continue; }
+            if (a.Equals("/L", StringComparison.OrdinalIgnoreCase)) { literalMode = true; continue; }
+            if (a.StartsWith("/C:", StringComparison.OrdinalIgnoreCase)) { pattern = StripOuterQuotes(a[3..]); literalMode = true; continue; }
+            if (a.StartsWith('/')) continue;
+            if (pattern is null) { pattern = StripOuterQuotes(a); continue; }
+            files.Add(StripOuterQuotes(a));
+        }
+        if (pattern is null) { stderr.WriteLine("FINDSTR: Missing search string"); return 2; }
+
+        var rx = literalMode && !regexMode
+            ? null
+            : new System.Text.RegularExpressions.Regex(pattern, caseInsensitive ? System.Text.RegularExpressions.RegexOptions.IgnoreCase : System.Text.RegularExpressions.RegexOptions.None);
+        int code = 1;
+        IEnumerable<(string Label, string Text)> sources;
+        if (recursive)
+        {
+            sources = files.SelectMany(root =>
+                interp.Context.Vfs.List(root, recursive: true, filter: null, filesOnly: true)
+                    .OfType<VfsFile>()
+                    .Select(file => (file.AbsolutePath, file.ReadText())));
+        }
+        else if (files.Count == 0)
+        {
+            sources = new[] { ("", ReadAllText(stdin)) };
+        }
+        else
+        {
+            sources = files.Select(file =>
+            {
+                var abs = interp.Context.Vfs.Normalize(file);
+                var vf = interp.Context.Vfs.Resolve(abs) as VfsFile;
+                return (file, vf?.ReadText() ?? "");
+            });
+        }
+
+        foreach (var (label, text) in sources)
+        {
+            if (text.Length == 0 && label.Length > 0 && !interp.Context.Vfs.Exists(label))
+            {
+                stderr.WriteLine($"FINDSTR: Cannot open {label}");
+                continue;
+            }
+            bool matchedFile = false;
+            int lineNo = 0;
+            foreach (var line in SplitLines(text))
+            {
+                lineNo++;
+                bool match = literalMode && !regexMode
+                    ? line.Contains(pattern, caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                    : rx!.IsMatch(line);
+                if (invert) match = !match;
+                if (!match) continue;
+                matchedFile = true;
+                code = 0;
+                if (namesOnly) break;
+                if (recursive || files.Count > 1) stdout.Write($"{label}:");
+                if (lineNumbers) stdout.Write($"{lineNo}:");
+                stdout.WriteLine(line);
+            }
+            if (matchedFile && namesOnly) stdout.WriteLine(label);
+        }
+        return code;
+    }
 
     public static int Sort(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         bool reverse = args.Any(a => a.Equals("/R", StringComparison.OrdinalIgnoreCase));
-        var lines = new List<string>();
-        string? l;
-        while ((l = stdin.ReadLine()) is not null) lines.Add(l);
-        lines.Sort(StringComparer.OrdinalIgnoreCase);
+        int startColumn = 1;
+        var files = new List<string>();
+        foreach (var a in args)
+        {
+            if (a.StartsWith("/+", StringComparison.OrdinalIgnoreCase))
+            {
+                startColumn = int.TryParse(a[2..], out var column) ? Math.Max(1, column) : 1;
+                continue;
+            }
+            if (a.StartsWith('/')) continue;
+            files.Add(StripOuterQuotes(a));
+        }
+        var lines = files.Count == 0
+            ? SplitLines(ReadAllText(stdin))
+            : files.SelectMany(file =>
+            {
+                var vf = interp.Context.Vfs.Resolve(interp.Context.Vfs.Normalize(file)) as VfsFile;
+                return (IEnumerable<string>)(vf is null ? Array.Empty<string>() : SplitLines(vf.ReadText()));
+            }).ToList();
+        lines = lines.OrderBy(line => line.Length >= startColumn ? line[(startColumn - 1)..] : "", StringComparer.OrdinalIgnoreCase).ToList();
         if (reverse) lines.Reverse();
         foreach (var ln in lines) stdout.WriteLine(ln);
         return 0;
@@ -315,8 +420,21 @@ public static class Builtins
 
     public static int More(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
-        string? line;
-        while ((line = stdin.ReadLine()) is not null) stdout.WriteLine(line);
+        int startLine = 1;
+        var files = new List<string>();
+        foreach (var a in args)
+        {
+            if (a.StartsWith('+') && int.TryParse(a[1..], out var n)) { startLine = Math.Max(1, n); continue; }
+            files.Add(StripOuterQuotes(a));
+        }
+        IEnumerable<string> lines = files.Count == 0
+            ? SplitLines(ReadAllText(stdin))
+            : files.SelectMany(file =>
+            {
+                var vf = interp.Context.Vfs.Resolve(interp.Context.Vfs.Normalize(file)) as VfsFile;
+                return (IEnumerable<string>)(vf is null ? Array.Empty<string>() : SplitLines(vf.ReadText()));
+            });
+        foreach (var line in lines.Skip(startLine - 1)) stdout.WriteLine(line);
         return 0;
     }
 
@@ -325,4 +443,22 @@ public static class Builtins
         if (s.Length >= 2 && s[0] == '"' && s[^1] == '"') return s.Substring(1, s.Length - 2);
         return s;
     }
+
+    private static string ReadAllText(TextReader reader)
+    {
+        var sb = new StringBuilder();
+        var buffer = new char[4096];
+        while (true)
+        {
+            int read = reader.Read(buffer, 0, buffer.Length);
+            if (read <= 0) break;
+            sb.Append(buffer, 0, read);
+        }
+        return sb.ToString();
+    }
+
+    private static List<string> SplitLines(string text)
+        => text.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
 }

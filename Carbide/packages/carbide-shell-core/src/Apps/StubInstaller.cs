@@ -35,4 +35,25 @@ public static class StubInstaller
             dispatcher.RegisterStubPath(abs, kernel);
         }
     }
+
+    /// <summary>
+    /// Drop one stub file per supplied virtual executable path and register the owning
+    /// definition in the dispatcher's executable catalog.
+    /// </summary>
+    public static void Install(
+        VirtualFileSystem vfs,
+        ShellDispatcher dispatcher,
+        VirtualExecutableDefinition definition)
+    {
+        foreach (var path in definition.StubPaths)
+        {
+            var abs = vfs.Normalize(path);
+            if (vfs.Resolve(abs) is not VfsFile)
+            {
+                var banner = $"#!carbide:exe:{definition.CommandId}\n";
+                vfs.CreateTextFile(abs, banner, overwrite: false);
+            }
+        }
+        dispatcher.RegisterVirtualExecutable(definition);
+    }
 }

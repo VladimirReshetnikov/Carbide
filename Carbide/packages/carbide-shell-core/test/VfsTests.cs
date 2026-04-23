@@ -68,6 +68,8 @@ public class VfsTests
     [InlineData("tmp", "/tmp")]
     [InlineData("./sub", "/sub")]
     [InlineData("/a/b/../c", "/a/c")]
+    [InlineData("C:\\Windows\\System32\\cmd.exe", "/Windows/System32/cmd.exe")]
+    [InlineData("C:/work/file.txt", "/work/file.txt")]
     [InlineData("~", "/home/user")]
     [InlineData("~/docs", "/home/user/docs")]
     [InlineData("", "/")]

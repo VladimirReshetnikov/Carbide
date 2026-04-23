@@ -318,12 +318,25 @@ public sealed class Interpreter
         }
 
         // Dispatcher fallback: maybe it's another shell or a script path.
-        var resolution = Context.Dispatcher.Resolve(name, Context);
+        var resolution = Context.Dispatcher.Resolve(name, Context, "cmd");
         switch (resolution.Kind)
         {
             case ResolutionKind.NamedShell when resolution.Kernel is not null:
             {
                 LastExitCode = CrossShellLauncher.Launch(resolution.Kernel, argv, Context, stdin, stdout, stderr);
+                Context.Dispatcher.LastExitCode = LastExitCode;
+                return;
+            }
+            case ResolutionKind.VirtualExecutable
+                when resolution.VirtualExecutable is not null && resolution.VirtualExecutablePath is not null:
+            {
+                var childCtx = Context.With(args: argv, input: stdin, output: stdout, error: stderr);
+                LastExitCode = Context.Dispatcher.ExecuteVirtualExecutable(
+                    resolution.VirtualExecutable,
+                    resolution.VirtualExecutablePath,
+                    name,
+                    argv,
+                    childCtx);
                 Context.Dispatcher.LastExitCode = LastExitCode;
                 return;
             }

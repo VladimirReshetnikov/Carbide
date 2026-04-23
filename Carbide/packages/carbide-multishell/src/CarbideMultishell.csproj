@@ -26,4 +26,8 @@
     <ProjectReference Include="..\..\carbide-cmd\src\CarbideCmd.csproj" />
     <ProjectReference Include="..\..\carbide-bash\src\CarbideBash.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.39.0" />
+  </ItemGroup>
 </Project>

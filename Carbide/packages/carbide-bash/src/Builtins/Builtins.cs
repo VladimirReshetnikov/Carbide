@@ -248,54 +248,73 @@ public static class Builtins
 
     public static int Head(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
-        int n = 10;
+        int? n = 10;
+        int? bytes = null;
         var files = new List<string>();
         for (int i = 0; i < args.Count; i++)
         {
-            if (args[i] == "-n" && i + 1 < args.Count) { n = int.Parse(args[i + 1], CultureInfo.InvariantCulture); i++; }
-            else if (args[i].StartsWith("-") && int.TryParse(args[i][1..], out var v)) { n = v; }
+            if (args[i] == "-n" && i + 1 < args.Count) { n = int.Parse(args[i + 1], CultureInfo.InvariantCulture); bytes = null; i++; }
+            else if (args[i] == "-c" && i + 1 < args.Count) { bytes = int.Parse(args[i + 1], CultureInfo.InvariantCulture); n = null; i++; }
+            else if (args[i].StartsWith("-") && int.TryParse(args[i][1..], out var v)) { n = v; bytes = null; }
             else files.Add(args[i]);
         }
-        void Emit(TextReader r)
+
+        void EmitText(string text)
         {
-            for (int i = 0; i < n; i++)
+            if (bytes is int byteCount)
             {
-                var line = r.ReadLine();
+                var rendered = text[..Math.Min(byteCount, text.Length)];
+                stdout.Write(rendered);
+                if (!rendered.EndsWith('\n')) stdout.WriteLine();
+                return;
+            }
+            using var reader = new StringReader(text);
+            for (int i = 0; i < (n ?? 10); i++)
+            {
+                var line = reader.ReadLine();
                 if (line is null) break;
                 stdout.WriteLine(line);
             }
         }
-        if (files.Count == 0) { Emit(stdin); return 0; }
+        if (files.Count == 0) { EmitText(ReadAllText(stdin)); return 0; }
         foreach (var f in files)
         {
             var abs = interp.Context.Vfs.Normalize(f);
-            if (interp.Context.Vfs.Resolve(abs) is VfsFile vf) Emit(new StringReader(vf.ReadText()));
+            if (interp.Context.Vfs.Resolve(abs) is VfsFile vf) EmitText(vf.ReadText());
         }
         return 0;
     }
 
     public static int Tail(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
-        int n = 10;
+        int? n = 10;
+        int? bytes = null;
         var files = new List<string>();
         for (int i = 0; i < args.Count; i++)
         {
-            if (args[i] == "-n" && i + 1 < args.Count) { n = int.Parse(args[i + 1], CultureInfo.InvariantCulture); i++; }
-            else if (args[i].StartsWith("-") && int.TryParse(args[i][1..], out var v)) { n = v; }
+            if (args[i] == "-n" && i + 1 < args.Count) { n = int.Parse(args[i + 1], CultureInfo.InvariantCulture); bytes = null; i++; }
+            else if (args[i] == "-c" && i + 1 < args.Count) { bytes = int.Parse(args[i + 1], CultureInfo.InvariantCulture); n = null; i++; }
+            else if (args[i].StartsWith("-") && int.TryParse(args[i][1..], out var v)) { n = v; bytes = null; }
             else files.Add(args[i]);
         }
-        void Emit(TextReader r)
+
+        void EmitText(string text)
         {
-            var lines = new List<string>();
-            string? l;
-            while ((l = r.ReadLine()) is not null) lines.Add(l);
-            foreach (var line in lines.Skip(Math.Max(0, lines.Count - n))) stdout.WriteLine(line);
+            if (bytes is int byteCount)
+            {
+                var rendered = text[Math.Max(0, text.Length - byteCount)..];
+                stdout.Write(rendered);
+                if (!rendered.EndsWith('\n')) stdout.WriteLine();
+                return;
+            }
+            var lines = SplitLines(text);
+            foreach (var line in lines.Skip(Math.Max(0, lines.Count - (n ?? 10)))) stdout.WriteLine(line);
         }
-        if (files.Count == 0) { Emit(stdin); return 0; }
+        if (files.Count == 0) { EmitText(ReadAllText(stdin)); return 0; }
         foreach (var f in files)
         {
             var abs = interp.Context.Vfs.Normalize(f);
-            if (interp.Context.Vfs.Resolve(abs) is VfsFile vf) Emit(new StringReader(vf.ReadText()));
+            if (interp.Context.Vfs.Resolve(abs) is VfsFile vf) EmitText(vf.ReadText());
         }
         return 0;
     }
@@ -305,21 +324,24 @@ public static class Builtins
         bool linesOnly = args.Contains("-l");
         bool wordsOnly = args.Contains("-w");
         bool charsOnly = args.Contains("-c");
+        bool unicodeCharsOnly = args.Contains("-m");
+        bool longest = args.Contains("-L");
         var files = args.Where(a => !a.StartsWith('-')).ToList();
         int totalLines = 0, totalWords = 0, totalChars = 0;
         void Count(TextReader r, string label)
         {
-            int lines = 0, words = 0, chars = 0;
-            string? l;
-            while ((l = r.ReadLine()) is not null)
-            {
-                lines++;
-                chars += l.Length + 1;
-                words += l.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
-            }
+            var text = ReadAllText(r);
+            var splitLines = SplitLines(text);
+            int lines = splitLines.Count;
+            int words = splitLines.Sum(line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length);
+            int chars = text.Length;
+            int bytes = Encoding.UTF8.GetByteCount(text);
+            int longestLine = splitLines.Count == 0 ? 0 : splitLines.Max(line => line.Length);
             if (linesOnly) stdout.WriteLine($"{lines,7} {label}".TrimEnd());
             else if (wordsOnly) stdout.WriteLine($"{words,7} {label}".TrimEnd());
-            else if (charsOnly) stdout.WriteLine($"{chars,7} {label}".TrimEnd());
+            else if (charsOnly) stdout.WriteLine($"{bytes,7} {label}".TrimEnd());
+            else if (unicodeCharsOnly) stdout.WriteLine($"{chars,7} {label}".TrimEnd());
+            else if (longest) stdout.WriteLine($"{longestLine,7} {label}".TrimEnd());
             else stdout.WriteLine($"{lines,7} {words,7} {chars,7} {label}".TrimEnd());
             totalLines += lines; totalWords += words; totalChars += chars;
         }
@@ -336,72 +358,128 @@ public static class Builtins
     {
         bool caseInsensitive = false;
         bool invert = false;
+        bool withLineNumbers = false;
+        bool countOnly = false;
+        bool listFiles = false;
+        bool recursive = false;
+        bool fixedStrings = false;
         string? pattern = null;
         var files = new List<string>();
-        foreach (var a in args)
+        for (int i = 0; i < args.Count; i++)
         {
+            var a = args[i];
             if (a == "-i") { caseInsensitive = true; continue; }
             if (a == "-v") { invert = true; continue; }
+            if (a == "-n") { withLineNumbers = true; continue; }
+            if (a == "-c") { countOnly = true; continue; }
+            if (a == "-l") { listFiles = true; continue; }
+            if (a == "-r" || a == "-R") { recursive = true; continue; }
+            if (a == "-F") { fixedStrings = true; continue; }
+            if (a == "-e" && i + 1 < args.Count) { pattern = args[++i]; continue; }
             if (a.StartsWith('-') && a.Length > 1) continue;
             if (pattern is null) { pattern = a; continue; }
             files.Add(a);
         }
         if (pattern is null) { stderr.WriteLine("grep: usage: grep PATTERN [FILE...]"); return 2; }
         var opts = caseInsensitive ? System.Text.RegularExpressions.RegexOptions.IgnoreCase : System.Text.RegularExpressions.RegexOptions.None;
-        var rx = new System.Text.RegularExpressions.Regex(pattern, opts);
-        void EmitFrom(TextReader r, string label)
+        var rx = fixedStrings ? null : new System.Text.RegularExpressions.Regex(pattern, opts);
+        IEnumerable<(string Label, string Text)> sources;
+        if (recursive)
         {
-            string? l;
-            while ((l = r.ReadLine()) is not null)
+            sources = files.Count == 0
+                ? interp.Context.Vfs.List(interp.Context.Vfs.CurrentLocation, recursive: true, filter: null, filesOnly: true)
+                    .OfType<VfsFile>()
+                    .Select(file => (file.AbsolutePath, file.ReadText()))
+                : files.SelectMany(root =>
+                    interp.Context.Vfs.List(root, recursive: true, filter: null, filesOnly: true)
+                        .OfType<VfsFile>()
+                        .Select(file => (file.AbsolutePath, file.ReadText())));
+        }
+        else if (files.Count == 0)
+        {
+            sources = new[] { ("", ReadAllText(stdin)) };
+        }
+        else
+        {
+            sources = files.Select(file =>
             {
-                if (rx.IsMatch(l) ^ invert)
+                var abs = interp.Context.Vfs.Normalize(file);
+                var vf = interp.Context.Vfs.Resolve(abs) as VfsFile;
+                return (file, vf?.ReadText() ?? "");
+            });
+        }
+
+        int code = 1;
+        foreach (var (label, text) in sources)
+        {
+            if (text.Length == 0 && label.Length > 0 && !interp.Context.Vfs.Exists(label))
+            {
+                stderr.WriteLine($"grep: {label}: No such file or directory");
+                continue;
+            }
+            int matches = 0;
+            var lines = SplitLines(text);
+            for (int lineIndex = 0; lineIndex < lines.Count; lineIndex++)
+            {
+                var line = lines[lineIndex];
+                bool match = fixedStrings
+                    ? line.Contains(pattern, caseInsensitive ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                    : rx!.IsMatch(line);
+                if (match ^ invert)
                 {
-                    if (files.Count > 1) stdout.Write($"{label}:");
-                    stdout.WriteLine(l);
+                    matches++;
+                    if (!countOnly && !listFiles)
+                    {
+                        var prefix = files.Count > 1 || recursive ? label + ":" : "";
+                        if (withLineNumbers) prefix += (lineIndex + 1).ToString(CultureInfo.InvariantCulture) + ":";
+                        stdout.WriteLine(prefix + line);
+                    }
                 }
             }
-        }
-        if (files.Count == 0) { EmitFrom(stdin, ""); return 0; }
-        int code = 1;
-        foreach (var f in files)
-        {
-            var abs = interp.Context.Vfs.Normalize(f);
-            if (interp.Context.Vfs.Resolve(abs) is VfsFile vf)
-            {
-                var sw = new StringWriter();
-                EmitFromCapture(new StringReader(vf.ReadText()), files.Count > 1 ? f : "", rx, invert, sw);
-                if (sw.ToString().Length > 0) { stdout.Write(sw.ToString()); code = 0; }
-            }
-            else
-            {
-                stderr.WriteLine($"grep: {abs}: No such file or directory");
-            }
+            if (matches == 0) continue;
+            code = 0;
+            if (listFiles) stdout.WriteLine(label);
+            else if (countOnly) stdout.WriteLine(matches.ToString(CultureInfo.InvariantCulture));
         }
         return code;
-    }
-
-    private static void EmitFromCapture(TextReader r, string label, System.Text.RegularExpressions.Regex rx, bool invert, TextWriter stdout)
-    {
-        string? l;
-        while ((l = r.ReadLine()) is not null)
-        {
-            if (rx.IsMatch(l) ^ invert)
-            {
-                if (!string.IsNullOrEmpty(label)) stdout.Write($"{label}:");
-                stdout.WriteLine(l);
-            }
-        }
     }
 
     public static int Sort(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         bool reverse = args.Contains("-r");
         bool numeric = args.Contains("-n");
+        bool unique = args.Contains("-u");
+        string? fieldSeparator = null;
+        int? keyField = null;
+        var files = new List<string>();
+        for (int i = 0; i < args.Count; i++)
+        {
+            if (args[i] == "-t" && i + 1 < args.Count) { fieldSeparator = args[++i]; continue; }
+            if (args[i] == "-k" && i + 1 < args.Count) { keyField = int.Parse(args[++i].Split(',')[0], CultureInfo.InvariantCulture); continue; }
+            if (args[i].StartsWith('-')) continue;
+            files.Add(args[i]);
+        }
+
         var lines = new List<string>();
-        string? l;
-        while ((l = stdin.ReadLine()) is not null) lines.Add(l);
-        if (numeric) lines = lines.OrderBy(s => long.TryParse(s.Trim(), out var v) ? v : 0L).ToList();
-        else lines.Sort(StringComparer.Ordinal);
+        if (files.Count == 0) lines.AddRange(SplitLines(ReadAllText(stdin)));
+        else
+            foreach (var file in files)
+                if (interp.Context.Vfs.Resolve(interp.Context.Vfs.Normalize(file)) is VfsFile vf)
+                    lines.AddRange(SplitLines(vf.ReadText()));
+
+        Func<string, string> keySelector = line =>
+        {
+            if (!string.IsNullOrEmpty(fieldSeparator) && keyField is int field)
+            {
+                var parts = line.Split(fieldSeparator);
+                return field >= 1 && field <= parts.Length ? parts[field - 1] : "";
+            }
+            return line;
+        };
+
+        if (numeric) lines = lines.OrderBy(s => decimal.TryParse(keySelector(s).Trim(), out var v) ? v : 0m).ToList();
+        else lines = lines.OrderBy(keySelector, StringComparer.Ordinal).ToList();
+        if (unique) lines = lines.Distinct(StringComparer.Ordinal).ToList();
         if (reverse) lines.Reverse();
         foreach (var ln in lines) stdout.WriteLine(ln);
         return 0;
@@ -410,16 +488,19 @@ public static class Builtins
     public static int Uniq(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         bool counts = args.Contains("-c");
+        bool duplicatesOnly = args.Contains("-d");
+        bool uniqueOnly = args.Contains("-u");
         string? last = null;
         int count = 0;
-        string? l;
         void Flush()
         {
             if (last is null) return;
+            if (duplicatesOnly && count < 2) return;
+            if (uniqueOnly && count != 1) return;
             if (counts) stdout.WriteLine($"      {count} {last}");
             else stdout.WriteLine(last);
         }
-        while ((l = stdin.ReadLine()) is not null)
+        foreach (var l in SplitLines(ReadAllText(stdin)))
         {
             if (last == l) count++;
             else { Flush(); last = l; count = 1; }
@@ -430,16 +511,28 @@ public static class Builtins
 
     public static int Tr(Interpreter interp, IReadOnlyList<string> args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
-        if (args.Count < 2) { stderr.WriteLine("tr: usage: tr SET1 SET2"); return 2; }
-        var set1 = args[0];
-        var set2 = args[1];
-        int n = Math.Min(set1.Length, set2.Length);
-        int ch;
-        while ((ch = stdin.Read()) >= 0)
+        bool delete = args.Contains("-d");
+        bool squeeze = args.Contains("-s");
+        bool complement = args.Contains("-c");
+        var sets = args.Where(a => !a.StartsWith('-')).ToArray();
+        if ((!delete && sets.Length < 2) || (delete && sets.Length < 1)) { stderr.WriteLine("tr: usage: tr SET1 SET2"); return 2; }
+        var set1 = ExpandCharacterSet(sets[0]);
+        var set2 = sets.Length > 1 ? ExpandCharacterSet(sets[1]) : "";
+        char? previous = null;
+        foreach (var ch in ReadAllText(stdin))
         {
-            int idx = set1.IndexOf((char)ch, StringComparison.Ordinal);
-            if (idx >= 0 && idx < n) stdout.Write(set2[idx]);
-            else stdout.Write((char)ch);
+            bool inSet = set1.Contains(ch, StringComparison.Ordinal);
+            if (complement) inSet = !inSet;
+            if (delete && inSet) continue;
+            char mapped = ch;
+            if (!delete && set2.Length > 0 && inSet)
+            {
+                int idx = set1.IndexOf(ch);
+                if (idx >= 0) mapped = set2[Math.Min(idx, set2.Length - 1)];
+            }
+            if (squeeze && previous == mapped) continue;
+            stdout.Write(mapped);
+            previous = mapped;
         }
         return 0;
     }
@@ -624,4 +717,41 @@ public static class Builtins
 
     private static int ParseIntOr(string s, int fallback)
         => int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : fallback;
+
+    private static string ReadAllText(TextReader reader)
+    {
+        var sb = new StringBuilder();
+        var buffer = new char[4096];
+        while (true)
+        {
+            int read = reader.Read(buffer, 0, buffer.Length);
+            if (read <= 0) break;
+            sb.Append(buffer, 0, read);
+        }
+        return sb.ToString();
+    }
+
+    private static List<string> SplitLines(string text)
+        => text.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+
+    private static string ExpandCharacterSet(string set)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < set.Length; i++)
+        {
+            if (i + 2 < set.Length && set[i + 1] == '-')
+            {
+                for (char ch = set[i]; ch <= set[i + 2]; ch++)
+                    sb.Append(ch);
+                i += 2;
+            }
+            else
+            {
+                sb.Append(set[i]);
+            }
+        }
+        return sb.ToString();
+    }
 }

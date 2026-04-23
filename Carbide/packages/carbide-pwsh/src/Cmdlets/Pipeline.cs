@@ -1,7 +1,9 @@
 using System.Collections;
+using System.Text;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Parser.Ast;
 using CarbidePwsh.Runtime;
+using CarbideShellCore.Dispatch;
 
 namespace CarbidePwsh.Cmdlets;
 
@@ -168,17 +170,8 @@ public static class Pipeline
                 cmd.Location);
         }
 
-        // Path-like or registered-app dispatch.
-        var name = cmd.Name;
-        if (LooksLikePath(name))
-        {
-            return DispatchPath(name, positional, ctx);
-        }
-
-        if (ctx.Interpreter.Apps != null && ctx.Interpreter.Apps.TryGetPath(name, out var appPath))
-        {
-            return DispatchPath(appPath, positional, ctx);
-        }
+        if (TryDispatchExternalCommand(cmd.Name, positional, input, ctx, out var externalResult))
+            return externalResult;
 
         throw new PwshRuntimeException($"The term '{cmd.Name}' is not recognized as a cmdlet, function, or script.", cmd.Location);
     }
@@ -189,17 +182,94 @@ public static class Pipeline
 
     private static IEnumerable<object?> DispatchPath(string path, IReadOnlyList<object?> args, CmdletContext ctx)
     {
-        var isDll = path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-        if (isDll)
-        {
-            if (ctx.Interpreter.RunApp == null)
-                throw new PwshRuntimeException("App invoker is not wired up.", Errors.SourceLocation.None);
-            var code = ctx.Interpreter.RunApp(path, args);
-            return ExpressionToEnumerable(null).ToList();
-        }
+        if (TryDispatchExternalCommand(path, args, null, ctx, out var result))
+            return result;
+
         if (ctx.Interpreter.RunScriptFile == null)
             throw new PwshRuntimeException("Script loader is not wired up.", Errors.SourceLocation.None);
-        var result = ctx.Interpreter.RunScriptFile(path, /*dotSource*/ false, args);
-        return ExpressionToEnumerable(result).ToList();
+        var scriptResult = ctx.Interpreter.RunScriptFile(path, /*dotSource*/ false, args);
+        return ExpressionToEnumerable(scriptResult).ToList();
+    }
+
+    private static bool TryDispatchExternalCommand(
+        string commandName,
+        IReadOnlyList<object?> args,
+        IEnumerable<object?>? input,
+        CmdletContext ctx,
+        out IEnumerable<object?> result)
+    {
+        result = Array.Empty<object?>();
+        if (ctx.Interpreter.Dispatcher == null || ctx.Interpreter.Env == null || ctx.Interpreter.Apps == null)
+            return false;
+
+        var stdin = input == null
+            ? TextReader.Null
+            : new StringReader(StringifyPipelineInput(input));
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
+        var shellCtx = new ShellExecutionContext
+        {
+            Args = stringArgs,
+            Input = stdin,
+            Output = stdout,
+            Error = stderr,
+            Vfs = ctx.Vfs,
+            Env = ctx.Interpreter.Env,
+            Apps = ctx.Interpreter.Apps,
+            Dispatcher = ctx.Interpreter.Dispatcher,
+        };
+
+        var resolution = ctx.Interpreter.Dispatcher.Resolve(commandName, shellCtx, "pwsh");
+        int code;
+        switch (resolution.Kind)
+        {
+            case ResolutionKind.VirtualExecutable
+                when resolution.VirtualExecutable is not null && resolution.VirtualExecutablePath is not null:
+                code = ctx.Interpreter.Dispatcher.ExecuteVirtualExecutable(
+                    resolution.VirtualExecutable,
+                    resolution.VirtualExecutablePath,
+                    commandName,
+                    stringArgs,
+                    shellCtx);
+                break;
+            case ResolutionKind.Script when resolution.Kernel is not null && resolution.ScriptPath is not null:
+                code = ctx.Interpreter.Dispatcher.ExecuteScript(resolution.ScriptPath, resolution.Kernel, shellCtx);
+                break;
+            case ResolutionKind.App when resolution.AppPath is not null:
+                if (ctx.Interpreter.RunApp == null)
+                    throw new PwshRuntimeException("App invoker is not wired up.", Errors.SourceLocation.None);
+                code = ctx.Interpreter.RunApp(resolution.AppPath, args);
+                break;
+            default:
+                return false;
+        }
+
+        var stderrText = stderr.ToString();
+        if (stderrText.Length > 0) ctx.Error.Write(stderrText);
+
+        ctx.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
+        ctx.Scope.Set("global", "?", code == 0);
+        result = ReadOutputLines(stdout.ToString());
+        return true;
+    }
+
+    private static string StringifyPipelineInput(IEnumerable<object?> input)
+    {
+        var sb = new StringBuilder();
+        foreach (var item in input)
+        {
+            sb.Append(Runtime.Coercion.FormatAsString(item));
+            sb.Append('\n');
+        }
+        return sb.ToString();
+    }
+
+    private static IEnumerable<object?> ReadOutputLines(string output)
+    {
+        using var reader = new StringReader(output);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
+            yield return line;
     }
 }

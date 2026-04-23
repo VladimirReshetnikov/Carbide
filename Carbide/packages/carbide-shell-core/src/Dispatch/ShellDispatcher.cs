@@ -21,6 +21,9 @@ public sealed class ShellDispatcher
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IShellKernel> _byStubPath =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly VirtualExecutableRegistry _virtualExecutables = new();
+    private readonly Dictionary<string, IVirtualExecutableHandler> _virtualHandlers =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Exit code from the most recent cross-shell invocation (0 initially).</summary>
     public int LastExitCode { get; set; }
@@ -55,6 +58,38 @@ public sealed class ShellDispatcher
         _byStubPath[absolutePath] = kernel;
     }
 
+    /// <summary>
+    /// Register a virtual executable definition in the dispatcher's catalog. Callers
+    /// supply the handler separately through <see cref="RegisterVirtualExecutableHandler"/>.
+    /// </summary>
+    public void RegisterVirtualExecutable(VirtualExecutableDefinition definition)
+        => _virtualExecutables.Register(definition);
+
+    /// <summary>
+    /// Register the handler that executes the given virtual executable definition.
+    /// </summary>
+    public void RegisterVirtualExecutableHandler(string handlerKey, IVirtualExecutableHandler handler)
+        => _virtualHandlers[handlerKey] = handler;
+
+    /// <summary>
+    /// Register a definition and its handler together.
+    /// </summary>
+    public void RegisterVirtualExecutable(VirtualExecutableDefinition definition, IVirtualExecutableHandler handler)
+    {
+        RegisterVirtualExecutable(definition);
+        RegisterVirtualExecutableHandler(definition.HandlerKey, handler);
+    }
+
+    /// <summary>
+    /// Resolve all virtual executable matches visible for the supplied command from the
+    /// perspective of the calling shell.
+    /// </summary>
+    public IReadOnlyList<VirtualExecutableMatch> ResolveVirtualExecutableMatches(
+        string commandName,
+        ShellExecutionContext ctx,
+        string? callerShellName)
+        => _virtualExecutables.ResolveMatches(commandName, ctx, callerShellName);
+
     /// <summary>Look up a kernel by its canonical name or alias.</summary>
     public bool TryResolveShellByName(string shellNameOrAlias, out IShellKernel? kernel)
     {
@@ -77,29 +112,39 @@ public sealed class ShellDispatcher
     /// (returned via <paramref name="scriptPath"/> with its claiming kernel), an explicit
     /// shell alias (returned via <paramref name="namedKernel"/>), or nothing.
     /// </summary>
-    public DispatchResolution Resolve(string commandName, ShellExecutionContext ctx)
+    public DispatchResolution Resolve(string commandName, ShellExecutionContext ctx, string? callerShellName = null)
     {
         if (TryResolveShellByName(commandName, out var named))
             return new DispatchResolution(ResolutionKind.NamedShell, null, null, named);
 
-        if (ctx.Apps.TryGetPath(commandName, out var appPath))
-            return new DispatchResolution(ResolutionKind.App, appPath, null, null);
-
         // Path-like command? Look it up in the VFS and use its extension.
-        if (commandName.Contains('/') || commandName.Contains('\\') || commandName.StartsWith("."))
+        if (LooksLikePath(commandName))
         {
-            var abs = ctx.Vfs.Normalize(commandName);
-            if (ctx.Vfs.Resolve(abs) is VfsFile)
+            foreach (var abs in _virtualExecutables.BuildPathCandidates(commandName, ctx, callerShellName))
             {
+                if (ctx.Vfs.Resolve(abs) is not VfsFile) continue;
                 if (_byStubPath.TryGetValue(abs, out var stubKernel))
                     return new DispatchResolution(ResolutionKind.NamedShell, null, null, stubKernel);
+                if (_virtualExecutables.TryResolveByPath(abs, out var definition) && definition is not null)
+                    return new DispatchResolution(ResolutionKind.VirtualExecutable, null, null, null, definition, abs);
                 var ext = VfsPath.GetExtension(abs);
                 if (TryResolveShellByExtension(ext, out var byExt))
                     return new DispatchResolution(ResolutionKind.Script, null, abs, byExt);
                 if (string.Equals(ext, ".dll", StringComparison.OrdinalIgnoreCase))
                     return new DispatchResolution(ResolutionKind.App, abs, null, null);
             }
+            return new DispatchResolution(ResolutionKind.Unresolved, null, null, null);
         }
+
+        if (string.Equals(callerShellName, "pwsh", StringComparison.OrdinalIgnoreCase)
+            && ctx.Apps.TryGetPath(commandName, out var pwshAppPath))
+            return new DispatchResolution(ResolutionKind.App, pwshAppPath, null, null);
+
+        if (_virtualExecutables.ResolveMatches(commandName, ctx, callerShellName).FirstOrDefault() is { } match)
+            return new DispatchResolution(ResolutionKind.VirtualExecutable, null, null, null, match.Definition, match.ResolvedPath);
+
+        if (ctx.Apps.TryGetPath(commandName, out var appPath))
+            return new DispatchResolution(ResolutionKind.App, appPath, null, null);
 
         return new DispatchResolution(ResolutionKind.Unresolved, null, null, null);
     }
@@ -128,6 +173,40 @@ public sealed class ShellDispatcher
         args.AddRange(ctx.Args);
         var scoped = ctx.With(args: args);
         var code = kernel.ExecuteFile(absolutePath, scoped);
+        LastExitCode = code;
+        return code;
+    }
+
+    /// <summary>
+    /// Execute a registered virtual executable handler against the shared VFS/env/session
+    /// state and update <see cref="LastExitCode"/> with the returned process-like exit code.
+    /// </summary>
+    public int ExecuteVirtualExecutable(
+        VirtualExecutableDefinition definition,
+        string resolvedPath,
+        string invokedAs,
+        IReadOnlyList<string> args,
+        ShellExecutionContext ctx)
+    {
+        if (!_virtualHandlers.TryGetValue(definition.HandlerKey, out var handler))
+            throw new DispatchException($"No virtual executable handler is registered for '{definition.HandlerKey}'.");
+
+        var invocation = new VirtualExecutableInvocation
+        {
+            Definition = definition,
+            ResolvedPath = resolvedPath,
+            InvokedAs = invokedAs,
+            Args = args,
+            Input = ctx.Input,
+            Output = ctx.Output,
+            Error = ctx.Error,
+            Vfs = ctx.Vfs,
+            Env = ctx.Env,
+            Apps = ctx.Apps,
+            Dispatcher = this,
+        };
+
+        var code = handler.Execute(invocation);
         LastExitCode = code;
         return code;
     }
@@ -232,6 +311,16 @@ public sealed class ShellDispatcher
         }
         return false;
     }
+
+    private static bool LooksLikePath(string commandName)
+        => commandName.Contains('/')
+        || commandName.Contains('\\')
+        || commandName.StartsWith(".", StringComparison.Ordinal)
+        || commandName.StartsWith("~", StringComparison.Ordinal)
+        || (commandName.Length >= 3
+            && char.IsLetter(commandName[0])
+            && commandName[1] == ':'
+            && (commandName[2] == '/' || commandName[2] == '\\'));
 }
 
 /// <summary>
@@ -242,12 +331,15 @@ public enum ResolutionKind
 {
     Unresolved,
     NamedShell,
+    VirtualExecutable,
     Script,
     App,
 }
 
 public sealed record DispatchResolution(
     ResolutionKind Kind,
-    string? AppPath,
-    string? ScriptPath,
-    IShellKernel? Kernel);
+    string? AppPath = null,
+    string? ScriptPath = null,
+    IShellKernel? Kernel = null,
+    VirtualExecutableDefinition? VirtualExecutable = null,
+    string? VirtualExecutablePath = null);
