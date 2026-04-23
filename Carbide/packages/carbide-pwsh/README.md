@@ -4,7 +4,9 @@ A PowerShell-flavored shell, compiled from C# in the browser and run on Mono-WAS
 [Carbide](../../README.md). **Phase 3** (current) closes the loop on "useful scripting
 language": control flow, user-defined functions, error handling, classes, enums, script
 files, Carbide-compiled app invocation, regex/format/join/split/containment operators,
-and a proper scope stack.
+and a proper scope stack. The interactive prompt now also has a lightweight editor layer
+for the common `pwsh` REPL conveniences that fit Carbide's current browser/console host
+without a larger PSReadLine-style redesign.
 
 Source docs:
 
@@ -25,6 +27,20 @@ node scripts/serve.mjs
 ```
 
 Open that URL in any modern browser.
+
+## Interactive prompt conveniences
+
+The current prompt editor intentionally stays small and host-friendly, but it covers the
+basic typing workflows you expect from day-to-day `pwsh` use:
+
+- `Esc` clears the current input line.
+- `Ctrl+C` abandons the current line, prints red `^C`, and returns to a fresh prompt.
+- `UpArrow` / `DownArrow` walk recent command history.
+- `Tab` completes the current command name from cmdlets, aliases, functions, apps, and
+  recognized builtin placeholders; repeated `Tab` cycles forward and `Shift+Tab` cycles
+  backward.
+- `LeftArrow` / `RightArrow`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Backspace`,
+  `Delete`, and `Ctrl+L` all work in the prompt.
 
 ## What you can write in Phase 3
 
@@ -204,7 +220,8 @@ PS /home/user> exit
 
 Class inheritance, static class members beyond trivial, property getters/setters with
 bodies, method overloading inside user classes, `using module`/`Import-Module`,
-`Add-Type` for inline C#, PSReadLine-style line editor (history, tab completion),
+`Add-Type` for inline C#, a full PSReadLine-style editor (persistent history, predictive
+and token-aware completion, syntax coloring, reverse search, multi-line-aware editing),
 `format.ps1xml` custom views, interactive `Confirm`/`Inquire`, `Register-ObjectEvent`,
 remoting, async cancellation into running scripts on Ctrl+C, `Invoke-WebRequest` /
 `Invoke-RestMethod`. Phase 4+ territory.

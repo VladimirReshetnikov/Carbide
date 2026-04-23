@@ -26,6 +26,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [Carbide — architecture and implementation plan](planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) — layer model, runtime topology, JS/TS interfaces, Webcil handling, milestones, testing, supply chain.
 - [Milestone planning index](planning/milestones/README.md) — detailed plans for M1, M2, M3, M4, M5, M6, and M9.
+- [Carbide-pwsh prompt-editor follow-up plan](planning/carbide-pwsh-prompt-editor-follow-up-plan__2026-04-23__17-34-44__af24c9f7fbd6.md) — next-stage plan for moving from the newly shipped lightweight prompt editor toward multiline-aware history, token-aware completion, richer search, and stronger browser validation.
 - [Multishell virtual executable stubs plan](planning/carbide-multishell-vfs-executable-stubs-detailed-plan__2026-04-23__01-18-24-060735__6d4f2a9b1c7e.md) — implementation plan and execution record for the path-based executable catalog in `carbide-multishell`.
 
 ## Research reports

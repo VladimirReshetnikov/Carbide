@@ -1,7 +1,8 @@
-// carbide-pwsh — entry point for the interactive shell. Phase 2 adds pipelines, commands, a
-// virtualized filesystem, a curated cmdlet catalog, and multi-line submissions. Compiles and
-// runs in the browser on Mono-WASM through Carbide (the same way carbide-gh does) and
-// standalone via `dotnet run` on Windows/Linux for local smoke testing.
+// carbide-pwsh — entry point for the interactive shell. Phase 3 adds control flow,
+// functions, scripts, classes/enums, app invocation, and a lightweight prompt editor on top
+// of the earlier pipeline/VFS/cmdlet shell. Compiles and runs in the browser on Mono-WASM
+// through Carbide (the same way carbide-gh does) and standalone via `dotnet run` on
+// Windows/Linux for local smoke testing.
 
 using System.Text;
 using CarbidePwsh.Errors;
@@ -10,18 +11,16 @@ using CarbidePwsh.Host;
 Banner.Write(Console.Out);
 
 var shell = new ShellHost();
+var promptEditor = new PwshPromptEditor(shell);
 var pending = new StringBuilder();
 
 while (true)
 {
     var prompt = pending.Length == 0 ? shell.BuildPrompt() : shell.ContinuationPrompt();
-    Console.Out.Write(prompt);
-    await Console.Out.FlushAsync();
-
-    string? line;
+    PromptReadResult readResult;
     try
     {
-        line = await Console.In.ReadLineAsync();
+        readResult = await promptEditor.ReadLineAsync(prompt, allowHistory: pending.Length == 0);
     }
     catch (Exception ex)
     {
@@ -29,7 +28,14 @@ while (true)
         break;
     }
 
-    if (line is null) break;
+    if (readResult.Kind == PromptReadResultKind.EndOfInput) break;
+    if (readResult.Kind == PromptReadResultKind.Interrupted)
+    {
+        pending.Clear();
+        continue;
+    }
+
+    var line = readResult.Line ?? "";
 
     if (pending.Length == 0)
     {

@@ -2,7 +2,7 @@
   "name": "@carbide/carbide-pwsh",
   "version": "0.1.0",
   "private": true,
-  "description": "A PowerShell-flavored shell (Phase 1: expression evaluator), compiled and run in the browser by Carbide.",
+  "description": "A PowerShell-flavored shell (Phase 3 scripting + lightweight prompt editor), compiled and run in the browser by Carbide.",
   "type": "module",
   "scripts": {
     "serve": "node scripts/serve.mjs",

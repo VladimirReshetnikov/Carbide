@@ -111,6 +111,34 @@ public sealed class ShellHost
 
     public string ContinuationPrompt() => ">> ";
 
+    public IReadOnlyList<string> GetInteractiveCommandNames()
+    {
+        var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            Kernel.Name,
+        };
+
+        foreach (var alias in Kernel.Aliases)
+            names.Add(alias);
+
+        foreach (var name in Registry.CanonicalCmdletNames)
+            names.Add(name);
+
+        foreach (var builtin in BuiltinCommandCatalog.Cmdlets)
+            names.Add(builtin.Name);
+
+        foreach (var alias in Registry.AliasDefinitions)
+            names.Add(alias.Name);
+
+        foreach (var functionName in Functions.Names)
+            names.Add(functionName);
+
+        foreach (var appName in Apps.All.Keys)
+            names.Add(appName);
+
+        return names.ToArray();
+    }
+
     public object? Submit(string source)
     {
         Interpreter.PipelineOutput = Console.Out;

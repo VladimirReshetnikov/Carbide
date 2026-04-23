@@ -19,7 +19,7 @@ Phase 2 delivered a useful shell with pipelines, cmdlets, and a virtualized file
 8. Work with properly-scoped variables (`$script:`, `$global:`, `$local:`, `$private:`) that behave correctly across function call boundaries.
 9. Rely on additional built-in cmdlets: `Start-Sleep`, `Get-Date`, `Get-Random`, `New-Guid`, `Invoke-WebRequest`/`Invoke-RestMethod` (stretch).
 
-Phase 3 is the "feature-complete-for-the-scope" milestone. After it, the remaining proposal-committed work is mostly polish: tab completion, PSReadLine-style line editing, richer parameter binding, and deferred stretch items like `Add-Type` wired to Carbide's Roslyn.
+Phase 3 is the "feature-complete-for-the-scope" milestone. After it, the remaining proposal-committed work is mostly polish: deeper prompt work beyond the now-landed lightweight editor baseline (multiline-aware history, richer completion, fuller PSReadLine-style behavior), richer parameter binding, and deferred stretch items like `Add-Type` wired to Carbide's Roslyn.
 
 ## 2. Extended scope rationale
 
@@ -42,7 +42,7 @@ What's **still** deferred (Phase 4+):
 - Class inheritance, static members beyond trivial, property getters/setters with bodies.
 - Named parameter sets (`[CmdletBinding(DefaultParameterSetName = 'A')]`).
 - `Add-Type` and dynamic C# compilation.
-- PSReadLine-style interactive line editor (syntax highlighting, history, completion).
+- Full PSReadLine-style interactive line editor (syntax highlighting, multiline-aware history, richer completion/search).
 - Custom formatting directives (`format.ps1xml`, `Format-Table -Property`).
 - Real async cancellation via `CancelKeyPress` propagation into running scripts.
 - Module loading (`using module`, `Import-Module`).
@@ -728,7 +728,7 @@ A function parameter `[int] $x` coerces its argument to `int` via the same `Coer
 - Generic type parameters in user-defined classes.
 - `using module`, module loading, `Import-Module`.
 - `Add-Type` for inline C# / VB compilation.
-- PSReadLine-style line editor, history across shell sessions, tab completion.
+- Full PSReadLine-style line editor, history across shell sessions, and richer completion beyond the lightweight prompt-editor baseline.
 - Custom format views (`format.ps1xml`).
 - Interactive `Inquire` / `Confirm` prompts.
 - Parameter attribute enforcement beyond type (`[ValidateSet]` parsing only, no enforcement).
