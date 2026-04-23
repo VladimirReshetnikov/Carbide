@@ -59,6 +59,8 @@ public static class Operators
             BinaryOp.BAnd => Coercion.ToInt64(left) & Coercion.ToInt64(right),
             BinaryOp.BOr => Coercion.ToInt64(left) | Coercion.ToInt64(right),
             BinaryOp.BXor => Coercion.ToInt64(left) ^ Coercion.ToInt64(right),
+            BinaryOp.Shl => Coercion.ToInt64(left) << (int)Coercion.ToInt64(right),
+            BinaryOp.Shr => Coercion.ToInt64(left) >> (int)Coercion.ToInt64(right),
 
             BinaryOp.Is => IsOp(left, right),
             BinaryOp.IsNot => !IsOp(left, right),

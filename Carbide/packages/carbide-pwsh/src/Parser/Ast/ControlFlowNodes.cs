@@ -37,6 +37,7 @@ public sealed record ForEachStatementAst(
     : StatementAst(Location);
 
 public sealed record SwitchStatementAst(
+    bool IsWildcard,
     ExpressionAst Condition,
     IReadOnlyList<(ExpressionAst Pattern, ScriptAst Body)> Cases,
     ScriptAst? DefaultBody,

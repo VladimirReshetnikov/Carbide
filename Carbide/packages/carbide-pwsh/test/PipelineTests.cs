@@ -81,4 +81,18 @@ public class PipelineTests
         var r = Run(NewShell(), "$x = $(@(1,2,3) | ForEach-Object { $_ + 10 }); $x");
         Assert.Equal(new object?[] { 11, 12, 13 }, AsArray(r));
     }
+
+    [Fact]
+    public void CommandArgumentCanIndexGroupedExpression()
+    {
+        var r = Run(NewShell(), "Write-Output (@('zero','one'))[1]");
+        Assert.Equal("one", r);
+    }
+
+    [Fact]
+    public void CommandArgumentCanAccessMemberOnGroupedCommandResult()
+    {
+        var r = Run(NewShell(), "Write-Output (Get-Date -Date '2020-01-02').Year");
+        Assert.Equal(2020, r);
+    }
 }

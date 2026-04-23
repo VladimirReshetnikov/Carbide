@@ -4,12 +4,18 @@
 
 using System;
 using System.IO;
+using System.Text;
 using CarbidePwsh.Errors;
 
 namespace CarbidePwsh.Parity;
 
 internal static class ParseFile
 {
+    static ParseFile()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+
     public static int Run(string[] argv)
     {
         if (argv.Length < 2)
@@ -19,7 +25,7 @@ internal static class ParseFile
         }
         var path = argv[1];
         string src;
-        try { src = File.ReadAllText(path); }
+        try { src = ReadPowerShellSource(path); }
         catch (Exception ex) { Console.Error.WriteLine($"could not read {path}: {ex.Message}"); return 2; }
 
         try
@@ -45,6 +51,26 @@ internal static class ParseFile
         {
             Console.WriteLine($"{ex.GetType().Name}: {ex.Message}");
             return 1;
+        }
+    }
+
+    private static string ReadPowerShellSource(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
+
+        try
+        {
+            return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            return Encoding.GetEncoding(1252).GetString(bytes);
         }
     }
 }

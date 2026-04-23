@@ -13,6 +13,7 @@ public enum TokenKind
     String,             // payload: IReadOnlyList<StringPart>
     Identifier,
     Variable,           // $name or ${complex}; payload: (string? scope, string name)
+    SplatVariable,      // @name or @scope:name; payload: (string? scope, string name)
 
     // Punctuation
     LParen,             // (
@@ -28,6 +29,7 @@ public enum TokenKind
     Dot,                // .
     Colon,              // : (drive qualifier like Env:FOO)
     ColonColon,         // ::
+    Question,           // ?
     DotDot,             // ..
     Equal,              // =
     PlusEqual,          // +=
@@ -41,6 +43,7 @@ public enum TokenKind
     Minus,              // -
     Star,               // *
     Slash,              // /
+    Backslash,          // \
     Percent,            // %
     Bang,               // !
     Pipe,               // |
@@ -51,6 +54,7 @@ public enum TokenKind
     OpIeq, OpIne, OpIlt, OpIle, OpIgt, OpIge,
     OpAnd, OpOr, OpXor, OpNot,
     OpBand, OpBor, OpBxor, OpBnot,
+    OpShl, OpShr,
     OpIs, OpIsNot, OpAs,
 
     // Phase 3 — regex/glob/format/collection operators
@@ -68,4 +72,5 @@ public enum TokenKind
     MinusMinus,  // --
 
     Ampersand,   // & — call operator
+    Redirection, // >, >>, 2>, 2>>, 2>&1, *>, *>&1, ...
 }

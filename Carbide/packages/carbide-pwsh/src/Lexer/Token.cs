@@ -23,3 +23,8 @@ public sealed record LiteralPart(string Text) : StringPart;
 public sealed record VariablePart(string? Scope, string Name) : StringPart;
 
 public sealed record ExpressionPart(string Source, SourceLocation Origin) : StringPart;
+
+public readonly record struct RedirectionTokenData(
+    int? FromStream,
+    bool Append,
+    int? MergeToStream);

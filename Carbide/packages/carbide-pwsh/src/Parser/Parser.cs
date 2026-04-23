@@ -116,24 +116,9 @@ public sealed class Parser
             return ParseCommandPipeline(loc);
         }
 
-        // Dot-sourcing: `. ./script.ps1` at statement start.
-        if (IsAt(TokenKind.Dot) && IsDotSourceCandidate())
+        if (IsCommandPipelineStart())
         {
-            return ParseDotSourceStatement(loc);
-        }
-
-        // Call operator: `& $block arg1 arg2` or `& 'path.ps1' arg1`.
-        if (IsAt(TokenKind.Ampersand))
-        {
-            return ParseCallOperatorStatement(loc);
-        }
-
-        // Path-like command at statement start: `./foo`, `/usr/bin/foo`, or just `foo.ps1`.
-        // Detect by first token being Dot or Slash (adjacent to the next token), which can't
-        // start an expression.
-        if ((IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash)) && IsPathLikeCommand())
-        {
-            return ParsePathCommandStatement(loc);
+            return ParseCommandPipeline(loc);
         }
 
         var expr = ParseLogicalOr();
@@ -192,48 +177,35 @@ public sealed class Parser
     /// that executes the pipeline and yields its final result.</summary>
     private ExpressionAst ParseRhsPipeline()
     {
+        return ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
+    }
+
+    private ExpressionAst ParseAssignmentExpression()
+    {
         var loc = Current.Location;
-        if (IsAt(TokenKind.Identifier))
+        var left = ParseLogicalOr();
+        if (!IsAssignmentOp(Current.Kind))
+            return left;
+
+        var op = Current.Kind switch
         {
-            var kw = Current.Text.ToLowerInvariant();
-            // Statement keywords produce collected values as the RHS.
-            if (kw is "if" or "while" or "do" or "for" or "foreach" or "switch" or "try")
-            {
-                var stmt = ParseStatement();
-                return new SubExpressionAst(new ScriptAst(new[] { stmt }, loc), loc);
-            }
-            var cmdStmt = ParseCommandPipeline(loc);
-            return new SubExpressionAst(new ScriptAst(new[] { cmdStmt }, loc), loc);
-        }
-        var expr = ParseLogicalOr();
-        // Top-level comma operator on the RHS: `$a, $b = 1, 2` builds a 2-element array
-        // on the right, which the assignment then destructures over the LHS array.
-        if (IsAt(TokenKind.Comma))
-        {
-            var elems = new List<ExpressionAst> { expr };
-            while (IsAt(TokenKind.Comma))
-            {
-                Advance();
-                SkipNewlines();
-                elems.Add(ParseLogicalOr());
-            }
-            expr = new ArrayExpressionAst(elems, loc);
-        }
-        if (!IsAt(TokenKind.Pipe)) return expr;
-        var stages = new List<AstNode> { expr };
-        while (IsAt(TokenKind.Pipe))
-        {
-            Advance();
-            SkipNewlines();
-            stages.Add(ParsePipelineStage());
-        }
-        var pipeline = new PipelineAst(stages, loc);
-        return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
+            TokenKind.Equal => AssignmentOp.Assign,
+            TokenKind.PlusEqual => AssignmentOp.AddAssign,
+            TokenKind.MinusEqual => AssignmentOp.SubtractAssign,
+            TokenKind.StarEqual => AssignmentOp.MultiplyAssign,
+            TokenKind.SlashEqual => AssignmentOp.DivideAssign,
+            TokenKind.PercentEqual => AssignmentOp.ModuloAssign,
+            _ => throw new InvalidOperationException(),
+        };
+        Advance();
+        SkipNewlines();
+        var rhs = ParseRhsPipeline();
+        return new AssignmentExpressionAst(left, op, rhs, loc);
     }
 
     private StatementAst ParseCommandPipeline(SourceLocation loc)
     {
-        var first = ParseCommand();
+        var first = ParseCommandStage();
         if (!IsAt(TokenKind.Pipe))
         {
             // Single command — still return a PipelineAst for uniformity.
@@ -251,9 +223,8 @@ public sealed class Parser
 
     private AstNode ParsePipelineStage()
     {
-        // Command or expression. Same rule as statement-start.
-        if (IsAt(TokenKind.Identifier))
-            return ParseCommand();
+        if (IsCommandPipelineStart())
+            return ParseCommandStage();
         return ParseLogicalOr();
     }
 
@@ -275,6 +246,18 @@ public sealed class Parser
             var right = ParseLogicalAnd();
             left = new BinaryExpressionAst(left, op, right, loc);
         }
+        if (IsAt(TokenKind.Question))
+        {
+            var loc = Current.Location;
+            Advance();
+            SkipNewlines();
+            var whenTrue = ParseLogicalOr();
+            SkipNewlines();
+            Consume(TokenKind.Colon);
+            SkipNewlines();
+            var whenFalse = ParseLogicalOr();
+            return new ConditionalExpressionAst(left, whenTrue, whenFalse, loc);
+        }
         return left;
     }
 
@@ -295,12 +278,15 @@ public sealed class Parser
     private ExpressionAst ParseBitwise()
     {
         var left = ParseComparison();
-        while (IsAt(TokenKind.OpBand) || IsAt(TokenKind.OpBor) || IsAt(TokenKind.OpBxor))
+        while (IsAt(TokenKind.OpBand) || IsAt(TokenKind.OpBor) || IsAt(TokenKind.OpBxor) ||
+               IsAt(TokenKind.OpShl) || IsAt(TokenKind.OpShr))
         {
             var op = Current.Kind switch
             {
                 TokenKind.OpBand => BinaryOp.BAnd,
                 TokenKind.OpBor => BinaryOp.BOr,
+                TokenKind.OpShl => BinaryOp.Shl,
+                TokenKind.OpShr => BinaryOp.Shr,
                 _ => BinaryOp.BXor,
             };
             var loc = Current.Location;
@@ -315,7 +301,7 @@ public sealed class Parser
     private ExpressionAst ParseComparison()
     {
         var left = ParseAdditive();
-        if (TryConsumeComparisonOp(out var op, out var loc))
+        while (TryConsumeComparisonOp(out var op, out var loc))
         {
             SkipNewlines();
             var right = ParseAdditive();
@@ -332,7 +318,7 @@ public sealed class Parser
                 }
                 right = new ArrayExpressionAst(items, loc);
             }
-            return new BinaryExpressionAst(left, op, right, loc);
+            left = new BinaryExpressionAst(left, op, right, loc);
         }
         return left;
     }
@@ -457,6 +443,27 @@ public sealed class Parser
 
     private ExpressionAst ParseUnary()
     {
+        if (IsAt(TokenKind.Comma))
+        {
+            var loc = Current.Location;
+            Advance();
+            var inner = ParseUnary();
+            return new ArrayExpressionAst(new[] { inner }, loc);
+        }
+        if (IsAt(TokenKind.PlusPlus))
+        {
+            var loc = Current.Location;
+            Advance();
+            var inner = ParseUnary();
+            return new UnaryExpressionAst(UnaryOp.PreIncrement, inner, loc);
+        }
+        if (IsAt(TokenKind.MinusMinus))
+        {
+            var loc = Current.Location;
+            Advance();
+            var inner = ParseUnary();
+            return new UnaryExpressionAst(UnaryOp.PreDecrement, inner, loc);
+        }
         if (IsAt(TokenKind.Minus))
         {
             var loc = Current.Location;
@@ -520,7 +527,7 @@ public sealed class Parser
             if (t.Kind == TokenKind.LBracket) depth++;
             else if (t.Kind == TokenKind.RBracket) depth--;
             else if (t.Kind == TokenKind.NewLine) { /* skip */ }
-            else if (t.Kind != TokenKind.Identifier && t.Kind != TokenKind.Dot && t.Kind != TokenKind.Comma)
+            else if (t.Kind != TokenKind.Identifier && t.Kind != TokenKind.Dot && t.Kind != TokenKind.Plus && t.Kind != TokenKind.Comma)
             {
                 return false;
             }
@@ -651,11 +658,11 @@ public sealed class Parser
     {
         var first = Consume(TokenKind.Identifier).Text;
         var sb = new System.Text.StringBuilder(first);
-        while (IsAt(TokenKind.Dot))
+        while (IsAt(TokenKind.Dot) || IsAt(TokenKind.Plus))
         {
-            Advance();
+            var separator = Advance().Text;
             var next = Consume(TokenKind.Identifier).Text;
-            sb.Append('.').Append(next);
+            sb.Append(separator).Append(next);
         }
         return sb.ToString();
     }
@@ -690,10 +697,22 @@ public sealed class Parser
             {
                 var loc = Current.Location;
                 Advance();
-                var name = Consume(TokenKind.Identifier).Text;
+                if (TryParseDynamicMemberName(out var dynamicName))
+                {
+                    List<ExpressionAst>? dynamicArgs = null;
+                    bool dynamicInvocation = false;
+                    if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
+                    {
+                        dynamicArgs = ParseInvocationArgs();
+                        dynamicInvocation = true;
+                    }
+                    expr = new DynamicMemberAccessAst(expr, dynamicName, IsStatic: false, IsInvocation: dynamicInvocation, Arguments: dynamicArgs, Location: loc);
+                    continue;
+                }
+                var name = ParseMemberName();
                 List<ExpressionAst>? args = null;
                 bool invocation = false;
-                if (IsAt(TokenKind.LParen))
+                if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
                 {
                     args = ParseInvocationArgs();
                     invocation = true;
@@ -705,10 +724,22 @@ public sealed class Parser
             {
                 var loc = Current.Location;
                 Advance();
-                var name = Consume(TokenKind.Identifier).Text;
+                if (TryParseDynamicMemberName(out var dynamicName))
+                {
+                    List<ExpressionAst>? dynamicArgs = null;
+                    bool dynamicInvocation = false;
+                    if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
+                    {
+                        dynamicArgs = ParseInvocationArgs();
+                        dynamicInvocation = true;
+                    }
+                    expr = new DynamicMemberAccessAst(expr, dynamicName, IsStatic: true, IsInvocation: dynamicInvocation, Arguments: dynamicArgs, Location: loc);
+                    continue;
+                }
+                var name = ParseMemberName();
                 List<ExpressionAst>? args = null;
                 bool invocation = false;
-                if (IsAt(TokenKind.LParen))
+                if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
                 {
                     args = ParseInvocationArgs();
                     invocation = true;
@@ -731,6 +762,39 @@ public sealed class Parser
         }
     }
 
+    private bool CurrentIsAdjacentToPreviousToken()
+    {
+        if (_cursor <= 0)
+            return false;
+        var previous = _tokens[_cursor - 1];
+        return previous.Location.Offset + previous.Location.Length == Current.Location.Offset;
+    }
+
+    private string ParseMemberName()
+    {
+        if (IsAt(TokenKind.Identifier))
+            return Advance().Text;
+        if (IsAt(TokenKind.String))
+        {
+            var token = Advance();
+            var parts = (IReadOnlyList<StringPart>)token.Value!;
+            return string.Concat(parts.Select(GetStringPartText));
+        }
+        throw new PwshParseException($"Expected member name, got {Current.Kind} '{Current.Text}'.", Current.Location);
+    }
+
+    private bool TryParseDynamicMemberName(out ExpressionAst expression)
+    {
+        if (IsAt(TokenKind.Variable) || IsAt(TokenKind.DollarLParen) || IsAt(TokenKind.LParen))
+        {
+            expression = ParsePostfix();
+            return true;
+        }
+
+        expression = null!;
+        return false;
+    }
+
     private List<ExpressionAst> ParseInvocationArgs()
     {
         Consume(TokenKind.LParen);
@@ -738,13 +802,13 @@ public sealed class Parser
         var args = new List<ExpressionAst>();
         if (!IsAt(TokenKind.RParen))
         {
-            args.Add(ParseLogicalOr());
+            args.Add(ParseAssignmentExpression());
             SkipNewlines();
             while (IsAt(TokenKind.Comma))
             {
                 Advance();
                 SkipNewlines();
-                args.Add(ParseLogicalOr());
+                args.Add(ParseAssignmentExpression());
                 SkipNewlines();
             }
         }
@@ -781,17 +845,10 @@ public sealed class Parser
             {
                 Advance();
                 SkipNewlines();
-                // Allow a command/pipeline inside parens. If the first token is an identifier
-                // that's not a keyword in expression context, OR a `&` call operator, treat
-                // the whole paren as a sub-pipeline whose final value is yielded as a
-                // subexpression. `(& $scriptblock $arg)`, `(Get-Date)`, `($x | Sort-Object)`
-                // all hit this path.
-                if ((IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
-                    || IsAt(TokenKind.Ampersand))
+                // Allow a command/pipeline inside parens.
+                if (IsCommandPipelineStart())
                 {
-                    var pipelineStmt = IsAt(TokenKind.Ampersand)
-                        ? ParseCallOperatorStatement(t.Location)
-                        : ParseCommandPipeline(t.Location);
+                    var pipelineStmt = ParseCommandPipeline(t.Location);
                     SkipNewlines();
                     if (!IsAt(TokenKind.RParen))
                     {
@@ -802,8 +859,20 @@ public sealed class Parser
                     Advance();
                     return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipelineStmt }, t.Location), t.Location);
                 }
-                var inner = ParseLogicalOr();
+                var inner = ParseAssignmentExpression();
                 SkipNewlines();
+                if (IsAt(TokenKind.Comma))
+                {
+                    var elems = new List<ExpressionAst> { inner };
+                    while (IsAt(TokenKind.Comma))
+                    {
+                        Advance();
+                        SkipNewlines();
+                        elems.Add(ParseAssignmentExpression());
+                        SkipNewlines();
+                    }
+                    inner = new ArrayExpressionAst(elems, t.Location);
+                }
                 // Parenthesized pipelines: `($xs | ForEach-Object { $_ * 2 })`. When the
                 // first expression is followed by `|`, stitch additional pipeline stages
                 // until we reach the closing `)`. Real pwsh treats the whole paren as the
@@ -862,16 +931,8 @@ public sealed class Parser
                 return lit;
             case TokenKind.Ampersand:
             {
-                // `& target` in expression position: evaluate by invoking a ScriptBlock or
-                // path target, yielding the invocation's result. Args cannot be passed in this
-                // form; for args, use `& target arg1 arg2` at statement start.
                 var callLoc = Current.Location;
-                Advance();
-                var target = ParsePostfix();
-                var elements = new List<CommandElementAst> { new CommandArgumentAst(target, callLoc) };
-                var cmd = new CommandAst("&", elements, callLoc);
-                var pipeline = new PipelineAst(new AstNode[] { cmd }, callLoc);
-                return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, callLoc), callLoc);
+                return WrapPipelineAsSubExpression(ParseCommandPipeline(callLoc), callLoc);
             }
         }
         if (t.Kind == TokenKind.EndOfInput)
@@ -884,6 +945,22 @@ public sealed class Parser
         var start = Consume(TokenKind.LBrace).Location;
         SkipNewlinesAndSemicolons();
         var statements = new List<StatementAst>();
+
+        if (IsKeyword("begin") || IsKeyword("process") || IsKeyword("end"))
+        {
+            while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
+            {
+                if (!(IsKeyword("begin") || IsKeyword("process") || IsKeyword("end")))
+                    break;
+                Advance();
+                SkipNewlines();
+                var block = ParseBraceBlock();
+                foreach (var statement in block.Statements)
+                    statements.Add(statement);
+                SkipNewlinesAndSemicolons();
+            }
+        }
+
         while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
         {
             var stmt = ParseStatement();
@@ -910,7 +987,7 @@ public sealed class Parser
         var elements = new List<ExpressionAst>();
         while (!IsAt(TokenKind.RParen) && !IsAt(TokenKind.EndOfInput))
         {
-            elements.Add(ParseLogicalOr());
+            elements.Add(ParseArrayElementExpression());
             SkipNewlinesAndSemicolons();
             if (IsAt(TokenKind.Comma))
             {
@@ -931,20 +1008,7 @@ public sealed class Parser
     /// <c>switch</c>, <c>try</c> fold into a <see cref="SubExpressionAst"/> that the
     /// interpreter evaluates to the last statement's value.
     /// </summary>
-    private ExpressionAst ParseValueExpression()
-    {
-        if (IsAt(TokenKind.Identifier))
-        {
-            var kw = Current.Text.ToLowerInvariant();
-            if (kw is "if" or "while" or "do" or "for" or "foreach" or "switch" or "try")
-            {
-                var loc = Current.Location;
-                var stmt = ParseStatement();
-                return new SubExpressionAst(new ScriptAst(new[] { stmt }, loc), loc);
-            }
-        }
-        return ParseLogicalOr();
-    }
+    private ExpressionAst ParseValueExpression() => ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
 
     private HashtableExpressionAst ParseHashtableLiteral()
     {
@@ -986,33 +1050,78 @@ public sealed class Parser
 
     // ---------- Command mode ----------
 
+    private bool IsCommandPipelineStart()
+    {
+        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text)) return true;
+        if (IsAt(TokenKind.Percent)) return true;
+        if (IsAt(TokenKind.Ampersand)) return true;
+        if (IsAt(TokenKind.Dot) && IsDotSourceCandidate()) return true;
+        if ((IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash) || IsAt(TokenKind.Backslash)) && IsPathLikeCommand()) return true;
+        return false;
+    }
+
+    private bool IsStatementLikeValueKeywordStart()
+        => IsAt(TokenKind.Identifier) && Current.Text.ToLowerInvariant() is "if" or "while" or "do" or "for" or "foreach" or "switch" or "try";
+
+    private ExpressionAst WrapPipelineAsSubExpression(StatementAst pipeline, SourceLocation loc)
+        => new SubExpressionAst(new ScriptAst(new[] { pipeline }, loc), loc);
+
+    private ExpressionAst ParseArrayElementExpression()
+        => ParseCommandCapableValueExpression(allowCommaList: false, allowPipeline: true);
+
+    private ExpressionAst ParseCommandCapableValueExpression(bool allowCommaList, bool allowPipeline)
+    {
+        var loc = Current.Location;
+        if (IsStatementLikeValueKeywordStart())
+        {
+            var stmt = ParseStatement();
+            return new SubExpressionAst(new ScriptAst(new[] { stmt }, loc), loc);
+        }
+        if (IsCommandPipelineStart())
+            return WrapPipelineAsSubExpression(ParseCommandPipeline(loc), loc);
+
+        var expr = ParseLogicalOr();
+        if (allowCommaList && IsAt(TokenKind.Comma))
+        {
+            var elems = new List<ExpressionAst> { expr };
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                elems.Add(ParseLogicalOr());
+            }
+            expr = new ArrayExpressionAst(elems, loc);
+        }
+        if (!allowPipeline || !IsAt(TokenKind.Pipe)) return expr;
+
+        var stages = new List<AstNode> { expr };
+        while (IsAt(TokenKind.Pipe))
+        {
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
+        }
+        return WrapPipelineAsSubExpression(new PipelineAst(stages, loc), loc);
+    }
+
+    private CommandAst ParseCommandStage()
+    {
+        var loc = Current.Location;
+        if (IsAt(TokenKind.Dot) && IsDotSourceCandidate())
+            return ParseDotSourceCommand(loc);
+        if (IsAt(TokenKind.Ampersand))
+            return ParseCallOperatorCommand(loc);
+        if ((IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash) || IsAt(TokenKind.Backslash)) && IsPathLikeCommand())
+            return ParsePathCommand(loc);
+        return ParseCommand();
+    }
+
     private CommandAst ParseCommand()
     {
-        var nameToken = Consume(TokenKind.Identifier);
-        var elements = new List<CommandElementAst>();
-
-        while (IsCommandElementStart())
-        {
-            // `-Name` parameter introducer: Minus immediately followed by Identifier (no
-            // whitespace) and not a known dashed operator.
-            if (IsAt(TokenKind.Minus)
-                && Peek(1).Kind == TokenKind.Identifier
-                && Current.Location.Offset + 1 == Peek(1).Location.Offset)
-            {
-                var minusLoc = Current.Location;
-                Advance();
-                var idToken = Advance();
-                elements.Add(new CommandParameterAst(idToken.Text, minusLoc));
-                continue;
-            }
-
-            // Argument expression.
-            var argLoc = Current.Location;
-            var expr = ParseCommandArgument();
-            elements.Add(new CommandArgumentAst(expr, argLoc));
-        }
-
-        return new CommandAst(nameToken.Text, elements, nameToken.Location);
+        var nameLoc = Current.Location;
+        var name = GetLiteralText(ParseBareWord());
+        var elements = ParseCommandElements();
+        return new CommandAst(name, elements, nameLoc);
     }
 
     private bool IsCommandElementStart()
@@ -1033,7 +1142,6 @@ public sealed class Parser
             case TokenKind.Variable:
             case TokenKind.Number:
             case TokenKind.String:
-            case TokenKind.LParen:
             case TokenKind.AtLParen:
             case TokenKind.AtLBrace:
             case TokenKind.DollarLParen:
@@ -1041,12 +1149,17 @@ public sealed class Parser
                 first = ParsePostfix();
                 break;
 
+            case TokenKind.LParen:
+                first = ParsePostfixContinuation(ParseGroupedCommandArgument());
+                break;
+
             case TokenKind.LBracket when LooksLikeTypeLiteral():
                 first = ParsePostfix();
                 break;
 
             default:
-                return ParseBareWord();
+                first = ParseBareWord();
+                break;
         }
 
         // Command-mode comma-array: `Write-Output 1,2,3` is a single argument whose value
@@ -1058,11 +1171,80 @@ public sealed class Parser
             {
                 Advance();
                 SkipNewlines();
-                elems.Add(ParsePostfix());
+                elems.Add(Current.Kind switch
+                {
+                    TokenKind.Variable or TokenKind.Number or TokenKind.String or
+                    TokenKind.AtLParen or TokenKind.AtLBrace or
+                    TokenKind.DollarLParen or TokenKind.LBrace => ParsePostfix(),
+                    TokenKind.LParen => ParsePostfixContinuation(ParseGroupedCommandArgument()),
+                    TokenKind.LBracket when LooksLikeTypeLiteral() => ParsePostfix(),
+                    _ => ParseBareWord(),
+                });
             }
             return new ArrayExpressionAst(elems, t.Location);
         }
         return first;
+    }
+
+    private ExpressionAst ParseGroupedCommandArgument()
+    {
+        var start = Consume(TokenKind.LParen).Location;
+        SkipNewlines();
+        if (IsAt(TokenKind.Identifier) || IsCommandPipelineStart())
+        {
+            var pipelineStmt = ParseCommandPipeline(start);
+            SkipNewlines();
+            if (!IsAt(TokenKind.RParen))
+            {
+                if (IsAt(TokenKind.EndOfInput))
+                    throw new PwshIncompleteInputException("Unterminated '(' — expected ')'.", start);
+                throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
+            }
+            Advance();
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipelineStmt }, start), start);
+        }
+
+        var inner = ParseAssignmentExpression();
+        SkipNewlines();
+        if (IsAt(TokenKind.Comma))
+        {
+            var elems = new List<ExpressionAst> { inner };
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                elems.Add(ParseAssignmentExpression());
+                SkipNewlines();
+            }
+            inner = new ArrayExpressionAst(elems, start);
+        }
+        if (IsAt(TokenKind.Pipe))
+        {
+            var stages = new List<AstNode> { inner };
+            while (IsAt(TokenKind.Pipe))
+            {
+                Advance();
+                SkipNewlines();
+                stages.Add(ParsePipelineStage());
+            }
+            SkipNewlines();
+            if (!IsAt(TokenKind.RParen))
+            {
+                if (IsAt(TokenKind.EndOfInput))
+                    throw new PwshIncompleteInputException("Unterminated '(' — expected ')'.", start);
+                throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
+            }
+            Advance();
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { new PipelineAst(stages, start) }, start), start);
+        }
+        if (!IsAt(TokenKind.RParen))
+        {
+            if (IsAt(TokenKind.EndOfInput))
+                throw new PwshIncompleteInputException("Unterminated '(' — expected ')'.", start);
+            throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
+        }
+        Advance();
+        return new ParenExpressionAst(inner, start);
     }
 
     private ExpressionAst ParseBareWord()
@@ -1076,6 +1258,9 @@ public sealed class Parser
                !IsAt(TokenKind.NewLine) &&
                !IsAt(TokenKind.Semicolon) &&
                !IsAt(TokenKind.Pipe) &&
+               !IsAt(TokenKind.Redirection) &&
+               !IsAt(TokenKind.LParen) &&
+               !IsAt(TokenKind.LBrace) &&
                !IsAt(TokenKind.RParen) &&
                !IsAt(TokenKind.RBrace))
         {
@@ -1111,6 +1296,118 @@ public sealed class Parser
             loc);
     }
 
+    private List<CommandElementAst> ParseCommandElements(IEnumerable<CommandElementAst>? seed = null)
+    {
+        var elements = seed?.ToList() ?? new List<CommandElementAst>();
+
+        while (IsCommandElementStart())
+        {
+            if (TryParseCommandParameter(out var parameter))
+            {
+                elements.Add(parameter);
+                continue;
+            }
+            if (IsAt(TokenKind.SplatVariable))
+            {
+                var tok = Advance();
+                var (scope, name) = ((string? Scope, string Name))tok.Value!;
+                elements.Add(new CommandSplatAst(new VariableAst(scope, name, tok.Location), tok.Location));
+                continue;
+            }
+            if (IsAt(TokenKind.Redirection))
+            {
+                elements.Add(ParseCommandRedirection());
+                continue;
+            }
+
+            var argLoc = Current.Location;
+            var expr = ParseCommandArgument();
+            elements.Add(new CommandArgumentAst(expr, argLoc));
+        }
+
+        return elements;
+    }
+
+    private bool TryParseCommandParameter(out CommandParameterAst parameter)
+    {
+        if (IsAt(TokenKind.Minus)
+            && Peek(1).Kind == TokenKind.Identifier
+            && Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset)
+        {
+            var minusLoc = Current.Location;
+            Advance();
+            var idToken = Advance();
+            parameter = new CommandParameterAst(idToken.Text, minusLoc);
+            return true;
+        }
+
+        parameter = null!;
+        return false;
+    }
+
+    private CommandRedirectionAst ParseCommandRedirection()
+    {
+        var token = Consume(TokenKind.Redirection);
+        var spec = (RedirectionTokenData)token.Value!;
+        ExpressionAst? target = null;
+        if (spec.MergeToStream is null)
+        {
+            if (!IsCommandElementStart())
+                throw new PwshIncompleteInputException("Expected a redirection target.", token.Location);
+            target = ParseCommandArgument();
+        }
+        return new CommandRedirectionAst(spec.FromStream, spec.Append, spec.MergeToStream, target, token.Location);
+    }
+
+    private CommandAst ParsePathCommand(SourceLocation loc)
+    {
+        var name = GetLiteralText(ParseBareWord());
+        var elements = ParseCommandElements();
+        return new CommandAst(name, elements, loc);
+    }
+
+    private CommandAst ParseCallOperatorCommand(SourceLocation loc)
+    {
+        Consume(TokenKind.Ampersand);
+        var target = ParseCommandTargetArgument();
+        var elements = ParseCommandElements(new[] { new CommandArgumentAst(target, loc) });
+        return new CommandAst("&", elements, loc);
+    }
+
+    private CommandAst ParseDotSourceCommand(SourceLocation loc)
+    {
+        Consume(TokenKind.Dot);
+        var elements = ParseCommandElements();
+        return new CommandAst(".", elements, loc);
+    }
+
+    private ExpressionAst ParseCommandTargetArgument()
+    {
+        return Current.Kind switch
+        {
+            TokenKind.Variable or TokenKind.Number or TokenKind.String or
+            TokenKind.LParen or TokenKind.AtLParen or TokenKind.AtLBrace or
+            TokenKind.DollarLParen or TokenKind.LBrace => ParsePostfix(),
+            TokenKind.LBracket when LooksLikeTypeLiteral() => ParsePostfix(),
+            _ => ParseBareWord(),
+        };
+    }
+
+    private static string GetLiteralText(ExpressionAst expression)
+    {
+        var literal = expression as StringLiteralAst
+            ?? throw new InvalidOperationException("Expected a string-like literal.");
+        return string.Concat(literal.Parts.Select(GetStringPartText));
+    }
+
+    private static string GetStringPartText(StringPart part) => part switch
+    {
+        LiteralPart lp => lp.Text,
+        VariablePart vp => "$" + (vp.Scope is null ? vp.Name : vp.Scope + ":" + vp.Name),
+        ExpressionPart ep => "$(" + ep.Source + ")",
+        _ => throw new InvalidOperationException($"Unsupported string part {part.GetType().Name}."),
+    };
+
     // ---------- Phase 3: keyword statements ----------
 
     private bool IsKeyword(string keyword)
@@ -1135,11 +1432,10 @@ public sealed class Parser
 
     private bool IsDotSourceCandidate()
     {
-        // Dot-source `.` must be followed by whitespace and then a command-like token:
-        // `. ./script.ps1`. If `Dot` is adjacent to the next token, it's member access.
         if (!IsAt(TokenKind.Dot)) return false;
         var next = Peek(1);
-        if (Current.Location.Offset + 1 == next.Location.Offset) return false;
+        if (next.Kind == TokenKind.LBrace) return true;
+        if (Current.Location.Offset + Current.Location.Length == next.Location.Offset) return false;
         return true;
     }
 
@@ -1152,26 +1448,7 @@ public sealed class Parser
     /// </summary>
     private ExpressionAst ParseConditionExpression()
     {
-        var loc = Current.Location;
-        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
-        {
-            var cmd = ParseCommandPipeline(loc);
-            return new SubExpressionAst(new ScriptAst(new StatementAst[] { cmd }, loc), loc);
-        }
-        var expr = ParseLogicalOr();
-        if (IsAt(TokenKind.Pipe))
-        {
-            var stages = new List<AstNode> { expr };
-            while (IsAt(TokenKind.Pipe))
-            {
-                Advance();
-                SkipNewlines();
-                stages.Add(ParsePipelineStage());
-            }
-            var pipeline = new PipelineAst(stages, loc);
-            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
-        }
-        return expr;
+        return ParseCommandCapableValueExpression(allowCommaList: false, allowPipeline: true);
     }
 
     private IfStatementAst ParseIfStatement()
@@ -1297,7 +1574,7 @@ public sealed class Parser
             throw new PwshParseException("Expected 'in' in foreach statement.", Current.Location);
         Advance();
         SkipNewlines();
-        var collection = ParseLogicalOr();
+        var collection = ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
         SkipNewlines();
         Consume(TokenKind.RParen);
         SkipNewlines();
@@ -1308,6 +1585,17 @@ public sealed class Parser
     private SwitchStatementAst ParseSwitchStatement()
     {
         var start = ConsumeKeyword("switch").Location;
+        bool isWildcard = false;
+        while (IsAt(TokenKind.Minus)
+            && Peek(1).Kind == TokenKind.Identifier
+            && Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset)
+        {
+            Advance();
+            var option = Advance().Text;
+            if (string.Equals(option, "wildcard", StringComparison.OrdinalIgnoreCase))
+                isWildcard = true;
+            SkipNewlines();
+        }
         Consume(TokenKind.LParen);
         SkipNewlines();
         var cond = ParseLogicalOr();
@@ -1338,7 +1626,7 @@ public sealed class Parser
         if (IsAt(TokenKind.EndOfInput))
             throw new PwshIncompleteInputException("Unterminated switch statement.", start);
         Consume(TokenKind.RBrace);
-        return new SwitchStatementAst(cond, cases, defaultBody, start);
+        return new SwitchStatementAst(isWildcard, cond, cases, defaultBody, start);
     }
 
     private BreakStatementAst ParseBreakStatement()
@@ -1371,25 +1659,7 @@ public sealed class Parser
     /// </summary>
     private ExpressionAst ParseReturnOrThrowValue(Errors.SourceLocation loc)
     {
-        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text))
-        {
-            var cmd = ParseCommandPipeline(loc);
-            return new SubExpressionAst(new ScriptAst(new StatementAst[] { cmd }, loc), loc);
-        }
-        var expr = ParseLogicalOr();
-        if (IsAt(TokenKind.Pipe))
-        {
-            var stages = new List<AstNode> { expr };
-            while (IsAt(TokenKind.Pipe))
-            {
-                Advance();
-                SkipNewlines();
-                stages.Add(ParsePipelineStage());
-            }
-            var pipeline = new PipelineAst(stages, loc);
-            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, loc), loc);
-        }
-        return expr;
+        return ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
     }
 
     private ReturnStatementAst ParseReturnStatement()
@@ -1422,13 +1692,20 @@ public sealed class Parser
         var start = ConsumeKeyword("try").Location;
         SkipNewlines();
         var tryBody = ParseBraceBlock();
-        SkipNewlines();
 
         var catches = new List<CatchClauseAst>();
         ScriptAst? finallyBody = null;
 
-        while (IsKeyword("catch"))
+        while (true)
         {
+            var catchLookahead = _cursor;
+            SkipNewlines();
+            if (!IsKeyword("catch"))
+            {
+                _cursor = catchLookahead;
+                break;
+            }
+
             var catchLoc = Advance().Location;
             var filters = new List<TypeLiteralAst>();
             SkipNewlines();
@@ -1442,14 +1719,19 @@ public sealed class Parser
             SkipNewlines();
             var body = ParseBraceBlock();
             catches.Add(new CatchClauseAst(filters, body, catchLoc));
-            SkipNewlines();
         }
 
+        var finallyLookahead = _cursor;
+        SkipNewlines();
         if (IsKeyword("finally"))
         {
             Advance();
             SkipNewlines();
             finallyBody = ParseBraceBlock();
+        }
+        else
+        {
+            _cursor = finallyLookahead;
         }
 
         if (catches.Count == 0 && finallyBody == null)
@@ -1469,7 +1751,7 @@ public sealed class Parser
         var start = Advance().Location; // 'function' or 'filter'
         if (!IsAt(TokenKind.Identifier))
             throw new PwshParseException("Expected function name.", Current.Location);
-        var name = Advance().Text;
+        var name = GetLiteralText(ParseBareWord());
         SkipNewlines();
 
         // Real pwsh supports `function name (a, b) { body }` as a shorthand for the
@@ -1614,18 +1896,24 @@ public sealed class Parser
     private ParameterAst ParseParameter()
     {
         var loc = Current.Location;
-        // Skip any leading attribute specifiers — `[Parameter(…)]`, `[ValidateSet(…)]`,
-        // etc. can appear in any order before the optional type literal and the variable.
-        while (IsAttributeSpec())
-        {
-            ConsumeAttributeSpec();
-            SkipNewlines();
-        }
         TypeLiteralAst? type = null;
-        if (IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
+        while (true)
         {
-            type = ParseTypeLiteral();
-            SkipNewlines();
+            bool consumed = false;
+            while (IsAttributeSpec())
+            {
+                ConsumeAttributeSpec();
+                SkipNewlines();
+                consumed = true;
+            }
+            if (type == null && IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
+            {
+                type = ParseTypeLiteral();
+                SkipNewlines();
+                consumed = true;
+            }
+            if (!consumed)
+                break;
         }
         var varToken = Consume(TokenKind.Variable);
         var (_, name) = ((string? Scope, string Name))varToken.Value!;
@@ -1799,39 +2087,16 @@ public sealed class Parser
 
     private bool IsPathLikeCommand()
     {
-        // First token is Dot or Slash; we expect it to be adjacent to something that makes it
+        // First token is Dot, Slash, or Backslash; we expect it to be adjacent to something that makes it
         // a path (e.g. `./foo`, `/usr/...`). Not adjacent → leave for other paths.
-        if (!(IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash))) return false;
+        if (!(IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash) || IsAt(TokenKind.Backslash))) return false;
         var next = Peek(1);
         return Current.Location.Offset + Current.Location.Length == next.Location.Offset;
     }
 
     private StatementAst ParsePathCommandStatement(SourceLocation loc)
     {
-        // The command name is a bare-word made of all adjacent tokens starting from the
-        // leading Dot/Slash. Reuse ParseBareWord's adjacency logic.
-        var nameAst = (StringLiteralAst)ParseBareWord();
-        string name = "";
-        foreach (var part in nameAst.Parts)
-            if (part is Lexer.LiteralPart lp) name += lp.Text;
-        var elements = new List<CommandElementAst>();
-        while (IsCommandElementStart())
-        {
-            if (IsAt(TokenKind.Minus)
-                && Peek(1).Kind == TokenKind.Identifier
-                && Current.Location.Offset + 1 == Peek(1).Location.Offset)
-            {
-                var minusLoc = Current.Location;
-                Advance();
-                var idToken = Advance();
-                elements.Add(new CommandParameterAst(idToken.Text, minusLoc));
-                continue;
-            }
-            var argLoc = Current.Location;
-            var expr = ParseCommandArgument();
-            elements.Add(new CommandArgumentAst(expr, argLoc));
-        }
-        var cmd = new CommandAst(name, elements, loc);
+        var cmd = ParsePathCommand(loc);
         if (!IsAt(TokenKind.Pipe))
             return new PipelineAst(new AstNode[] { cmd }, loc);
         var stages = new List<AstNode> { cmd };
@@ -1846,53 +2111,31 @@ public sealed class Parser
 
     private StatementAst ParseCallOperatorStatement(SourceLocation loc)
     {
-        Consume(TokenKind.Ampersand);
-        // Target is an expression: a script block ({ ... }), a variable ($block), or a
-        // string path. We pass it + args to the interpreter via a synthetic CommandAst
-        // whose name is the sentinel "&" and whose first positional is the target.
-        var target = ParsePostfix();
-        var elements = new List<CommandElementAst> { new CommandArgumentAst(target, loc) };
-        while (IsCommandElementStart())
+        var cmd = ParseCallOperatorCommand(loc);
+        if (!IsAt(TokenKind.Pipe))
+            return new PipelineAst(new AstNode[] { cmd }, loc);
+        var stages = new List<AstNode> { cmd };
+        while (IsAt(TokenKind.Pipe))
         {
-            if (IsAt(TokenKind.Minus)
-                && Peek(1).Kind == TokenKind.Identifier
-                && Current.Location.Offset + 1 == Peek(1).Location.Offset)
-            {
-                var minusLoc = Current.Location;
-                Advance();
-                var idToken = Advance();
-                elements.Add(new CommandParameterAst(idToken.Text, minusLoc));
-                continue;
-            }
-            var argLoc = Current.Location;
-            var expr = ParseCommandArgument();
-            elements.Add(new CommandArgumentAst(expr, argLoc));
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
         }
-        return new PipelineAst(new AstNode[] { new CommandAst("&", elements, loc) }, loc);
+        return new PipelineAst(stages, loc);
     }
 
     private StatementAst ParseDotSourceStatement(SourceLocation loc)
     {
-        Consume(TokenKind.Dot);
-        // The rest of the line is a command-mode invocation; we wrap it as a CommandAst with
-        // a sentinel name `.` that the interpreter interprets as dot-source.
-        var elements = new List<CommandElementAst>();
-        while (IsCommandElementStart())
+        var cmd = ParseDotSourceCommand(loc);
+        if (!IsAt(TokenKind.Pipe))
+            return new PipelineAst(new AstNode[] { cmd }, loc);
+        var stages = new List<AstNode> { cmd };
+        while (IsAt(TokenKind.Pipe))
         {
-            if (IsAt(TokenKind.Minus)
-                && Peek(1).Kind == TokenKind.Identifier
-                && Current.Location.Offset + 1 == Peek(1).Location.Offset)
-            {
-                var minusLoc = Current.Location;
-                Advance();
-                var idToken = Advance();
-                elements.Add(new CommandParameterAst(idToken.Text, minusLoc));
-                continue;
-            }
-            var argLoc = Current.Location;
-            var expr = ParseCommandArgument();
-            elements.Add(new CommandArgumentAst(expr, argLoc));
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
         }
-        return new PipelineAst(new AstNode[] { new CommandAst(".", elements, loc) }, loc);
+        return new PipelineAst(stages, loc);
     }
 }

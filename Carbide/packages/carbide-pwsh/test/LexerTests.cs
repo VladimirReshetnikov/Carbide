@@ -47,6 +47,35 @@ public class LexerTests
     }
 
     [Fact]
+    public void LexesLongIntegerSuffix()
+    {
+        var t = Tokens("1000L");
+        Assert.Single(t);
+        Assert.Equal(TokenKind.Number, t[0].Kind);
+        Assert.Equal("1000L", t[0].Text);
+        Assert.Equal(1000L, Assert.IsType<long>(t[0].Value));
+    }
+
+    [Fact]
+    public void LexesNumericSizeSuffix()
+    {
+        var t = Tokens("1MB");
+        Assert.Single(t);
+        Assert.Equal(TokenKind.Number, t[0].Kind);
+        Assert.Equal("1MB", t[0].Text);
+        Assert.Equal(1024L * 1024L, Assert.IsType<long>(t[0].Value));
+    }
+
+    [Fact]
+    public void LexesVersionLiteral()
+    {
+        var t = Tokens("6.3.7600");
+        Assert.Single(t);
+        Assert.Equal(TokenKind.Number, t[0].Kind);
+        Assert.Equal(new Version(6, 3, 7600), Assert.IsType<Version>(t[0].Value));
+    }
+
+    [Fact]
     public void LexesSingleQuotedString()
     {
         var t = Tokens("'hello world'");

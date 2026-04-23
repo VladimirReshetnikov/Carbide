@@ -153,6 +153,33 @@ public class InterpreterTests
     }
 
     [Fact]
+    public void TernaryExpression()
+    {
+        Assert.Equal("yes", Eval("$true ? 'yes' : 'no'"));
+        Assert.Equal("no", Eval("$false ? 'yes' : 'no'"));
+    }
+
+    [Fact]
+    public void PreIncrementUpdatesVariable()
+    {
+        var interp = new Interpreter();
+        Assert.Equal(1, EvalShared(interp, "$i = 0; ++$i"));
+        Assert.Equal(1, EvalShared(interp, "$i"));
+    }
+
+    [Fact]
+    public void LongLiteralSuffixEvaluatesAsInt64()
+    {
+        Assert.Equal(1000L, Assert.IsType<long>(Eval("1000L")));
+    }
+
+    [Fact]
+    public void NumericSizeSuffixEvaluatesAsBytes()
+    {
+        Assert.Equal(1024L * 1024L, Assert.IsType<long>(Eval("1MB")));
+    }
+
+    [Fact]
     public void StringBuilderConstructorViaNew()
     {
         Assert.Equal("hi", Eval("[System.Text.StringBuilder]::new().Append('hi').ToString()"));

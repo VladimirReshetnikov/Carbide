@@ -14,6 +14,11 @@ namespace CarbidePwsh.Cmdlets;
 /// </summary>
 public static class Pipeline
 {
+    private sealed record CommandRedirectionPlan(
+        bool SuppressSuccessOutput,
+        bool SuppressErrorOutput,
+        bool MergeErrorToOutput);
+
     public static object? Run(PipelineAst pipeline, CmdletContext ctx, CmdletRegistry registry)
     {
         IEnumerable<object?>? input = null;
@@ -74,6 +79,7 @@ public static class Pipeline
     {
         var positional = new List<object?>();
         var named = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var redirections = new List<CommandRedirectionAst>();
 
         for (int i = 0; i < cmd.Elements.Count; i++)
         {
@@ -94,7 +100,18 @@ public static class Pipeline
             {
                 positional.Add(ctx.Interpreter.Eval(arg.Expression));
             }
+            else if (el is CommandSplatAst splat)
+            {
+                ApplySplat(ctx.Interpreter.Eval(splat.Expression), positional, named);
+            }
+            else if (el is CommandRedirectionAst redirection)
+            {
+                redirections.Add(redirection);
+            }
         }
+
+        var plan = BuildRedirectionPlan(redirections);
+        var effectiveCtx = CreateEffectiveContext(ctx, plan);
 
         // Dispatch priority: cmdlet → user function → script/app registry → bare path
         // dispatch. This matches the proposal's §8.1 order.
@@ -102,9 +119,9 @@ public static class Pipeline
         {
             try
             {
-                var result = cmdlet.Invoke(input, new ParameterBinding(positional, named), ctx).ToList();
+                var result = cmdlet.Invoke(input, new ParameterBinding(positional, named), effectiveCtx).ToList();
                 ctx.Scope.Set("global", "?", true);
-                return result;
+                return plan.SuppressSuccessOutput ? Array.Empty<object?>() : result;
             }
             catch
             {
@@ -121,15 +138,17 @@ public static class Pipeline
                 IEnumerable<object?> result;
                 if (func.IsPipelineParticipant)
                 {
-                    result = func.InvokeAsPipelineStage(input, positional, named, ctx.Interpreter).ToList();
+                    result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                        func.InvokeAsPipelineStage(input, positional, named, ctx.Interpreter).ToList());
                 }
                 else
                 {
-                    var returnValue = func.Invoke(positional, named, ctx.Interpreter);
+                    var returnValue = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                        func.Invoke(positional, named, ctx.Interpreter));
                     result = ExpressionToEnumerable(returnValue).ToList();
                 }
                 ctx.Scope.Set("global", "?", true);
-                return result;
+                return plan.SuppressSuccessOutput ? Array.Empty<object?>() : result;
             }
             catch
             {
@@ -145,8 +164,9 @@ public static class Pipeline
             var scriptArgs = positional.Skip(1).ToArray();
             if (ctx.Interpreter.RunScriptFile == null)
                 throw new PwshRuntimeException("Script loader is not wired up.", cmd.Location);
-            var result = ctx.Interpreter.RunScriptFile(scriptPath, /*dotSource*/ true, scriptArgs);
-            return ExpressionToEnumerable(result).ToList();
+            var result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                ctx.Interpreter.RunScriptFile(scriptPath, /*dotSource*/ true, scriptArgs));
+            return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(result).ToList();
         }
 
         // Call operator `&`: invoke a script block or resolve a path-valued string.
@@ -158,37 +178,41 @@ public static class Pipeline
             {
                 var savedArgs = ctx.Scope.Get(null, "args");
                 ctx.Scope.Set(null, "args", callArgs);
-                try { return ExpressionToEnumerable(sb.Invoke()).ToList(); }
-                finally { ctx.Scope.Set(null, "args", savedArgs); }
+                try
+                {
+                    var result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () => sb.Invoke());
+                    return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(result).ToList();
+                }
+                finally
+                {
+                    ctx.Scope.Set(null, "args", savedArgs);
+                }
             }
             if (callTarget is string path)
             {
-                return DispatchPath(path, callArgs, ctx);
+                return DispatchPath(path, callArgs, effectiveCtx, plan);
             }
             throw new PwshRuntimeException(
                 $"Call operator '&' requires a script block or path string; got [{callTarget?.GetType().Name ?? "null"}].",
                 cmd.Location);
         }
 
-        if (TryDispatchExternalCommand(cmd.Name, positional, input, ctx, out var externalResult))
+        if (TryDispatchExternalCommand(cmd.Name, positional, input, effectiveCtx, plan, out var externalResult))
             return externalResult;
 
         throw new PwshRuntimeException($"The term '{cmd.Name}' is not recognized as a cmdlet, function, or script.", cmd.Location);
     }
 
-    private static bool LooksLikePath(string name)
-        => name.Contains('/') || name.StartsWith(".", StringComparison.Ordinal)
-        || name.StartsWith("~", StringComparison.Ordinal);
-
-    private static IEnumerable<object?> DispatchPath(string path, IReadOnlyList<object?> args, CmdletContext ctx)
+    private static IEnumerable<object?> DispatchPath(string path, IReadOnlyList<object?> args, CmdletContext ctx, CommandRedirectionPlan plan)
     {
-        if (TryDispatchExternalCommand(path, args, null, ctx, out var result))
+        if (TryDispatchExternalCommand(path, args, null, ctx, plan, out var result))
             return result;
 
         if (ctx.Interpreter.RunScriptFile == null)
             throw new PwshRuntimeException("Script loader is not wired up.", Errors.SourceLocation.None);
-        var scriptResult = ctx.Interpreter.RunScriptFile(path, /*dotSource*/ false, args);
-        return ExpressionToEnumerable(scriptResult).ToList();
+        var scriptResult = RunWithInterpreterWriters(ctx.Interpreter, ctx, () =>
+            ctx.Interpreter.RunScriptFile(path, /*dotSource*/ false, args));
+        return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(scriptResult).ToList();
     }
 
     private static bool TryDispatchExternalCommand(
@@ -196,6 +220,7 @@ public static class Pipeline
         IReadOnlyList<object?> args,
         IEnumerable<object?>? input,
         CmdletContext ctx,
+        CommandRedirectionPlan plan,
         out IEnumerable<object?> result)
     {
         result = Array.Empty<object?>();
@@ -206,7 +231,7 @@ public static class Pipeline
             ? TextReader.Null
             : new StringReader(StringifyPipelineInput(input));
         var stdout = new StringWriter();
-        var stderr = new StringWriter();
+        var stderr = plan.MergeErrorToOutput ? stdout : new StringWriter();
         var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
         var shellCtx = new ShellExecutionContext
         {
@@ -246,12 +271,97 @@ public static class Pipeline
         }
 
         var stderrText = stderr.ToString();
-        if (stderrText.Length > 0) ctx.Error.Write(stderrText);
+        if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
+            ctx.Error.Write(stderrText);
 
         ctx.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         ctx.Scope.Set("global", "?", code == 0);
-        result = ReadOutputLines(stdout.ToString());
+        result = plan.SuppressSuccessOutput
+            ? Array.Empty<object?>()
+            : ReadOutputLines(stdout.ToString());
         return true;
+    }
+
+    private static CmdletContext CreateEffectiveContext(CmdletContext ctx, CommandRedirectionPlan plan)
+    {
+        var output = plan.SuppressSuccessOutput ? TextWriter.Null : ctx.Output;
+        var error = plan.MergeErrorToOutput ? output : plan.SuppressErrorOutput ? TextWriter.Null : ctx.Error;
+        if (ReferenceEquals(output, ctx.Output) && ReferenceEquals(error, ctx.Error))
+            return ctx;
+        return new CmdletContext(ctx.Interpreter, ctx.Vfs, output, error);
+    }
+
+    private static CommandRedirectionPlan BuildRedirectionPlan(IEnumerable<CommandRedirectionAst> redirections)
+    {
+        bool suppressSuccess = false;
+        bool suppressError = false;
+        bool mergeErrorToOutput = false;
+
+        foreach (var redirection in redirections)
+        {
+            int from = redirection.FromStream ?? 1;
+            bool allStreams = from == -1;
+            if (redirection.MergeToStream == 1)
+            {
+                if (allStreams || from == 2)
+                    mergeErrorToOutput = true;
+                continue;
+            }
+            if (redirection.Target is null || !IsNullTarget(redirection.Target))
+                continue;
+
+            if (allStreams || from == 1)
+                suppressSuccess = true;
+            if (allStreams || from == 2)
+                suppressError = true;
+        }
+
+        return new CommandRedirectionPlan(suppressSuccess, suppressError, mergeErrorToOutput);
+    }
+
+    private static bool IsNullTarget(ExpressionAst target)
+        => target is NullLiteralAst
+        || target is VariableAst { Scope: null, Name: var name } && string.Equals(name, "null", StringComparison.OrdinalIgnoreCase);
+
+    private static void ApplySplat(object? value, List<object?> positional, Dictionary<string, object?> named)
+    {
+        if (value is null) return;
+
+        if (value is IDictionary dict)
+        {
+            foreach (DictionaryEntry entry in dict)
+            {
+                var key = Runtime.Coercion.FormatAsString(entry.Key).TrimStart('-');
+                named[key] = entry.Value;
+            }
+            return;
+        }
+
+        if (value is IEnumerable enumerable && value is not string)
+        {
+            foreach (var item in enumerable.Cast<object?>())
+                positional.Add(item);
+            return;
+        }
+
+        positional.Add(value);
+    }
+
+    private static T RunWithInterpreterWriters<T>(Interpreter interpreter, CmdletContext ctx, Func<T> action)
+    {
+        var savedOutput = interpreter.PipelineOutput;
+        var savedError = interpreter.PipelineError;
+        interpreter.PipelineOutput = ctx.Output;
+        interpreter.PipelineError = ctx.Error;
+        try
+        {
+            return action();
+        }
+        finally
+        {
+            interpreter.PipelineOutput = savedOutput;
+            interpreter.PipelineError = savedError;
+        }
     }
 
     private static string StringifyPipelineInput(IEnumerable<object?> input)

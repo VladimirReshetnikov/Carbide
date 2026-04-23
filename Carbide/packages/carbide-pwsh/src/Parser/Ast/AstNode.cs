@@ -15,7 +15,7 @@ public enum BinaryOp
     CEqual, CNotEqual, CLessThan, CLessOrEqual, CGreaterThan, CGreaterOrEqual,
     IEqual, INotEqual, ILessThan, ILessOrEqual, IGreaterThan, IGreaterOrEqual,
     And, Or, Xor,
-    BAnd, BOr, BXor,
+    BAnd, BOr, BXor, Shl, Shr,
     Is, IsNot, As,
 
     // Phase 3 operators.

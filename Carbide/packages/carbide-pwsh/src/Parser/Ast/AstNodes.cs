@@ -58,6 +58,13 @@ public sealed record BinaryExpressionAst(
     SourceLocation Location)
     : ExpressionAst(Location);
 
+public sealed record ConditionalExpressionAst(
+    ExpressionAst Condition,
+    ExpressionAst WhenTrue,
+    ExpressionAst WhenFalse,
+    SourceLocation Location)
+    : ExpressionAst(Location);
+
 public sealed record UnaryExpressionAst(
     UnaryOp Op,
     ExpressionAst Operand,
@@ -98,6 +105,22 @@ public sealed record MemberAccessAst(
     SourceLocation Location)
     : ExpressionAst(Location);
 
+public sealed record DynamicMemberAccessAst(
+    ExpressionAst Target,
+    ExpressionAst MemberNameExpression,
+    bool IsStatic,
+    bool IsInvocation,
+    IReadOnlyList<ExpressionAst>? Arguments,
+    SourceLocation Location)
+    : ExpressionAst(Location);
+
+public sealed record AssignmentExpressionAst(
+    ExpressionAst Target,
+    AssignmentOp Op,
+    ExpressionAst Value,
+    SourceLocation Location)
+    : ExpressionAst(Location);
+
 public sealed record IndexerAst(
     ExpressionAst Target,
     ExpressionAst Index,
@@ -135,6 +158,21 @@ public sealed record CommandParameterAst(
 /// <summary>A positional or value argument.</summary>
 public sealed record CommandArgumentAst(
     ExpressionAst Expression,
+    SourceLocation Location)
+    : CommandElementAst(Location);
+
+/// <summary>A command-mode splat argument such as <c>@params</c> or <c>@args</c>.</summary>
+public sealed record CommandSplatAst(
+    ExpressionAst Expression,
+    SourceLocation Location)
+    : CommandElementAst(Location);
+
+/// <summary>A command-mode redirection such as <c>2&gt;&amp;1</c> or <c>&gt; $null</c>.</summary>
+public sealed record CommandRedirectionAst(
+    int? FromStream,
+    bool Append,
+    int? MergeToStream,
+    ExpressionAst? Target,
     SourceLocation Location)
     : CommandElementAst(Location);
 

@@ -93,6 +93,12 @@ public class Phase3ControlFlowTests
     }
 
     [Fact]
+    public void SwitchWildcardMatchesPattern()
+    {
+        Assert.Equal("hit", NewShell().Submit("switch -Wildcard ('alpha') { 'a*' { 'hit' } default { 'miss' } }"));
+    }
+
+    [Fact]
     public void NestedLoopsBreakOuter()
     {
         var host = NewShell();

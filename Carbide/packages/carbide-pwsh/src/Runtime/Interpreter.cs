@@ -175,7 +175,8 @@ public sealed class Interpreter
         foreach (var (pattern, body) in ast.Cases)
         {
             var patternValue = Eval(pattern);
-            if ((bool)Operators.Binary(BinaryOp.Equal, value, patternValue)!)
+            var op = ast.IsWildcard ? BinaryOp.Like : BinaryOp.Equal;
+            if ((bool)Operators.Binary(op, value, patternValue)!)
             {
                 try { return Evaluate(body); }
                 catch (PwshBreakException) { return null; }
@@ -317,11 +318,17 @@ public sealed class Interpreter
 
     private object? ExecuteAssignment(AssignmentStatementAst a)
     {
-        var rhs = Eval(a.Value);
-        if (a.Op != AssignmentOp.Assign)
+        ExecuteAssignmentCore(a.Target, a.Op, a.Value, out _);
+        return null;
+    }
+
+    private void ExecuteAssignmentCore(ExpressionAst target, AssignmentOp op, ExpressionAst valueExpression, out object? assignedValue)
+    {
+        var rhs = Eval(valueExpression);
+        if (op != AssignmentOp.Assign)
         {
-            var current = Eval(a.Target);
-            rhs = a.Op switch
+            var current = Eval(target);
+            rhs = op switch
             {
                 AssignmentOp.AddAssign => Operators.Binary(BinaryOp.Add, current, rhs),
                 AssignmentOp.SubtractAssign => Operators.Binary(BinaryOp.Subtract, current, rhs),
@@ -331,8 +338,8 @@ public sealed class Interpreter
                 _ => rhs,
             };
         }
-        AssignTo(a.Target, rhs);
-        return null;
+        AssignTo(target, rhs);
+        assignedValue = rhs;
     }
 
     private void AssignTo(ExpressionAst target, object? value)
@@ -373,6 +380,23 @@ public sealed class Interpreter
                     return;
                 }
                 Types.SetInstanceMember(receiver, m.MemberName, value, m.Location);
+                return;
+            }
+            case DynamicMemberAccessAst m when !m.IsInvocation:
+            {
+                var memberName = Coercion.FormatAsString(Eval(m.MemberNameExpression));
+                var receiver = Eval(m.Target);
+                if (m.IsStatic)
+                {
+                    if (receiver is not Type t)
+                        throw new PwshRuntimeException(
+                            "Left side of '::' assignment is not a type literal.", m.Location);
+                    Types.SetStaticMember(t, memberName, value, m.Location);
+                    return;
+                }
+                if (receiver == null)
+                    throw new PwshRuntimeException("Cannot assign to a member on a null reference.", m.Location);
+                Types.SetInstanceMember(receiver, memberName, value, m.Location);
                 return;
             }
             case IndexerAst ix:
@@ -445,7 +469,9 @@ public sealed class Interpreter
         VariableAst v => EvalVariable(v),
         ArrayExpressionAst a => EvalArray(a),
         HashtableExpressionAst h => EvalHashtable(h),
+        AssignmentExpressionAst a => EvalAssignmentExpression(a),
         BinaryExpressionAst b => EvalBinary(b),
+        ConditionalExpressionAst c => EvalConditional(c),
         UnaryExpressionAst u => EvalUnary(u),
         RangeExpressionAst r => EvalRange(r),
         ParenExpressionAst p => Eval(p.Inner),
@@ -453,6 +479,7 @@ public sealed class Interpreter
         TypeLiteralAst tl => ResolveTypeExpression(tl),
         CastExpressionAst c => EvalCast(c),
         MemberAccessAst m => EvalMember(m),
+        DynamicMemberAccessAst m => EvalDynamicMember(m),
         IndexerAst ix => EvalIndex(ix),
         ScriptBlockAst sb => new ScriptBlock(sb.Body, this),
         _ => throw new PwshRuntimeException($"Unsupported expression node: {expr.GetType().Name}", expr.Location),
@@ -605,6 +632,15 @@ public sealed class Interpreter
         return Operators.Binary(b.Op, Eval(b.Left), Eval(b.Right));
     }
 
+    private object? EvalConditional(ConditionalExpressionAst c)
+        => Coercion.CoerceToBool(Eval(c.Condition)) ? Eval(c.WhenTrue) : Eval(c.WhenFalse);
+
+    private object? EvalAssignmentExpression(AssignmentExpressionAst a)
+    {
+        ExecuteAssignmentCore(a.Target, a.Op, a.Value, out var assignedValue);
+        return assignedValue;
+    }
+
     private object? EvalUnary(UnaryExpressionAst u)
     {
         // Pre/post-increment/decrement mutate the operand variable.
@@ -689,64 +725,81 @@ public sealed class Interpreter
     private object? EvalMember(MemberAccessAst m)
     {
         var receiver = Eval(m.Target);
+        return EvalMemberCore(receiver, m.MemberName, m.IsStatic, m.IsInvocation, m.Arguments, m.Location);
+    }
 
+    private object? EvalDynamicMember(DynamicMemberAccessAst m)
+    {
+        var receiver = Eval(m.Target);
+        var memberName = Coercion.FormatAsString(Eval(m.MemberNameExpression));
+        return EvalMemberCore(receiver, memberName, m.IsStatic, m.IsInvocation, m.Arguments, m.Location);
+    }
+
+    private object? EvalMemberCore(
+        object? receiver,
+        string memberName,
+        bool isStatic,
+        bool isInvocation,
+        IReadOnlyList<ExpressionAst>? arguments,
+        SourceLocation location)
+    {
         // Static dispatch: receiver is a Type, RuntimeClass, or RuntimeEnum.
-        if (m.IsStatic)
+        if (isStatic)
         {
             if (receiver is RuntimeClass cls)
             {
-                if (m.IsInvocation && m.MemberName.Equals("new", StringComparison.OrdinalIgnoreCase))
+                if (isInvocation && memberName.Equals("new", StringComparison.OrdinalIgnoreCase))
                 {
-                    var args = m.Arguments!.Select(Eval).ToList();
-                    return ConstructInstance(cls, args, m.Location);
+                    var args = arguments!.Select(Eval).ToList();
+                    return ConstructInstance(cls, args, location);
                 }
                 throw new PwshRuntimeException(
-                    $"Static '{m.MemberName}' is not supported on user-defined class [{cls.Name}] in Phase 3.",
-                    m.Location);
+                    $"Static '{memberName}' is not supported on user-defined class [{cls.Name}] in Phase 3.",
+                    location);
             }
             if (receiver is RuntimeEnum en)
             {
-                if (m.IsInvocation)
-                    throw new PwshRuntimeException($"Cannot invoke '{m.MemberName}' on enum [{en.Name}].", m.Location);
-                var v = en.FromName(m.MemberName)
-                    ?? throw new PwshRuntimeException($"Enum [{en.Name}] has no member '{m.MemberName}'.", m.Location);
+                if (isInvocation)
+                    throw new PwshRuntimeException($"Cannot invoke '{memberName}' on enum [{en.Name}].", location);
+                var v = en.FromName(memberName)
+                    ?? throw new PwshRuntimeException($"Enum [{en.Name}] has no member '{memberName}'.", location);
                 return v;
             }
             if (receiver is not Type t)
-                throw new PwshRuntimeException("Left side of '::' is not a type.", m.Location);
-            if (m.IsInvocation)
+                throw new PwshRuntimeException("Left side of '::' is not a type.", location);
+            if (isInvocation)
             {
-                var args = m.Arguments!.Select(Eval).ToArray();
-                return Types.InvokeStaticMethod(t, m.MemberName, args, m.Location);
+                var args = arguments!.Select(Eval).ToArray();
+                return Types.InvokeStaticMethod(t, memberName, args, location);
             }
-            return Types.GetStaticMember(t, m.MemberName, m.Location);
+            return Types.GetStaticMember(t, memberName, location);
         }
 
         if (receiver == null)
-            throw new PwshRuntimeException("You cannot call a method on a null-valued expression.", m.Location);
+            throw new PwshRuntimeException("You cannot call a method on a null-valued expression.", location);
 
         // User-defined class instance?
         if (receiver is RuntimeInstance inst)
         {
-            if (m.IsInvocation)
+            if (isInvocation)
             {
-                if (!inst.Class.Methods.TryGetValue(m.MemberName, out var method))
+                if (!inst.Class.Methods.TryGetValue(memberName, out var method))
                     throw new PwshRuntimeException(
-                        $"Method '{m.MemberName}' not found on class [{inst.Class.Name}].", m.Location);
-                var args = m.Arguments!.Select(Eval).ToList();
+                        $"Method '{memberName}' not found on class [{inst.Class.Name}].", location);
+                var args = arguments!.Select(Eval).ToList();
                 return InvokeClassMethod(inst, method, args);
             }
-            if (inst.Fields.TryGetValue(m.MemberName, out var fieldValue)) return fieldValue;
+            if (inst.Fields.TryGetValue(memberName, out var fieldValue)) return fieldValue;
             // Missing field: return null (PowerShell convention).
             return null;
         }
 
-        if (m.IsInvocation)
+        if (isInvocation)
         {
-            var args = m.Arguments!.Select(Eval).ToArray();
+            var args = arguments!.Select(Eval).ToArray();
             if (receiver is ConstructorInvoker ctor)
-                return Types.InvokeStaticMethod(ctor.Type, "new", args, m.Location);
-            return Types.InvokeInstanceMethod(receiver, m.MemberName, args, m.Location);
+                return Types.InvokeStaticMethod(ctor.Type, "new", args, location);
+            return Types.InvokeInstanceMethod(receiver, memberName, args, location);
         }
 
         // PowerShell-flavored synthetic members. Real pwsh projects `Count` and `Length`
@@ -757,8 +810,8 @@ public sealed class Interpreter
         // collections (HashSet<T>, Dictionary<K,V>, List<T>) prefer the real instance
         // `.Count` via reflection so we report the actual population rather than the
         // scalar=1 fallback.
-        if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)
-            || m.MemberName.Equals("Length", StringComparison.OrdinalIgnoreCase))
+        if (memberName.Equals("Count", StringComparison.OrdinalIgnoreCase)
+            || memberName.Equals("Length", StringComparison.OrdinalIgnoreCase))
         {
             if (receiver is Array a) return a.Length;
             if (receiver is System.Collections.ICollection col) return col.Count;
@@ -767,15 +820,15 @@ public sealed class Interpreter
             // HashSet<T>, Dictionary<K,V>) still expose a real `Count` or `Length`
             // instance property. Use it when present so the scalar-fallback doesn't
             // mask the real count.
-            var real = receiver.GetType().GetProperty(m.MemberName,
+            var real = receiver.GetType().GetProperty(memberName,
                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance
                 | System.Reflection.BindingFlags.IgnoreCase);
             if (real is not null) return real.GetValue(receiver);
             // Scalar — real pwsh returns 1 for `.Count` on any non-null scalar.
-            if (m.MemberName.Equals("Count", StringComparison.OrdinalIgnoreCase)) return 1;
+            if (memberName.Equals("Count", StringComparison.OrdinalIgnoreCase)) return 1;
         }
 
-        return Types.GetInstanceMember(receiver, m.MemberName, m.Location);
+        return Types.GetInstanceMember(receiver, memberName, location);
     }
 
     internal RuntimeInstance ConstructInstance(RuntimeClass cls, IReadOnlyList<object?> args, Errors.SourceLocation location)

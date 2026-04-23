@@ -1,3 +1,4 @@
+using CarbidePwsh.Errors;
 using CarbidePwsh.Parser.Ast;
 using Xunit;
 using PwshParser = CarbidePwsh.Parser.Parser;
@@ -188,5 +189,58 @@ public class ParserTests
         var script = Parse("\"sum = $(1 + 2)\"");
         var s = Assert.IsType<StringLiteralAst>(((ExpressionStatementAst)script.Statements.Single()).Expression);
         Assert.Equal(2, s.Parts.Count);
+    }
+
+    [Fact]
+    public void ParsesConditionalExpression()
+    {
+        var script = Parse("$true ? 'yes' : 'no'");
+        var expr = Assert.IsType<ConditionalExpressionAst>(((ExpressionStatementAst)script.Statements.Single()).Expression);
+        Assert.IsType<BooleanLiteralAst>(expr.Condition);
+        Assert.IsType<StringLiteralAst>(expr.WhenTrue);
+        Assert.IsType<StringLiteralAst>(expr.WhenFalse);
+    }
+
+    [Fact]
+    public void ParsesAssignmentExpressionInsideParens()
+    {
+        var script = Parse("($line = $reader.ReadLine())");
+        var paren = Assert.IsType<ParenExpressionAst>(((ExpressionStatementAst)script.Statements.Single()).Expression);
+        var assign = Assert.IsType<AssignmentExpressionAst>(paren.Inner);
+        Assert.Equal(AssignmentOp.Assign, assign.Op);
+    }
+
+    [Fact]
+    public void ParsesGroupedCommandArgumentWithIndexerAndMemberAccess()
+    {
+        var script = Parse("pushd (Get-ChildItem -Path 'C:\\Program Files*')[0].FullName");
+        var pipeline = Assert.IsType<PipelineAst>(script.Statements.Single());
+        var command = Assert.IsType<CommandAst>(pipeline.Stages.Single());
+        var argument = Assert.IsType<CommandArgumentAst>(command.Elements.Single());
+        var member = Assert.IsType<MemberAccessAst>(argument.Expression);
+        Assert.Equal("FullName", member.MemberName);
+        var indexer = Assert.IsType<IndexerAst>(member.Target);
+        Assert.IsType<SubExpressionAst>(indexer.Target);
+    }
+
+    [Fact]
+    public void ParsesGroupedCommandArgumentWithMemberInvocationChain()
+    {
+        var script = Parse("Assert-Equal -Expected (Get-FileHash -LiteralPath $strongDll -Algorithm SHA256).Hash.ToUpperInvariant()");
+        var pipeline = Assert.IsType<PipelineAst>(script.Statements.Single());
+        var command = Assert.IsType<CommandAst>(pipeline.Stages.Single());
+        var expected = Assert.IsType<CommandArgumentAst>(command.Elements[1]);
+        var toUpper = Assert.IsType<MemberAccessAst>(expected.Expression);
+        Assert.True(toUpper.IsInvocation);
+        Assert.Equal("ToUpperInvariant", toUpper.MemberName);
+        var hash = Assert.IsType<MemberAccessAst>(toUpper.Target);
+        Assert.Equal("Hash", hash.MemberName);
+        Assert.IsType<SubExpressionAst>(hash.Target);
+    }
+
+    [Fact]
+    public void RejectsWhitespaceSeparatedMethodInvocation()
+    {
+        Assert.Throws<PwshParseException>(() => Parse("$s.ToUpper ()"));
     }
 }
