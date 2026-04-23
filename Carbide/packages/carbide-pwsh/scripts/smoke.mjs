@@ -29,7 +29,9 @@ try {
     console.log("smoke: REPL prompt reached");
 
     const sendLine = async (line, waitMs) => {
-        await page.evaluate((l) => window.__term.input(l), line + "\r");
+        await page.locator("#term").click();
+        await page.keyboard.type(line);
+        await page.keyboard.press("Enter");
         await page.waitForTimeout(waitMs);
     };
 
