@@ -108,6 +108,25 @@ public class TypeBridgeTests
     }
 
     [Fact]
+    public void IndexStringSliceReturnsSelection()
+    {
+        var v = _bridge.GetIndex("abcd", new object?[] { -1, 0 }, SourceLocation.None);
+        Assert.Equal(new object?[] { 'd', 'a' }, Assert.IsType<object?[]>(v));
+    }
+
+    [Fact]
+    public void IndexMultidimensionalArray()
+    {
+        var grid = Array.CreateInstance(typeof(int), 2, 2);
+        grid.SetValue(11, 0, 0);
+        grid.SetValue(22, 0, 1);
+        grid.SetValue(33, 1, 0);
+        grid.SetValue(44, 1, 1);
+        var v = _bridge.GetIndex(grid, new object?[] { 1, 0 }, SourceLocation.None);
+        Assert.Equal(33, v);
+    }
+
+    [Fact]
     public void RuntimeExceptionIsUnwrapped()
     {
         var ex = Assert.Throws<PwshRuntimeException>(

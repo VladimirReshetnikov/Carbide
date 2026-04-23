@@ -1,8 +1,8 @@
 # Carbide — reports
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-23T02:59:44Z
-- Repository HEAD: 0a28ddb977c5286b608ad319f721a34b956c4703
+- Updated (UTC): 2026-04-23T06:20:22Z
+- Repository HEAD: e5c9260ef8608c859997cf9b4acd715e0690a93f
 
 This directory holds project-local reports about Carbide's current behavior and usability.
 
@@ -16,6 +16,7 @@ This directory holds project-local reports about Carbide's current behavior and 
 - [Carbide T2.1 runMain+queue experiment](carbide-T21-runmain-experiment__2026-04-21__00-36-24-000000.md) — implemented the external await-issue report's Workaround 2 (managed `Main` via `runtime.runMain`, JSExports enqueue into a `Channel<Func<Task>>` processed by `Main`). Queue pumps correctly (Dequeued=1/Completed=1) but user-code suspended awaits inside dequeued work items still trip. Reverted. The "runMain magic scope" extends only to awaits in Main's direct body, not to nested async lambdas.
 - [Carbide code review](carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide`, grounded in the current docs and focused on correctness, safety, lifecycle contracts, and semantic drift.
 - [carbide-pwsh repo PowerShell parse audit](carbide-pwsh-repo-script-parse-audit__2026-04-23__02-59-32-0527852__9d3a7c1e4b62.md) — authoritative audit of every tracked PowerShell script in the repository against `pwsh.exe 7.6`, with the mismatch catalog, the `carbide-pwsh` parser/runtime fixes that closed those gaps, the one repo-script syntax bug fixed in place, and the final `111 / 111` green result.
+- [carbide-pwsh external GitHub corpus parse audit](carbide-pwsh-external-github-corpus-parse-audit__2026-04-23__06-20-22__c2d0b7a8f4e1.md) — large-scale parity audit against a `6070`-file external corpus downloaded under `C:\TestData`, including the final three real parser gaps found by the corpus, the fixes that closed them, and the final `0` remaining `pwsh-ok / carbide-fail` files.
 - [Content-identified virtual executable stubs for `carbide-multishell`](carbide-multishell-content-identified-stubs-report__2026-04-23__00-08-04__f85c83692721.md) — evaluates the design variant where multishell tool identity comes from stub-file content rather than path registration; compares raw GUID, text-manifest, and pseudo-PE designs, and summarizes prior art from shebang scripts, `binfmt_misc`, BusyBox, Windows App Execution Aliases, and npm shims.
 - [Carbide usability report](Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests, with limitations and follow-up proposals.
 - [Feasibility: browser-hosted interactive C# console apps in Carbide via xterm.js](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — feasibility analysis for an xterm.js-backed browser terminal runner, including the gap between current Carbide and broad `System.Console` compatibility.

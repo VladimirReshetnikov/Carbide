@@ -15,6 +15,12 @@ public class Phase3OperatorTests
     [Fact] public void FormatInt() => Assert.Equal("0xFF", Eval("'0x{0:X}' -f 255"));
     [Fact] public void FormatMultiple() => Assert.Equal("1-2-3", Eval("'{0}-{1}-{2}' -f 1, 2, 3"));
     [Fact] public void Join() => Assert.Equal("a,b,c", Eval("@('a','b','c') -join ','"));
+    [Fact] public void UnaryJoin() => Assert.Equal("abc", Eval("-join @('a','b','c')"));
+    [Fact] public void UnarySplit()
+    {
+        var arr = (string[])Eval("-split 'a b\tc'")!;
+        Assert.Equal(new[] { "a", "b", "c" }, arr);
+    }
     [Fact] public void Split()
     {
         var arr = (string[])Eval("'a,b,c' -split ','")!;
@@ -23,7 +29,9 @@ public class Phase3OperatorTests
     [Fact] public void Contains() => Assert.Equal(true, Eval("@(1,2,3) -contains 2"));
     [Fact] public void NotContains() => Assert.Equal(true, Eval("@(1,2,3) -notcontains 99"));
     [Fact] public void In() => Assert.Equal(true, Eval("2 -in @(1,2,3)"));
+    [Fact] public void InWithCommaList() => Assert.Equal(true, Eval("2 -in 1,2,3"));
     [Fact] public void NotIn() => Assert.Equal(true, Eval("99 -notin @(1,2,3)"));
+    [Fact] public void Coalesce() => Assert.Equal("fallback", Eval("$null ?? 'fallback'"));
 
     [Fact]
     public void MatchPopulatesMatches()

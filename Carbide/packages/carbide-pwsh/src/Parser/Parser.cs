@@ -69,7 +69,7 @@ public sealed class Parser
             var s = ParseStatement();
             statements.Add(s);
             if (IsAt(TokenKind.EndOfInput)) break;
-            if (!IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+            if (!AllowsImplicitStatementSeparator(s) && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
                 throw new PwshParseException(
                     $"Expected statement separator, got {Current.Kind} '{Current.Text}'.", Current.Location);
             SkipNewlinesAndSemicolons();
@@ -88,6 +88,16 @@ public sealed class Parser
         }
 
         var loc = Current.Location;
+
+        if (TryParseStatementLabel(out var label))
+        {
+            if (IsKeyword("while")) return ParseWhileStatement(label);
+            if (IsKeyword("do")) return ParseDoStatement(label);
+            if (IsKeyword("for")) return ParseForStatement(label);
+            if (IsKeyword("foreach")) return ParseForEachStatement(label);
+            if (IsKeyword("switch")) return ParseSwitchStatement(label);
+            throw new PwshParseException("A statement label must target while, do, for, foreach, or switch.", Current.Location);
+        }
 
         // Statement-start Identifier → either a keyword statement (if/while/try/…) or command
         // mode. Phase 1 had no Identifier-as-expression, so this simple rule covers
@@ -110,6 +120,8 @@ public sealed class Parser
                 case "return": return ParseReturnStatement();
                 case "break": return ParseBreakStatement();
                 case "continue": return ParseContinueStatement();
+                case "workflow":
+                    throw new PwshParseException("Workflow is not supported in PowerShell 6+.", Current.Location);
                 case "class": return ParseClassDefinition();
                 case "enum": return ParseEnumDefinition();
             }
@@ -137,8 +149,18 @@ public sealed class Parser
             expr = new ArrayExpressionAst(elems, loc);
         }
 
-        if (IsAssignmentOp(Current.Kind))
+        if (IsAssignmentOp(Current.Kind) || IsNullCoalesceAssignmentOp())
         {
+            if (IsNullCoalesceAssignmentOp())
+            {
+                Advance();
+                Advance();
+                SkipNewlines();
+                var coalesceRhs = ParseRhsPipeline();
+                var value = new BinaryExpressionAst(expr, BinaryOp.Coalesce, coalesceRhs, loc);
+                return new AssignmentStatementAst(expr, AssignmentOp.Assign, value, loc);
+            }
+
             var op = Current.Kind switch
             {
                 TokenKind.Equal => AssignmentOp.Assign,
@@ -156,18 +178,9 @@ public sealed class Parser
             return new AssignmentStatementAst(expr, op, rhs, loc);
         }
 
-        // Pipeline starting with expression: `@(1,2,3) | Where-Object {...}`.
-        if (IsAt(TokenKind.Pipe))
-        {
-            var stages = new List<AstNode> { expr };
-            while (IsAt(TokenKind.Pipe))
-            {
-                Advance();
-                SkipNewlines();
-                stages.Add(ParsePipelineStage());
-            }
-            return new PipelineAst(stages, loc);
-        }
+        SkipNewlinesBeforePipelineOrRedirection();
+        if (IsAt(TokenKind.Pipe) || IsAt(TokenKind.Redirection) || IsBackgroundSuffix())
+            return ParseExpressionPipelineOrRedirection(expr, loc);
 
         return new ExpressionStatementAst(expr, loc);
     }
@@ -184,8 +197,17 @@ public sealed class Parser
     {
         var loc = Current.Location;
         var left = ParseLogicalOr();
-        if (!IsAssignmentOp(Current.Kind))
+        if (!IsAssignmentOp(Current.Kind) && !IsNullCoalesceAssignmentOp())
             return left;
+
+        if (IsNullCoalesceAssignmentOp())
+        {
+            Advance();
+            Advance();
+            SkipNewlines();
+            var coalesceRhs = ParseRhsPipeline();
+            return new AssignmentExpressionAst(left, AssignmentOp.Assign, new BinaryExpressionAst(left, BinaryOp.Coalesce, coalesceRhs, loc), loc);
+        }
 
         var op = Current.Kind switch
         {
@@ -205,20 +227,22 @@ public sealed class Parser
 
     private StatementAst ParseCommandPipeline(SourceLocation loc)
     {
-        var first = ParseCommandStage();
-        if (!IsAt(TokenKind.Pipe))
+        var statement = ParseSimpleCommandPipeline(loc);
+        if (!IsPipelineChainOperator())
+            return statement;
+
+        var expr = WrapStatementAsSubExpression(statement, loc);
+        while (IsPipelineChainOperator())
         {
-            // Single command — still return a PipelineAst for uniformity.
-            return new PipelineAst(new AstNode[] { first }, loc);
-        }
-        var stages = new List<AstNode> { first };
-        while (IsAt(TokenKind.Pipe))
-        {
+            var op = Current.Kind == TokenKind.OpAnd ? BinaryOp.And : BinaryOp.Or;
+            var opLoc = Current.Location;
             Advance();
             SkipNewlines();
-            stages.Add(ParsePipelineStage());
+            var rhs = ParsePipelineChainOperand();
+            expr = new BinaryExpressionAst(expr, op, rhs, opLoc);
         }
-        return new PipelineAst(stages, loc);
+
+        return new ExpressionStatementAst(expr, loc);
     }
 
     private AstNode ParsePipelineStage()
@@ -231,6 +255,11 @@ public sealed class Parser
     private static bool IsAssignmentOp(TokenKind k) => k is
         TokenKind.Equal or TokenKind.PlusEqual or TokenKind.MinusEqual or
         TokenKind.StarEqual or TokenKind.SlashEqual or TokenKind.PercentEqual;
+
+    private bool IsNullCoalesceAssignmentOp()
+        => IsAt(TokenKind.QuestionQuestion) &&
+           Peek(1).Kind == TokenKind.Equal &&
+           Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset;
 
     // ---------- Expression precedence ladder ----------
 
@@ -245,6 +274,14 @@ public sealed class Parser
             SkipNewlines();
             var right = ParseLogicalAnd();
             left = new BinaryExpressionAst(left, op, right, loc);
+        }
+        if (IsAt(TokenKind.QuestionQuestion) && !IsNullCoalesceAssignmentOp())
+        {
+            var loc = Current.Location;
+            Advance();
+            SkipNewlines();
+            var right = ParseLogicalOr();
+            left = new BinaryExpressionAst(left, BinaryOp.Coalesce, right, loc);
         }
         if (IsAt(TokenKind.Question))
         {
@@ -301,20 +338,21 @@ public sealed class Parser
     private ExpressionAst ParseComparison()
     {
         var left = ParseAdditive();
+        left = PromoteComparisonOperandCommaList(left);
         while (TryConsumeComparisonOp(out var op, out var loc))
         {
             SkipNewlines();
             var right = ParseAdditive();
-            // Some operators take their right-hand side as a comma-list: `-replace 'p', 'r'`,
-            // `'{0}-{1}' -f $a, $b`. Collect trailing commas into an array argument.
-            if (OpTakesCommaList(op) && IsAt(TokenKind.Comma))
+            // Comparison operators in pwsh accept array-valued operands built from comma
+            // expressions, e.g. `"a", "b" -contains $x`, `1 -eq 1, 2`, `'{0}' -f $a, $b`.
+            if (IsAt(TokenKind.Comma))
             {
                 var items = new List<ExpressionAst> { right };
                 while (IsAt(TokenKind.Comma))
                 {
                     Advance();
                     SkipNewlines();
-                    items.Add(ParseAdditive());
+                    items.Add(ParseAssignmentExpression());
                 }
                 right = new ArrayExpressionAst(items, loc);
             }
@@ -323,11 +361,68 @@ public sealed class Parser
         return left;
     }
 
-    private static bool OpTakesCommaList(BinaryOp op) => op is
-        BinaryOp.Replace or BinaryOp.IReplace or BinaryOp.CReplace or
-        BinaryOp.Format or
-        BinaryOp.Split or
-        BinaryOp.Join;
+    private ExpressionAst PromoteComparisonOperandCommaList(ExpressionAst left)
+    {
+        if (!IsAt(TokenKind.Comma) || !HasComparisonOperatorAfterCommaSequence())
+            return left;
+
+        var items = new List<ExpressionAst> { left };
+        while (IsAt(TokenKind.Comma))
+        {
+            Advance();
+            SkipNewlines();
+            items.Add(ParseAdditive());
+        }
+
+        return new ArrayExpressionAst(items, left.Location);
+    }
+
+    private bool HasComparisonOperatorAfterCommaSequence()
+    {
+        var save = _cursor;
+        try
+        {
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                _ = ParseAdditive();
+            }
+
+            return IsComparisonOperatorToken(Current.Kind);
+        }
+        catch (PwshParseException)
+        {
+            return false;
+        }
+        finally
+        {
+            _cursor = save;
+        }
+    }
+
+    private static bool IsComparisonOperatorToken(TokenKind kind) => kind switch
+    {
+        TokenKind.OpEq or TokenKind.OpNe or
+        TokenKind.OpLt or TokenKind.OpLe or TokenKind.OpGt or TokenKind.OpGe or
+        TokenKind.OpIeq or TokenKind.OpIne or TokenKind.OpIlt or TokenKind.OpIle or
+        TokenKind.OpIgt or TokenKind.OpIge or
+        TokenKind.OpCeq or TokenKind.OpCne or TokenKind.OpClt or TokenKind.OpCle or
+        TokenKind.OpCgt or TokenKind.OpCge or
+        TokenKind.OpIs or TokenKind.OpIsNot or TokenKind.OpAs or
+        TokenKind.OpMatch or TokenKind.OpIMatch or TokenKind.OpCMatch or
+        TokenKind.OpNotMatch or TokenKind.OpINotMatch or TokenKind.OpCNotMatch or
+        TokenKind.OpReplace or TokenKind.OpIReplace or TokenKind.OpCReplace or
+        TokenKind.OpLike or TokenKind.OpILike or TokenKind.OpCLike or
+        TokenKind.OpNotLike or TokenKind.OpINotLike or TokenKind.OpCNotLike or
+        TokenKind.OpContains or TokenKind.OpICContains or TokenKind.OpCContains or
+        TokenKind.OpNotContains or TokenKind.OpINotContains or TokenKind.OpCNotContains or
+        TokenKind.OpIn or TokenKind.OpNotIn or
+        TokenKind.OpCIn or TokenKind.OpCNotIn or
+        TokenKind.OpIIn or TokenKind.OpINotIn or
+        TokenKind.OpFormat or TokenKind.OpJoin or TokenKind.OpSplit => true,
+        _ => false,
+    };
 
     private bool TryConsumeComparisonOp(out BinaryOp op, out SourceLocation loc)
     {
@@ -492,16 +587,35 @@ public sealed class Parser
             var inner = ParseUnary();
             return new UnaryExpressionAst(UnaryOp.BNot, inner, loc);
         }
+        if (IsAt(TokenKind.OpJoin))
+        {
+            var loc = Current.Location;
+            Advance();
+            var inner = ParseUnary();
+            return new UnaryExpressionAst(UnaryOp.Join, inner, loc);
+        }
+        if (IsAt(TokenKind.OpSplit))
+        {
+            var loc = Current.Location;
+            Advance();
+            var inner = ParseUnary();
+            return new UnaryExpressionAst(UnaryOp.Split, inner, loc);
+        }
         // [Type]expr is a cast when followed by an atom-start token.
         if (IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
         {
-            var save = _cursor;
             var typeLit = ParseTypeLiteral();
+            var save = _cursor;
+            while (IsAttributeSpec())
+            {
+                ConsumeAttributeSpec();
+            }
             if (IsCastFollower(Current.Kind))
             {
                 var operand = ParseUnary();
                 return new CastExpressionAst(typeLit, operand, typeLit.Location);
             }
+            _cursor = save;
             // Not a cast: continue parsing type literal (or member access on it) via postfix.
             return ParsePostfixContinuation(typeLit);
         }
@@ -511,7 +625,7 @@ public sealed class Parser
     private static bool IsCastFollower(TokenKind k) => k is
         TokenKind.Variable or TokenKind.Number or TokenKind.String or
         TokenKind.LParen or TokenKind.DollarLParen or TokenKind.AtLParen or TokenKind.AtLBrace or
-        TokenKind.Minus or TokenKind.Plus or TokenKind.Bang or TokenKind.OpNot or
+        TokenKind.LBrace or TokenKind.Minus or TokenKind.Plus or TokenKind.Bang or TokenKind.OpNot or
         TokenKind.Identifier or TokenKind.LBracket;
 
     private bool LooksLikeTypeLiteral()
@@ -527,7 +641,8 @@ public sealed class Parser
             if (t.Kind == TokenKind.LBracket) depth++;
             else if (t.Kind == TokenKind.RBracket) depth--;
             else if (t.Kind == TokenKind.NewLine) { /* skip */ }
-            else if (t.Kind != TokenKind.Identifier && t.Kind != TokenKind.Dot && t.Kind != TokenKind.Plus && t.Kind != TokenKind.Comma)
+            else if (t.Kind != TokenKind.Identifier && t.Kind != TokenKind.Number &&
+                     t.Kind != TokenKind.Dot && t.Kind != TokenKind.Plus && t.Kind != TokenKind.Comma)
             {
                 return false;
             }
@@ -595,9 +710,8 @@ public sealed class Parser
         // Distinguished by whether the inner `[` is immediately followed by `]`.
         while (IsAt(TokenKind.LBracket))
         {
-            if (Peek(1).Kind == TokenKind.RBracket)
+            if (TryConsumeArrayTypeSuffix())
             {
-                Advance(); Advance();
                 arrayRank++;
                 continue;
             }
@@ -615,6 +729,7 @@ public sealed class Parser
             }
             Consume(TokenKind.RBracket);
         }
+        SkipAssemblyQualifiedTypeTail();
         Consume(TokenKind.RBracket);
         return new TypeLiteralAst(typeName, genericArgs, arrayRank, start);
     }
@@ -626,15 +741,17 @@ public sealed class Parser
     /// </summary>
     private TypeLiteralAst ParseTypeLiteralInner()
     {
+        if (IsAt(TokenKind.LBracket))
+            return ParseTypeLiteral();
+
         var start = Current.Location;
         var typeName = ParseTypeName();
         var genericArgs = new List<TypeLiteralAst>();
         int arrayRank = 0;
         while (IsAt(TokenKind.LBracket))
         {
-            if (Peek(1).Kind == TokenKind.RBracket)
+            if (TryConsumeArrayTypeSuffix())
             {
-                Advance(); Advance();
                 arrayRank++;
                 continue;
             }
@@ -656,15 +773,73 @@ public sealed class Parser
 
     private string ParseTypeName()
     {
-        var first = Consume(TokenKind.Identifier).Text;
-        var sb = new System.Text.StringBuilder(first);
+        var first = Consume(TokenKind.Identifier);
+        var sb = new System.Text.StringBuilder(GetCommandTextTokenText(first));
+        int endOffset = first.Location.Offset + first.Location.Length;
+        AppendAdjacentTypeAritySuffix(sb, ref endOffset);
         while (IsAt(TokenKind.Dot) || IsAt(TokenKind.Plus))
         {
             var separator = Advance().Text;
-            var next = Consume(TokenKind.Identifier).Text;
-            sb.Append(separator).Append(next);
+            var next = Consume(TokenKind.Identifier);
+            sb.Append(separator).Append(GetCommandTextTokenText(next));
+            endOffset = next.Location.Offset + next.Location.Length;
+            AppendAdjacentTypeAritySuffix(sb, ref endOffset);
         }
         return sb.ToString();
+    }
+
+    private void AppendAdjacentTypeAritySuffix(System.Text.StringBuilder sb, ref int endOffset)
+    {
+        while (IsAt(TokenKind.Identifier) &&
+               Current.Text.StartsWith('`') &&
+               Current.Location.Offset == endOffset)
+        {
+            sb.Append(GetCommandTextTokenText(Current));
+            endOffset = Current.Location.Offset + Current.Location.Length;
+            Advance();
+        }
+
+        while (IsAt(TokenKind.Number) &&
+               Current.Location.Offset == endOffset &&
+               sb.Length > 0 &&
+               sb[^1] == '`')
+        {
+            sb.Append(Current.Text);
+            endOffset = Current.Location.Offset + Current.Location.Length;
+            Advance();
+        }
+    }
+
+    private void SkipAssemblyQualifiedTypeTail()
+    {
+        while (!IsAt(TokenKind.RBracket) && !IsAt(TokenKind.EndOfInput))
+        {
+            Advance();
+        }
+    }
+
+    private bool TryConsumeArrayTypeSuffix()
+    {
+        if (!IsAt(TokenKind.LBracket))
+            return false;
+
+        var save = _cursor;
+        Advance();
+        SkipNewlines();
+        while (IsAt(TokenKind.Comma))
+        {
+            Advance();
+            SkipNewlines();
+        }
+
+        if (IsAt(TokenKind.RBracket))
+        {
+            Advance();
+            return true;
+        }
+
+        _cursor = save;
+        return false;
     }
 
     // ---------- Postfix (member access, invocation, indexing) ----------
@@ -693,10 +868,77 @@ public sealed class Parser
     {
         while (true)
         {
-            if (IsAt(TokenKind.Dot))
+            if (IsAt(TokenKind.Question) &&
+                CurrentIsAdjacentToPreviousToken() &&
+                Peek(1).Kind == TokenKind.LBracket &&
+                Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset)
             {
                 var loc = Current.Location;
                 Advance();
+                Consume(TokenKind.LBracket);
+                SkipNewlines();
+                var index = ParseAssignmentExpression();
+                SkipNewlines();
+                if (IsAt(TokenKind.Comma))
+                {
+                    var indices = new List<ExpressionAst> { index };
+                    while (IsAt(TokenKind.Comma))
+                    {
+                        Advance();
+                        SkipNewlines();
+                        indices.Add(ParseAssignmentExpression());
+                        SkipNewlines();
+                    }
+                    index = new ArrayExpressionAst(indices, loc);
+                }
+                SkipNewlines();
+                Consume(TokenKind.RBracket);
+                var access = new IndexerAst(expr, index, loc);
+                expr = WrapNullConditional(expr, access, loc);
+                continue;
+            }
+            if (IsAt(TokenKind.Question) &&
+                CurrentIsAdjacentToPreviousToken() &&
+                Peek(1).Kind == TokenKind.Dot &&
+                Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset)
+            {
+                var loc = Current.Location;
+                Advance();
+                Consume(TokenKind.Dot);
+                SkipNewlines();
+                if (TryParseDynamicMemberName(out var dynamicName))
+                {
+                    List<ExpressionAst>? dynamicArgs = null;
+                    bool dynamicInvocation = false;
+                    if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
+                    {
+                        dynamicArgs = ParseInvocationArgs();
+                        dynamicInvocation = true;
+                    }
+
+                    var guarded = new DynamicMemberAccessAst(expr, dynamicName, IsStatic: false, IsInvocation: dynamicInvocation, Arguments: dynamicArgs, Location: loc);
+                    expr = WrapNullConditional(expr, guarded, loc);
+                    continue;
+                }
+
+                var name = ParseMemberName();
+                TrySkipMemberGenericTypeArguments();
+                List<ExpressionAst>? args = null;
+                bool invocation = false;
+                if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
+                {
+                    args = ParseInvocationArgs();
+                    invocation = true;
+                }
+                var member = new MemberAccessAst(expr, name, IsStatic: false, IsInvocation: invocation, Arguments: args, Location: loc);
+                expr = WrapNullConditional(expr, member, loc);
+                continue;
+            }
+            if (IsAt(TokenKind.Dot) && CurrentIsAdjacentToPreviousToken())
+            {
+                var loc = Current.Location;
+                Advance();
+                SkipNewlines();
                 if (TryParseDynamicMemberName(out var dynamicName))
                 {
                     List<ExpressionAst>? dynamicArgs = null;
@@ -710,6 +952,7 @@ public sealed class Parser
                     continue;
                 }
                 var name = ParseMemberName();
+                TrySkipMemberGenericTypeArguments();
                 List<ExpressionAst>? args = null;
                 bool invocation = false;
                 if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
@@ -717,13 +960,19 @@ public sealed class Parser
                     args = ParseInvocationArgs();
                     invocation = true;
                 }
+                else if (IsAt(TokenKind.LBrace) && CurrentIsAdjacentToPreviousToken() && IsIntrinsicCollectionMethodWithoutParens(name))
+                {
+                    args = new List<ExpressionAst> { ParsePostfix() };
+                    invocation = true;
+                }
                 expr = new MemberAccessAst(expr, name, IsStatic: false, IsInvocation: invocation, Arguments: args, Location: loc);
                 continue;
             }
-            if (IsAt(TokenKind.ColonColon))
+            if (IsAt(TokenKind.ColonColon) && CurrentIsAdjacentToPreviousToken())
             {
                 var loc = Current.Location;
                 Advance();
+                SkipNewlines();
                 if (TryParseDynamicMemberName(out var dynamicName))
                 {
                     List<ExpressionAst>? dynamicArgs = null;
@@ -737,6 +986,7 @@ public sealed class Parser
                     continue;
                 }
                 var name = ParseMemberName();
+                TrySkipMemberGenericTypeArguments();
                 List<ExpressionAst>? args = null;
                 bool invocation = false;
                 if (IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken())
@@ -747,19 +997,46 @@ public sealed class Parser
                 expr = new MemberAccessAst(expr, name, IsStatic: true, IsInvocation: invocation, Arguments: args, Location: loc);
                 continue;
             }
-            if (IsAt(TokenKind.LBracket))
+            if (IsAt(TokenKind.LBracket) && CurrentIsAdjacentToPreviousToken())
             {
                 var loc = Current.Location;
                 Advance();
                 SkipNewlines();
-                var index = ParseLogicalOr();
+                var index = ParseAssignmentExpression();
+                SkipNewlines();
+                if (IsAt(TokenKind.Comma))
+                {
+                    var indices = new List<ExpressionAst> { index };
+                    while (IsAt(TokenKind.Comma))
+                    {
+                        Advance();
+                        SkipNewlines();
+                        indices.Add(ParseAssignmentExpression());
+                        SkipNewlines();
+                    }
+                    index = new ArrayExpressionAst(indices, loc);
+                }
                 SkipNewlines();
                 Consume(TokenKind.RBracket);
                 expr = new IndexerAst(expr, index, loc);
                 continue;
             }
+            if (IsAt(TokenKind.Number) &&
+                Current.Text.StartsWith(".", StringComparison.Ordinal) &&
+                CurrentIsAdjacentToPreviousToken())
+            {
+                var token = Advance();
+                expr = new MemberAccessAst(expr, token.Text[1..], IsStatic: false, IsInvocation: false, Arguments: null, Location: token.Location);
+                continue;
+            }
             return expr;
         }
+    }
+
+    private static ExpressionAst WrapNullConditional(ExpressionAst receiver, ExpressionAst access, SourceLocation loc)
+    {
+        var isNull = new BinaryExpressionAst(receiver, BinaryOp.Equal, new NullLiteralAst(loc), loc);
+        return new ConditionalExpressionAst(isNull, new NullLiteralAst(loc), access, loc);
     }
 
     private bool CurrentIsAdjacentToPreviousToken()
@@ -773,7 +1050,14 @@ public sealed class Parser
     private string ParseMemberName()
     {
         if (IsAt(TokenKind.Identifier))
-            return Advance().Text;
+            return GetCommandTextTokenText(Advance());
+        if (IsAt(TokenKind.Number))
+        {
+            var token = Advance();
+            return token.Text.StartsWith(".", StringComparison.Ordinal)
+                ? token.Text[1..]
+                : token.Text;
+        }
         if (IsAt(TokenKind.String))
         {
             var token = Advance();
@@ -783,6 +1067,38 @@ public sealed class Parser
         throw new PwshParseException($"Expected member name, got {Current.Kind} '{Current.Text}'.", Current.Location);
     }
 
+    private void TrySkipMemberGenericTypeArguments()
+    {
+        if (!IsAt(TokenKind.LBracket) || !CurrentIsAdjacentToPreviousToken())
+            return;
+
+        var save = _cursor;
+        try
+        {
+            Advance();
+            SkipNewlines();
+            _ = ParseTypeLiteralInner();
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                _ = ParseTypeLiteralInner();
+                SkipNewlines();
+            }
+
+            Consume(TokenKind.RBracket);
+            if (!(IsAt(TokenKind.LParen) && CurrentIsAdjacentToPreviousToken()))
+            {
+                _cursor = save;
+            }
+        }
+        catch (PwshParseException)
+        {
+            _cursor = save;
+        }
+    }
+
     private bool TryParseDynamicMemberName(out ExpressionAst expression)
     {
         if (IsAt(TokenKind.Variable) || IsAt(TokenKind.DollarLParen) || IsAt(TokenKind.LParen))
@@ -790,9 +1106,30 @@ public sealed class Parser
             expression = ParsePostfix();
             return true;
         }
+        if (IsAt(TokenKind.LBrace))
+        {
+            expression = ParseBraceMemberNameExpression();
+            return true;
+        }
 
         expression = null!;
         return false;
+    }
+
+    private ExpressionAst ParseBraceMemberNameExpression()
+    {
+        var start = Consume(TokenKind.LBrace).Location;
+        var startCursor = _cursor;
+        while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
+        {
+            Advance();
+        }
+        if (IsAt(TokenKind.EndOfInput))
+            throw new PwshIncompleteInputException("Unterminated brace-wrapped member name.", start);
+
+        var text = ReconstructTokenSource(startCursor, _cursor).Trim();
+        Consume(TokenKind.RBrace);
+        return new StringLiteralAst(new List<StringPart> { new LiteralPart(text) }, IsSingleQuoted: true, start);
     }
 
     private List<ExpressionAst> ParseInvocationArgs()
@@ -874,18 +1211,11 @@ public sealed class Parser
                     inner = new ArrayExpressionAst(elems, t.Location);
                 }
                 // Parenthesized pipelines: `($xs | ForEach-Object { $_ * 2 })`. When the
-                // first expression is followed by `|`, stitch additional pipeline stages
-                // until we reach the closing `)`. Real pwsh treats the whole paren as the
-                // subexpression whose final stage's output is yielded.
-                if (IsAt(TokenKind.Pipe))
+                // first expression is followed by a pipeline/redirection/background suffix,
+                // stitch the rest together until we reach the closing `)`.
+                if (IsAt(TokenKind.Pipe) || IsAt(TokenKind.Redirection) || IsBackgroundSuffix())
                 {
-                    var stages = new List<AstNode> { inner };
-                    while (IsAt(TokenKind.Pipe))
-                    {
-                        Advance();
-                        SkipNewlines();
-                        stages.Add(ParsePipelineStage());
-                    }
+                    var pipeline = ParseExpressionPipelineOrRedirection(inner, t.Location);
                     SkipNewlines();
                     if (!IsAt(TokenKind.RParen))
                     {
@@ -894,7 +1224,6 @@ public sealed class Parser
                         throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
                     }
                     Advance();
-                    var pipeline = new PipelineAst(stages, t.Location);
                     return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, t.Location), t.Location);
                 }
                 if (!IsAt(TokenKind.RParen))
@@ -946,11 +1275,11 @@ public sealed class Parser
         SkipNewlinesAndSemicolons();
         var statements = new List<StatementAst>();
 
-        if (IsKeyword("begin") || IsKeyword("process") || IsKeyword("end"))
+        if (IsKeyword("begin") || IsKeyword("process") || IsKeyword("end") || IsKeyword("clean"))
         {
             while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
             {
-                if (!(IsKeyword("begin") || IsKeyword("process") || IsKeyword("end")))
+                if (!(IsKeyword("begin") || IsKeyword("process") || IsKeyword("end") || IsKeyword("clean")))
                     break;
                 Advance();
                 SkipNewlines();
@@ -966,10 +1295,7 @@ public sealed class Parser
             var stmt = ParseStatement();
             statements.Add(stmt);
             if (IsAt(TokenKind.RBrace) || IsAt(TokenKind.EndOfInput)) break;
-            // Same relaxation as ParseBraceBlock — a param() block is separator-terminated
-            // by its closing `)`, so `{ param($x) body }` on one line is valid.
-            bool afterParam = IsFromParamBlock(stmt);
-            if (!afterParam && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+            if (!AllowsImplicitStatementSeparator(stmt) && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
                 throw new PwshParseException(
                     $"Expected statement separator inside script block, got {Current.Kind} '{Current.Text}'.", Current.Location);
             SkipNewlinesAndSemicolons();
@@ -1052,8 +1378,17 @@ public sealed class Parser
 
     private bool IsCommandPipelineStart()
     {
-        if (IsAt(TokenKind.Identifier) && !IsExpressionKeyword(Current.Text)) return true;
+        if (IsAt(TokenKind.Identifier))
+        {
+            if (!IsExpressionKeyword(Current.Text)) return true;
+            if (Current.Text.Equals("foreach", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        if (IsAt(TokenKind.PlusEqual) || IsAt(TokenKind.MinusEqual) ||
+            IsAt(TokenKind.StarEqual) || IsAt(TokenKind.SlashEqual) || IsAt(TokenKind.PercentEqual))
+            return true;
+        if (IsAt(TokenKind.Question)) return true;
         if (IsAt(TokenKind.Percent)) return true;
+        if (IsNumericCommandStart()) return true;
         if (IsAt(TokenKind.Ampersand)) return true;
         if (IsAt(TokenKind.Dot) && IsDotSourceCandidate()) return true;
         if ((IsAt(TokenKind.Dot) || IsAt(TokenKind.Slash) || IsAt(TokenKind.Backslash)) && IsPathLikeCommand()) return true;
@@ -1080,7 +1415,7 @@ public sealed class Parser
         if (IsCommandPipelineStart())
             return WrapPipelineAsSubExpression(ParseCommandPipeline(loc), loc);
 
-        var expr = ParseLogicalOr();
+        var expr = ParseAssignmentExpression();
         if (allowCommaList && IsAt(TokenKind.Comma))
         {
             var elems = new List<ExpressionAst> { expr };
@@ -1088,20 +1423,54 @@ public sealed class Parser
             {
                 Advance();
                 SkipNewlines();
-                elems.Add(ParseLogicalOr());
+                elems.Add(ParseAssignmentExpression());
             }
             expr = new ArrayExpressionAst(elems, loc);
         }
-        if (!allowPipeline || !IsAt(TokenKind.Pipe)) return expr;
+        SkipNewlinesBeforePipelineOrRedirection();
+        if (!allowPipeline || (!IsAt(TokenKind.Pipe) && !IsAt(TokenKind.Redirection) && !IsBackgroundSuffix())) return expr;
 
-        var stages = new List<AstNode> { expr };
+        return WrapPipelineAsSubExpression(ParseExpressionPipelineOrRedirection(expr, loc), loc);
+    }
+
+    private void SkipNewlinesBeforePipelineOrRedirection()
+    {
+        while (IsAt(TokenKind.NewLine) &&
+               (Peek(1).Kind == TokenKind.Pipe || Peek(1).Kind == TokenKind.Redirection))
+        {
+            Advance();
+        }
+    }
+
+    private PipelineAst ParseExpressionPipelineOrRedirection(ExpressionAst expr, SourceLocation loc)
+    {
+        SkipNewlinesBeforePipelineOrRedirection();
+        AstNode firstStage = expr;
+        if (IsAt(TokenKind.Redirection))
+        {
+            var elements = new List<CommandElementAst> { new CommandArgumentAst(expr, expr.Location) };
+            while (IsAt(TokenKind.Redirection))
+            {
+                elements.Add(ParseCommandRedirection());
+                SkipNewlinesBeforePipelineOrRedirection();
+            }
+
+            firstStage = new CommandAst("Write-Output", elements, loc);
+        }
+
+        var stages = new List<AstNode> { firstStage };
+        SkipNewlinesBeforePipelineOrRedirection();
         while (IsAt(TokenKind.Pipe))
         {
             Advance();
             SkipNewlines();
             stages.Add(ParsePipelineStage());
+            SkipNewlinesBeforePipelineOrRedirection();
         }
-        return WrapPipelineAsSubExpression(new PipelineAst(stages, loc), loc);
+
+        var pipeline = new PipelineAst(stages, loc);
+        TryConsumeBackgroundSuffix();
+        return pipeline;
     }
 
     private CommandAst ParseCommandStage()
@@ -1130,6 +1499,8 @@ public sealed class Parser
             IsAt(TokenKind.Semicolon) || IsAt(TokenKind.Pipe) ||
             IsAt(TokenKind.RParen) || IsAt(TokenKind.RBrace) || IsAt(TokenKind.RBracket))
             return false;
+        if (IsPipelineChainOperator() || IsBackgroundSuffix())
+            return false;
         return true;
     }
 
@@ -1142,9 +1513,17 @@ public sealed class Parser
             case TokenKind.Variable:
             case TokenKind.Number:
             case TokenKind.String:
+            case TokenKind.DollarLParen:
+                if (HasAdjacentCommandTextContinuation())
+                {
+                    first = ParseExpandableCommandTextArgument();
+                    break;
+                }
+                first = ParsePostfix();
+                break;
+
             case TokenKind.AtLParen:
             case TokenKind.AtLBrace:
-            case TokenKind.DollarLParen:
             case TokenKind.LBrace:
                 first = ParsePostfix();
                 break;
@@ -1158,7 +1537,7 @@ public sealed class Parser
                 break;
 
             default:
-                first = ParseBareWord();
+                first = ParseExpandableCommandTextArgument();
                 break;
         }
 
@@ -1175,10 +1554,11 @@ public sealed class Parser
                 {
                     TokenKind.Variable or TokenKind.Number or TokenKind.String or
                     TokenKind.AtLParen or TokenKind.AtLBrace or
-                    TokenKind.DollarLParen or TokenKind.LBrace => ParsePostfix(),
+                    TokenKind.LBrace => ParsePostfix(),
+                    TokenKind.DollarLParen when !HasAdjacentCommandTextContinuation() => ParsePostfix(),
                     TokenKind.LParen => ParsePostfixContinuation(ParseGroupedCommandArgument()),
                     TokenKind.LBracket when LooksLikeTypeLiteral() => ParsePostfix(),
-                    _ => ParseBareWord(),
+                    _ => ParseExpandableCommandTextArgument(),
                 });
             }
             return new ArrayExpressionAst(elems, t.Location);
@@ -1218,15 +1598,9 @@ public sealed class Parser
             }
             inner = new ArrayExpressionAst(elems, start);
         }
-        if (IsAt(TokenKind.Pipe))
+        if (IsAt(TokenKind.Pipe) || IsAt(TokenKind.Redirection) || IsBackgroundSuffix())
         {
-            var stages = new List<AstNode> { inner };
-            while (IsAt(TokenKind.Pipe))
-            {
-                Advance();
-                SkipNewlines();
-                stages.Add(ParsePipelineStage());
-            }
+            var pipeline = ParseExpressionPipelineOrRedirection(inner, start);
             SkipNewlines();
             if (!IsAt(TokenKind.RParen))
             {
@@ -1235,7 +1609,7 @@ public sealed class Parser
                 throw new PwshParseException($"Expected ')', got {Current.Kind} '{Current.Text}'.", Current.Location);
             }
             Advance();
-            return new SubExpressionAst(new ScriptAst(new StatementAst[] { new PipelineAst(stages, start) }, start), start);
+            return new SubExpressionAst(new ScriptAst(new StatementAst[] { pipeline }, start), start);
         }
         if (!IsAt(TokenKind.RParen))
         {
@@ -1257,6 +1631,7 @@ public sealed class Parser
         while (!IsAt(TokenKind.EndOfInput) &&
                !IsAt(TokenKind.NewLine) &&
                !IsAt(TokenKind.Semicolon) &&
+               !IsAt(TokenKind.Comma) &&
                !IsAt(TokenKind.Pipe) &&
                !IsAt(TokenKind.Redirection) &&
                !IsAt(TokenKind.LParen) &&
@@ -1268,18 +1643,31 @@ public sealed class Parser
             if (sb.Length > 0 && Current.Location.Offset != endOffset)
                 break;
             // In bare-word position, accept an adjacent `[]` pair as a suffix — pwsh treats
-            // `byte[]` as the type name `System.Byte[]` when passed as a command argument
-            // (e.g. `New-Object byte[] (…)`). Stop on any other stray `[` or `]`.
+            // `byte[]` as the type name `System.Byte[]` when passed as a command argument.
+            // The same command-mode rule also accepts generic-ish suffixes like
+            // `List[string]` or drive globs like `function:[e-z]:`.
             if (IsAt(TokenKind.RBracket)) break;
             if (IsAt(TokenKind.LBracket))
             {
-                if (Peek(1).Kind != TokenKind.RBracket) break;
-                sb.Append("[]");
-                endOffset = Peek(1).Location.Offset + Peek(1).Location.Length;
-                Advance(); Advance();
+                var startCursor = _cursor;
+                int depth = 0;
+                do
+                {
+                    if (IsAt(TokenKind.LBracket)) depth++;
+                    else if (IsAt(TokenKind.RBracket)) depth--;
+                    Advance();
+                }
+                while (depth > 0 && !IsAt(TokenKind.EndOfInput));
+
+                if (depth > 0)
+                    throw new PwshIncompleteInputException("Unterminated bracketed bare word.", start);
+
+                sb.Append(ReconstructTokenSource(startCursor, _cursor));
+                var endToken = _tokens[_cursor - 1];
+                endOffset = endToken.Location.Offset + endToken.Location.Length;
                 continue;
             }
-            sb.Append(Current.Text);
+            sb.Append(GetCommandTextTokenText(Current));
             endOffset = Current.Location.Offset + Current.Location.Length;
             Advance();
         }
@@ -1296,15 +1684,203 @@ public sealed class Parser
             loc);
     }
 
+    private bool HasAdjacentCommandTextContinuation()
+    {
+        if (_cursor + 1 >= _tokens.Count)
+            return false;
+
+        var next = Peek(1);
+        return next.Kind switch
+        {
+            TokenKind.EndOfInput or TokenKind.NewLine or TokenKind.Semicolon or TokenKind.Comma or TokenKind.Pipe or
+            TokenKind.Redirection or TokenKind.RParen or TokenKind.RBrace or TokenKind.RBracket or
+            TokenKind.Dot or TokenKind.ColonColon or TokenKind.LBracket => false,
+            _ => Current.Location.Offset + Current.Location.Length == next.Location.Offset,
+        };
+    }
+
+    private ExpressionAst ParseExpandableCommandTextArgument()
+    {
+        var start = Current.Location;
+        var parts = new List<StringPart>();
+        var endOffset = start.Offset;
+
+        while (!IsAt(TokenKind.EndOfInput) &&
+               !IsAt(TokenKind.NewLine) &&
+               !IsAt(TokenKind.Semicolon) &&
+               !IsAt(TokenKind.Comma) &&
+               !IsAt(TokenKind.Pipe) &&
+               !IsAt(TokenKind.Redirection) &&
+               !IsAt(TokenKind.LParen) &&
+               !IsAt(TokenKind.LBrace) &&
+               !IsAt(TokenKind.RParen) &&
+               !IsAt(TokenKind.RBrace))
+        {
+            if (parts.Count > 0 && Current.Location.Offset != endOffset)
+                break;
+            if (IsAt(TokenKind.RBracket))
+                break;
+            if (IsAt(TokenKind.LBracket) && Peek(1).Kind != TokenKind.RBracket)
+            {
+                var startCursor = _cursor;
+                int depth = 0;
+                do
+                {
+                    if (IsAt(TokenKind.LBracket)) depth++;
+                    else if (IsAt(TokenKind.RBracket)) depth--;
+                    Advance();
+                }
+                while (depth > 0 && !IsAt(TokenKind.EndOfInput));
+
+                if (depth > 0)
+                    throw new PwshIncompleteInputException("Unterminated bracketed command argument.", start);
+
+                parts.Add(new LiteralPart(ReconstructTokenSource(startCursor, _cursor)));
+                var endToken = _tokens[_cursor - 1];
+                endOffset = endToken.Location.Offset + endToken.Location.Length;
+                continue;
+            }
+
+            if (IsAt(TokenKind.LBracket) && Peek(1).Kind == TokenKind.RBracket)
+            {
+                parts.Add(new LiteralPart("[]"));
+                endOffset = Peek(1).Location.Offset + Peek(1).Location.Length;
+                Advance();
+                Advance();
+                continue;
+            }
+
+            switch (Current.Kind)
+            {
+                case TokenKind.String:
+                {
+                    var token = Advance();
+                    foreach (var part in (IReadOnlyList<StringPart>)token.Value!)
+                    {
+                        parts.Add(part);
+                    }
+                    endOffset = token.Location.Offset + token.Location.Length;
+                    continue;
+                }
+                case TokenKind.Variable:
+                {
+                    if (HasAdjacentPostfixTextContinuation())
+                    {
+                        var startCursor = _cursor;
+                        var origin = Current.Location;
+                        _ = ParsePostfix();
+                        parts.Add(new ExpressionPart(ReconstructTokenSource(startCursor, _cursor), origin));
+                        var endToken = _tokens[_cursor - 1];
+                        endOffset = endToken.Location.Offset + endToken.Location.Length;
+                        continue;
+                    }
+
+                    var token = Advance();
+                    var (scope, name) = ((string? Scope, string Name))token.Value!;
+                    parts.Add(new VariablePart(scope, name));
+                    endOffset = token.Location.Offset + token.Location.Length;
+                    continue;
+                }
+                case TokenKind.DollarLParen:
+                {
+                    var startCursor = _cursor;
+                    var origin = Current.Location;
+                    _ = ParsePrimary();
+                    parts.Add(new ExpressionPart(ReconstructTokenSource(startCursor + 1, _cursor - 1), origin));
+                    var endToken = _tokens[_cursor - 1];
+                    endOffset = endToken.Location.Offset + endToken.Location.Length;
+                    continue;
+                }
+                default:
+                {
+                    var token = Advance();
+                    parts.Add(new LiteralPart(GetCommandTextTokenText(token)));
+                    endOffset = token.Location.Offset + token.Location.Length;
+                    continue;
+                }
+            }
+        }
+
+        if (parts.Count == 0)
+            throw new PwshParseException($"Unexpected token {Current.Kind} '{Current.Text}' in command argument.", Current.Location);
+
+        var loc = new SourceLocation(start.Line, start.Column, start.Offset, endOffset - start.Offset);
+        var isLiteralOnly = parts.All(static part => part is LiteralPart);
+        return new StringLiteralAst(parts, IsSingleQuoted: isLiteralOnly, loc);
+    }
+
+    private bool HasAdjacentPostfixTextContinuation()
+    {
+        if (_cursor + 1 >= _tokens.Count)
+            return false;
+
+        var next = Peek(1);
+        if (Current.Location.Offset + Current.Location.Length != next.Location.Offset)
+            return false;
+
+        return next.Kind is TokenKind.Dot or TokenKind.ColonColon or TokenKind.LBracket
+            || (next.Kind == TokenKind.Question &&
+                Peek(2).Kind is TokenKind.Dot or TokenKind.LBracket &&
+                next.Location.Offset + next.Location.Length == Peek(2).Location.Offset);
+    }
+
+    private string ReconstructTokenSource(int startInclusive, int endExclusive)
+    {
+        var sb = new System.Text.StringBuilder();
+        Token? previous = null;
+        for (int i = startInclusive; i < endExclusive; i++)
+        {
+            var token = _tokens[i];
+            if (token.Kind == TokenKind.EndOfInput)
+                break;
+            if (token.Kind == TokenKind.NewLine)
+            {
+                sb.Append('\n');
+                previous = token;
+                continue;
+            }
+
+            if (previous is Token prev &&
+                prev.Kind != TokenKind.NewLine &&
+                prev.Location.Offset + prev.Location.Length != token.Location.Offset)
+            {
+                sb.Append(' ');
+            }
+
+            sb.Append(token.Text);
+            previous = token;
+        }
+
+        return sb.ToString();
+    }
+
+    private static string GetCommandTextTokenText(Token token)
+        => token.Value as string ?? token.Text;
+
     private List<CommandElementAst> ParseCommandElements(IEnumerable<CommandElementAst>? seed = null)
     {
         var elements = seed?.ToList() ?? new List<CommandElementAst>();
 
-        while (IsCommandElementStart())
+        while (true)
         {
+            while (IsAt(TokenKind.NewLine) && IsCommandElementContinuationAfterNewline())
+                Advance();
+
+            if (!IsCommandElementStart())
+                break;
+
             if (TryParseCommandParameter(out var parameter))
             {
                 elements.Add(parameter);
+                if (IsAt(TokenKind.Colon) && CurrentIsAdjacentToPreviousToken())
+                {
+                    Advance();
+                    if (IsCommandElementStart())
+                    {
+                        var attachedLoc = Current.Location;
+                        elements.Add(new CommandArgumentAst(ParseCommandArgument(), attachedLoc));
+                    }
+                }
                 continue;
             }
             if (IsAt(TokenKind.SplatVariable))
@@ -1326,6 +1902,20 @@ public sealed class Parser
         }
 
         return elements;
+    }
+
+    private bool IsCommandElementContinuationAfterNewline()
+    {
+        var next = Peek(1);
+        if (next.Kind == TokenKind.EndOfInput)
+            return false;
+
+        if (next.Kind == TokenKind.Redirection || next.Kind == TokenKind.SplatVariable)
+            return true;
+
+        return next.Kind == TokenKind.Minus &&
+               Peek(2).Kind == TokenKind.Identifier &&
+               next.Location.Offset + next.Location.Length == Peek(2).Location.Offset;
     }
 
     private bool TryParseCommandParameter(out CommandParameterAst parameter)
@@ -1423,6 +2013,41 @@ public sealed class Parser
 
     private static bool IsExpressionKeyword(string text) => _expressionKeywords.Contains(text);
 
+    private bool IsIdentifierValue(string text)
+        => IsAt(TokenKind.Identifier) && Current.Text.Equals(text, StringComparison.OrdinalIgnoreCase);
+
+    private bool TryParseStatementLabel(out string label)
+    {
+        if (IsAt(TokenKind.Colon) &&
+            Peek(1).Kind == TokenKind.Identifier &&
+            Current.Location.Offset + Current.Location.Length == Peek(1).Location.Offset)
+        {
+            Advance();
+            label = Advance().Text;
+            SkipNewlines();
+            return true;
+        }
+
+        label = null!;
+        return false;
+    }
+
+    private bool IsNumericCommandStart()
+    {
+        if (!IsAt(TokenKind.Number))
+            return false;
+
+        var next = Peek(1);
+        var end = Current.Location.Offset + Current.Location.Length;
+        return next.Location.Offset == end && next.Kind == TokenKind.Identifier;
+    }
+
+    private static bool IsIntrinsicCollectionMethodWithoutParens(string name)
+        => name.Equals("Where", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("ForEach", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("PSWhere", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("PSForEach", StringComparison.OrdinalIgnoreCase);
+
     private Token ConsumeKeyword(string keyword)
     {
         if (!IsKeyword(keyword))
@@ -1497,7 +2122,7 @@ public sealed class Parser
         return new IfStatementAst(branches, elseBody, start);
     }
 
-    private WhileStatementAst ParseWhileStatement()
+    private WhileStatementAst ParseWhileStatement(string? label = null)
     {
         var start = ConsumeKeyword("while").Location;
         Consume(TokenKind.LParen);
@@ -1507,10 +2132,10 @@ public sealed class Parser
         Consume(TokenKind.RParen);
         SkipNewlines();
         var body = ParseBraceBlock();
-        return new WhileStatementAst(cond, body, start);
+        return new WhileStatementAst(label, cond, body, start);
     }
 
-    private DoWhileStatementAst ParseDoStatement()
+    private DoWhileStatementAst ParseDoStatement(string? label = null)
     {
         var start = ConsumeKeyword("do").Location;
         SkipNewlines();
@@ -1525,10 +2150,10 @@ public sealed class Parser
         var cond = ParseConditionExpression();
         SkipNewlines();
         Consume(TokenKind.RParen);
-        return new DoWhileStatementAst(body, cond, isUntil, start);
+        return new DoWhileStatementAst(label, body, cond, isUntil, start);
     }
 
-    private ForStatementAst ParseForStatement()
+    private ForStatementAst ParseForStatement(string? label = null)
     {
         var start = ConsumeKeyword("for").Location;
         Consume(TokenKind.LParen);
@@ -1548,28 +2173,29 @@ public sealed class Parser
         {
             cond = ParseLogicalOr();
         }
-        Consume(TokenKind.Semicolon);
-        SkipNewlines();
-        if (!IsAt(TokenKind.RParen))
+        if (IsAt(TokenKind.Semicolon))
         {
-            update = ParseStatement();
+            Consume(TokenKind.Semicolon);
+            SkipNewlines();
+            if (!IsAt(TokenKind.RParen))
+            {
+                update = ParseStatement();
+            }
         }
         SkipNewlines();
         Consume(TokenKind.RParen);
         SkipNewlines();
         var body = ParseBraceBlock();
-        return new ForStatementAst(init, cond, update, body, start);
+        return new ForStatementAst(label, init, cond, update, body, start);
     }
 
-    private ForEachStatementAst ParseForEachStatement()
+    private ForEachStatementAst ParseForEachStatement(string? label = null)
     {
         var start = ConsumeKeyword("foreach").Location;
         Consume(TokenKind.LParen);
         SkipNewlines();
         var varToken = Consume(TokenKind.Variable);
         var (scope, name) = ((string? Scope, string Name))varToken.Value!;
-        if (scope != null)
-            throw new PwshParseException("foreach variable cannot have a scope qualifier.", varToken.Location);
         if (!IsKeyword("in"))
             throw new PwshParseException("Expected 'in' in foreach statement.", Current.Location);
         Advance();
@@ -1579,10 +2205,10 @@ public sealed class Parser
         Consume(TokenKind.RParen);
         SkipNewlines();
         var body = ParseBraceBlock();
-        return new ForEachStatementAst(name, collection, body, start);
+        return new ForEachStatementAst(label, scope, name, collection, body, start);
     }
 
-    private SwitchStatementAst ParseSwitchStatement()
+    private SwitchStatementAst ParseSwitchStatement(string? label = null)
     {
         var start = ConsumeKeyword("switch").Location;
         bool isWildcard = false;
@@ -1596,11 +2222,19 @@ public sealed class Parser
                 isWildcard = true;
             SkipNewlines();
         }
-        Consume(TokenKind.LParen);
-        SkipNewlines();
-        var cond = ParseLogicalOr();
-        SkipNewlines();
-        Consume(TokenKind.RParen);
+        ExpressionAst cond;
+        if (IsAt(TokenKind.LParen))
+        {
+            Advance();
+            SkipNewlines();
+            cond = ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
+            SkipNewlines();
+            Consume(TokenKind.RParen);
+        }
+        else
+        {
+            cond = ParseCommandCapableValueExpression(allowCommaList: true, allowPipeline: true);
+        }
         SkipNewlines();
         Consume(TokenKind.LBrace);
         SkipNewlinesAndSemicolons();
@@ -1617,7 +2251,7 @@ public sealed class Parser
                 SkipNewlinesAndSemicolons();
                 continue;
             }
-            var pattern = ParseLogicalOr();
+            var pattern = ParseSwitchPattern();
             SkipNewlines();
             var body = ParseBraceBlock();
             cases.Add((pattern, body));
@@ -1626,16 +2260,25 @@ public sealed class Parser
         if (IsAt(TokenKind.EndOfInput))
             throw new PwshIncompleteInputException("Unterminated switch statement.", start);
         Consume(TokenKind.RBrace);
-        return new SwitchStatementAst(isWildcard, cond, cases, defaultBody, start);
+        return new SwitchStatementAst(label, isWildcard, cond, cases, defaultBody, start);
+    }
+
+    private ExpressionAst ParseSwitchPattern()
+    {
+        if (IsAt(TokenKind.Identifier) || IsNumericCommandStart())
+            return ParseBareWord();
+
+        return ParseLogicalOr();
     }
 
     private BreakStatementAst ParseBreakStatement()
     {
         var start = ConsumeKeyword("break").Location;
         string? label = null;
-        if (IsAt(TokenKind.Identifier) && !IsStatementTerminator())
+        if ((IsAt(TokenKind.Identifier) || IsAt(TokenKind.Variable)) && !IsStatementTerminator())
         {
-            label = Current.Text; Advance();
+            label = Current.Text;
+            Advance();
         }
         return new BreakStatementAst(label, start);
     }
@@ -1644,9 +2287,10 @@ public sealed class Parser
     {
         var start = ConsumeKeyword("continue").Location;
         string? label = null;
-        if (IsAt(TokenKind.Identifier) && !IsStatementTerminator())
+        if ((IsAt(TokenKind.Identifier) || IsAt(TokenKind.Variable)) && !IsStatementTerminator())
         {
-            label = Current.Text; Advance();
+            label = Current.Text;
+            Advance();
         }
         return new ContinueStatementAst(label, start);
     }
@@ -1749,9 +2393,7 @@ public sealed class Parser
     private FunctionDefinitionAst ParseFunctionDefinition()
     {
         var start = Advance().Location; // 'function' or 'filter'
-        if (!IsAt(TokenKind.Identifier))
-            throw new PwshParseException("Expected function name.", Current.Location);
-        var name = GetLiteralText(ParseBareWord());
+        var name = ParseFunctionName();
         SkipNewlines();
 
         // Real pwsh supports `function name (a, b) { body }` as a shorthand for the
@@ -1810,16 +2452,18 @@ public sealed class Parser
         ScriptAst? beginBlock = null;
         ScriptAst? processBlock = null;
         ScriptAst? endBlock = null;
+        ScriptAst? cleanBlock = null;
         ScriptAst? simpleBody = null;
 
-        // Pipeline-participating form: one or more of begin/process/end labels at top level.
-        if (IsKeyword("begin") || IsKeyword("process") || IsKeyword("end"))
+        // Pipeline-participating form: one or more of begin/process/end/clean labels at top level.
+        if (IsKeyword("begin") || IsKeyword("process") || IsKeyword("end") || IsKeyword("clean"))
         {
             while (!IsAt(TokenKind.RBrace) && !IsAt(TokenKind.EndOfInput))
             {
                 if (IsKeyword("begin")) { Advance(); SkipNewlines(); beginBlock = ParseBraceBlock(); }
                 else if (IsKeyword("process")) { Advance(); SkipNewlines(); processBlock = ParseBraceBlock(); }
                 else if (IsKeyword("end")) { Advance(); SkipNewlines(); endBlock = ParseBraceBlock(); }
+                else if (IsKeyword("clean")) { Advance(); SkipNewlines(); cleanBlock = ParseBraceBlock(); }
                 else break;
                 SkipNewlinesAndSemicolons();
             }
@@ -1840,7 +2484,7 @@ public sealed class Parser
             throw new PwshIncompleteInputException("Unterminated function body.", start);
         Consume(TokenKind.RBrace);
 
-        return new FunctionDefinitionAst(name, parameters, beginBlock, processBlock, endBlock, simpleBody, start);
+        return new FunctionDefinitionAst(name, parameters, beginBlock, processBlock, endBlock, cleanBlock, simpleBody, start);
     }
 
     /// <summary>
@@ -1906,12 +2550,12 @@ public sealed class Parser
                 SkipNewlines();
                 consumed = true;
             }
-            if (type == null && IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
-            {
-                type = ParseTypeLiteral();
-                SkipNewlines();
-                consumed = true;
-            }
+                if (IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
+                {
+                    type = ParseTypeLiteral();
+                    SkipNewlines();
+                    consumed = true;
+                }
             if (!consumed)
                 break;
         }
@@ -1935,6 +2579,13 @@ public sealed class Parser
             throw new PwshParseException("Expected class name.", Current.Location);
         var name = Advance().Text;
         SkipNewlines();
+        if (IsAt(TokenKind.Colon))
+        {
+            Advance();
+            SkipNewlines();
+            ConsumeBaseTypeClause();
+            SkipNewlines();
+        }
         Consume(TokenKind.LBrace);
         SkipNewlinesAndSemicolons();
 
@@ -1945,10 +2596,41 @@ public sealed class Parser
         {
             var memberLoc = Current.Location;
             TypeLiteralAst? typeLit = null;
-            if (IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
+            bool isStatic = false;
+
+            while (true)
             {
-                typeLit = ParseTypeLiteral();
-                SkipNewlines();
+                bool consumed = false;
+                while (IsAttributeSpec())
+                {
+                    ConsumeAttributeSpec();
+                    SkipNewlines();
+                    consumed = true;
+                }
+                if (typeLit == null && IsAt(TokenKind.LBracket) && LooksLikeTypeLiteral())
+                {
+                    typeLit = ParseTypeLiteral();
+                    SkipNewlines();
+                    consumed = true;
+                    continue;
+                }
+                if (IsIdentifierValue("static"))
+                {
+                    isStatic = true;
+                    Advance();
+                    SkipNewlines();
+                    consumed = true;
+                    continue;
+                }
+                if (IsIdentifierValue("hidden"))
+                {
+                    Advance();
+                    SkipNewlines();
+                    consumed = true;
+                    continue;
+                }
+                if (!consumed)
+                    break;
             }
 
             // Either a property (`$name` … `;`/newline) or a method (identifier `(`) or a
@@ -1965,7 +2647,7 @@ public sealed class Parser
                     SkipNewlines();
                     defaultVal = ParseLogicalOr();
                 }
-                properties.Add(new ClassPropertyAst(propName, typeLit, defaultVal, IsStatic: false, memberLoc));
+                properties.Add(new ClassPropertyAst(propName, typeLit, defaultVal, isStatic, memberLoc));
                 SkipNewlinesAndSemicolons();
                 continue;
             }
@@ -1990,9 +2672,14 @@ public sealed class Parser
                 }
                 Consume(TokenKind.RParen);
                 SkipNewlines();
+                if (IsAt(TokenKind.Colon))
+                {
+                    SkipConstructorInitializer();
+                    SkipNewlines();
+                }
                 var body = ParseBraceBlock();
                 bool isConstructor = methodName.Equals(name, StringComparison.OrdinalIgnoreCase);
-                methods.Add(new ClassMethodAst(methodName, parameters, typeLit, body, IsStatic: false, IsConstructor: isConstructor, memberLoc));
+                methods.Add(new ClassMethodAst(methodName, parameters, typeLit, body, isStatic, isConstructor, memberLoc));
                 SkipNewlinesAndSemicolons();
                 continue;
             }
@@ -2006,6 +2693,75 @@ public sealed class Parser
         return new ClassDefinitionAst(name, properties, methods, start);
     }
 
+    private void ConsumeBaseTypeClause()
+    {
+        _ = ParseBareTypeLiteral();
+        SkipNewlines();
+        while (IsAt(TokenKind.Comma))
+        {
+            Advance();
+            SkipNewlines();
+            _ = ParseBareTypeLiteral();
+            SkipNewlines();
+        }
+    }
+
+    private void SkipConstructorInitializer()
+    {
+        Consume(TokenKind.Colon);
+        SkipNewlines();
+        if (!IsAt(TokenKind.Identifier))
+            throw new PwshParseException("Expected constructor initializer target.", Current.Location);
+        Advance();
+        SkipNewlines();
+        Consume(TokenKind.LParen);
+        SkipNewlines();
+        if (!IsAt(TokenKind.RParen))
+        {
+            _ = ParseAssignmentExpression();
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                _ = ParseAssignmentExpression();
+                SkipNewlines();
+            }
+        }
+        Consume(TokenKind.RParen);
+    }
+
+    private TypeLiteralAst ParseBareTypeLiteral()
+    {
+        var start = Current.Location;
+        var typeName = ParseTypeName();
+        var genericArgs = new List<TypeLiteralAst>();
+        int arrayRank = 0;
+        while (IsAt(TokenKind.LBracket))
+        {
+            if (TryConsumeArrayTypeSuffix())
+            {
+                arrayRank++;
+                continue;
+            }
+
+            Advance();
+            SkipNewlines();
+            genericArgs.Add(ParseTypeLiteralInner());
+            SkipNewlines();
+            while (IsAt(TokenKind.Comma))
+            {
+                Advance();
+                SkipNewlines();
+                genericArgs.Add(ParseTypeLiteralInner());
+                SkipNewlines();
+            }
+            Consume(TokenKind.RBracket);
+        }
+
+        return new TypeLiteralAst(typeName, genericArgs, arrayRank, start);
+    }
+
     private EnumDefinitionAst ParseEnumDefinition()
     {
         var start = ConsumeKeyword("enum").Location;
@@ -2013,6 +2769,14 @@ public sealed class Parser
             throw new PwshParseException("Expected enum name.", Current.Location);
         var name = Advance().Text;
         SkipNewlines();
+        TypeLiteralAst? underlyingType = null;
+        if (IsAt(TokenKind.Colon))
+        {
+            Advance();
+            SkipNewlines();
+            underlyingType = ParseBareTypeLiteral();
+            SkipNewlines();
+        }
         Consume(TokenKind.LBrace);
         SkipNewlinesAndSemicolons();
 
@@ -2023,14 +2787,13 @@ public sealed class Parser
                 throw new PwshParseException("Expected enum member name.", Current.Location);
             var memberLoc = Current.Location;
             var memberName = Advance().Text;
-            long? value = null;
+            ExpressionAst? value = null;
             SkipNewlines();
             if (IsAt(TokenKind.Equal))
             {
                 Advance();
                 SkipNewlines();
-                var valToken = Consume(TokenKind.Number);
-                value = Convert.ToInt64(valToken.Value, System.Globalization.CultureInfo.InvariantCulture);
+                value = ParseAssignmentExpression();
             }
             members.Add(new EnumMemberAst(memberName, value, memberLoc));
             SkipNewlinesAndSemicolons();
@@ -2039,7 +2802,7 @@ public sealed class Parser
         if (IsAt(TokenKind.EndOfInput))
             throw new PwshIncompleteInputException("Unterminated enum definition.", start);
         Consume(TokenKind.RBrace);
-        return new EnumDefinitionAst(name, members, start);
+        return new EnumDefinitionAst(name, underlyingType, members, start);
     }
 
     private ScriptAst ParseBraceBlock()
@@ -2053,13 +2816,7 @@ public sealed class Parser
             var stmt = ParseStatement();
             statements.Add(stmt);
             if (IsAt(TokenKind.RBrace) || IsAt(TokenKind.EndOfInput)) break;
-            // A param() block at the top of a scriptblock is separator-terminated by its
-            // closing `)` — `{ param($x) body }` is valid pwsh on a single line. Allow
-            // the following statement without a newline/semicolon when the previous one
-            // came from ParseTopLevelParamBlock (which is the only emitter of
-            // BlockStatementAst / AssignmentStatementAst-from-param in Phase 1).
-            bool afterParam = IsFromParamBlock(stmt);
-            if (!afterParam && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
+            if (!AllowsImplicitStatementSeparator(stmt) && !IsAt(TokenKind.NewLine) && !IsAt(TokenKind.Semicolon))
                 throw new PwshParseException(
                     $"Expected statement separator, got {Current.Kind} '{Current.Text}'.", Current.Location);
             SkipNewlinesAndSemicolons();
@@ -2084,6 +2841,11 @@ public sealed class Parser
         // param-block's own source location).
         return stmt is BlockStatementAst;
     }
+
+    private static bool AllowsImplicitStatementSeparator(StatementAst stmt)
+        => stmt is BlockStatementAst or IfStatementAst or WhileStatementAst or DoWhileStatementAst
+            or ForStatementAst or ForEachStatementAst or SwitchStatementAst or TryStatementAst
+            or FunctionDefinitionAst or ClassDefinitionAst or EnumDefinitionAst;
 
     private bool IsPathLikeCommand()
     {
@@ -2137,5 +2899,81 @@ public sealed class Parser
             stages.Add(ParsePipelineStage());
         }
         return new PipelineAst(stages, loc);
+    }
+
+    private bool IsPipelineChainOperator()
+        => (IsAt(TokenKind.OpAnd) || IsAt(TokenKind.OpOr)) &&
+           (Current.Text == "&&" || Current.Text == "||");
+
+    private bool IsBackgroundSuffix()
+        => IsAt(TokenKind.Ampersand);
+
+    private bool TryConsumeBackgroundSuffix()
+    {
+        if (!IsBackgroundSuffix())
+            return false;
+
+        Advance();
+        return true;
+    }
+
+    private StatementAst ParseSimpleCommandPipeline(SourceLocation loc)
+    {
+        var first = ParseCommandStage();
+        if (!IsAt(TokenKind.Pipe))
+        {
+            var single = new PipelineAst(new AstNode[] { first }, loc);
+            TryConsumeBackgroundSuffix();
+            return single;
+        }
+
+        var stages = new List<AstNode> { first };
+        while (IsAt(TokenKind.Pipe))
+        {
+            Advance();
+            SkipNewlines();
+            stages.Add(ParsePipelineStage());
+        }
+
+        var pipeline = new PipelineAst(stages, loc);
+        TryConsumeBackgroundSuffix();
+        return pipeline;
+    }
+
+    private ExpressionAst WrapStatementAsSubExpression(StatementAst statement, SourceLocation loc)
+        => new SubExpressionAst(new ScriptAst(new[] { statement }, loc), loc);
+
+    private ExpressionAst ParsePipelineChainOperand()
+    {
+        var loc = Current.Location;
+        if (IsCommandPipelineStart())
+            return WrapStatementAsSubExpression(ParseSimpleCommandPipeline(loc), loc);
+
+        return ParseLogicalOr();
+    }
+
+    private string ParseFunctionName()
+    {
+        var sb = new System.Text.StringBuilder();
+        int endOffset = Current.Location.Offset;
+
+        while (!IsAt(TokenKind.EndOfInput) &&
+               !IsAt(TokenKind.NewLine) &&
+               !IsAt(TokenKind.Semicolon) &&
+               !IsAt(TokenKind.LParen) &&
+               !IsAt(TokenKind.LBrace))
+        {
+            if (sb.Length > 0 && Current.Location.Offset != endOffset)
+                break;
+
+            sb.Append(GetCommandTextTokenText(Current));
+            endOffset = Current.Location.Offset + Current.Location.Length;
+            Advance();
+        }
+
+        if (sb.Length == 0)
+            throw new PwshParseException("Expected function name.", Current.Location);
+
+        return sb.ToString();
     }
 }

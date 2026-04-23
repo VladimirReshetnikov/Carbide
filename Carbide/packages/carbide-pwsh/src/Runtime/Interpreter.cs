@@ -119,8 +119,8 @@ public sealed class Interpreter
         while (Coercion.CoerceToBool(Eval(ast.Condition)))
         {
             try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
-            catch (PwshBreakException) { break; }
-            catch (PwshContinueException) { continue; }
+            catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { break; }
+            catch (PwshContinueException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { continue; }
         }
         return CollectResults(results);
     }
@@ -131,8 +131,8 @@ public sealed class Interpreter
         do
         {
             try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
-            catch (PwshBreakException) { break; }
-            catch (PwshContinueException) { continue; }
+            catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { break; }
+            catch (PwshContinueException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { continue; }
         } while (ast.IsUntil
             ? !Coercion.CoerceToBool(Eval(ast.Condition))
             : Coercion.CoerceToBool(Eval(ast.Condition)));
@@ -147,8 +147,8 @@ public sealed class Interpreter
         {
             if (ast.Condition != null && !Coercion.CoerceToBool(Eval(ast.Condition))) break;
             try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
-            catch (PwshBreakException) { break; }
-            catch (PwshContinueException) { /* fall through to update */ }
+            catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { break; }
+            catch (PwshContinueException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { /* fall through to update */ }
             if (ast.Update != null) EvaluateStatement(ast.Update);
         }
         return CollectResults(results);
@@ -168,10 +168,10 @@ public sealed class Interpreter
         };
         foreach (var item in items)
         {
-            Scope.Set(null, ast.VariableName, item);
+            Scope.Set(ast.VariableScope, ast.VariableName, item);
             try { var v = Evaluate(ast.Body); if (v != null) results.Add(v); }
-            catch (PwshBreakException) { break; }
-            catch (PwshContinueException) { continue; }
+            catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { break; }
+            catch (PwshContinueException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { continue; }
         }
         return CollectResults(results);
     }
@@ -186,13 +186,13 @@ public sealed class Interpreter
             if ((bool)Operators.Binary(op, value, patternValue)!)
             {
                 try { return Evaluate(body); }
-                catch (PwshBreakException) { return null; }
+                catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { return null; }
             }
         }
         if (ast.DefaultBody != null)
         {
             try { return Evaluate(ast.DefaultBody); }
-            catch (PwshBreakException) { return null; }
+            catch (PwshBreakException ex) when (ShouldConsumeLoopControl(ex.Label, ast.Label)) { return null; }
         }
         return null;
     }
@@ -205,6 +205,15 @@ public sealed class Interpreter
             1 => results[0],
             _ => results.ToArray(),
         };
+    }
+
+    private static bool ShouldConsumeLoopControl(string? requestedLabel, string? currentLabel)
+    {
+        if (requestedLabel == null)
+            return true;
+
+        return currentLabel != null &&
+            requestedLabel.Equals(currentLabel, StringComparison.OrdinalIgnoreCase);
     }
 
     // ---------- Error handling ----------
@@ -301,7 +310,9 @@ public sealed class Interpreter
         long next = 0;
         foreach (var m in ast.Members)
         {
-            var value = m.Value ?? next;
+            var value = m.ValueExpression != null
+                ? Convert.ToInt64(Eval(m.ValueExpression), System.Globalization.CultureInfo.InvariantCulture)
+                : next;
             members[m.Name] = value;
             next = value + 1;
         }
@@ -356,6 +367,17 @@ public sealed class Interpreter
             case VariableAst v:
                 Scope.Set(v.Scope, v.Name, value);
                 return;
+            case CastExpressionAst c when c.Value is VariableAst v:
+            {
+                var coerced = value;
+                if (coerced != null)
+                {
+                    var targetType = (Type)ResolveTypeExpression(c.TargetType);
+                    coerced = Coercion.To(coerced, targetType);
+                }
+                Scope.Set(v.Scope, v.Name, coerced);
+                return;
+            }
             case MemberAccessAst m when !m.IsInvocation:
             {
                 var receiver = Eval(m.Target);
@@ -636,6 +658,11 @@ public sealed class Interpreter
             if (Coercion.CoerceToBool(l)) return true;
             return Coercion.CoerceToBool(Eval(b.Right));
         }
+        if (b.Op == BinaryOp.Coalesce)
+        {
+            var l = Eval(b.Left);
+            return l ?? Eval(b.Right);
+        }
         return Operators.Binary(b.Op, Eval(b.Left), Eval(b.Right));
     }
 
@@ -760,6 +787,11 @@ public sealed class Interpreter
                     var args = arguments!.Select(Eval).ToList();
                     return ConstructInstance(cls, args, location);
                 }
+                if (isInvocation && cls.StaticMethods.TryGetValue(memberName, out var staticMethod))
+                {
+                    var args = arguments!.Select(Eval).ToList();
+                    return InvokeStaticClassMethod(staticMethod, args);
+                }
                 throw new PwshRuntimeException(
                     $"Static '{memberName}' is not supported on user-defined class [{cls.Name}] in Phase 3.",
                     location);
@@ -790,7 +822,7 @@ public sealed class Interpreter
         {
             if (isInvocation)
             {
-                if (!inst.Class.Methods.TryGetValue(memberName, out var method))
+                if (!inst.Class.InstanceMethods.TryGetValue(memberName, out var method))
                     throw new PwshRuntimeException(
                         $"Method '{memberName}' not found on class [{inst.Class.Name}].", location);
                 var args = arguments!.Select(Eval).ToList();
@@ -892,11 +924,17 @@ public sealed class Interpreter
         return RunMethod(instance, method, args);
     }
 
-    private object? RunMethod(RuntimeInstance instance, ClassMethodAst method, IReadOnlyList<object?> args)
+    private object? InvokeStaticClassMethod(ClassMethodAst method, IReadOnlyList<object?> args)
+    {
+        return RunMethod(null, method, args);
+    }
+
+    private object? RunMethod(RuntimeInstance? instance, ClassMethodAst method, IReadOnlyList<object?> args)
     {
         using (Scope.Push(ScopeKind.Function))
         {
-            Scope.Set(null, "this", instance);
+            if (instance != null)
+                Scope.Set(null, "this", instance);
             // Bind parameters positionally.
             int i = 0;
             foreach (var p in method.Parameters)

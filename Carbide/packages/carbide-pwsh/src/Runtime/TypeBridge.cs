@@ -379,6 +379,18 @@ public sealed class TypeBridge
         }
         if (target is string s)
         {
+            if (TryGetIndexList(index, out var stringIndices))
+            {
+                var slice = new List<object?>();
+                foreach (var rawIndex in stringIndices)
+                {
+                    var normalized = NormalizeIndex(rawIndex, s.Length);
+                    if (normalized >= 0 && normalized < s.Length)
+                        slice.Add(s[normalized]);
+                }
+                return slice.ToArray();
+            }
+
             var i = (int)Coercion.ToInt64(index);
             if (i < 0) i += s.Length;
             if (i < 0 || i >= s.Length) return null;
@@ -386,14 +398,27 @@ public sealed class TypeBridge
         }
         if (target is Array arr)
         {
-            if (index is Array ia) // indexer with an array of indices returns slice
+            if (TryGetIndexList(index, out var arrayIndices))
             {
-                var list = new List<object?>();
-                foreach (var ind in ia)
+                if (arr.Rank > 1 && arrayIndices.Count == arr.Rank)
                 {
-                    var i2 = (int)Coercion.ToInt64(ind);
-                    if (i2 < 0) i2 += arr.Length;
-                    if (i2 >= 0 && i2 < arr.Length) list.Add(arr.GetValue(i2));
+                    var multidimensional = new int[arrayIndices.Count];
+                    for (int axis = 0; axis < arrayIndices.Count; axis++)
+                    {
+                        multidimensional[axis] = NormalizeIndex(arrayIndices[axis], arr.GetLength(axis));
+                        if (multidimensional[axis] < 0 || multidimensional[axis] >= arr.GetLength(axis))
+                            return null;
+                    }
+
+                    return arr.GetValue(multidimensional);
+                }
+
+                var list = new List<object?>();
+                foreach (var ind in arrayIndices)
+                {
+                    var normalized = NormalizeIndex(ind, arr.Length);
+                    if (normalized >= 0 && normalized < arr.Length)
+                        list.Add(arr.GetValue(normalized));
                 }
                 return list.ToArray();
             }
@@ -404,6 +429,18 @@ public sealed class TypeBridge
         }
         if (target is System.Collections.IList list2)
         {
+            if (TryGetIndexList(index, out var listIndices))
+            {
+                var slice = new List<object?>();
+                foreach (var ind in listIndices)
+                {
+                    var normalized = NormalizeIndex(ind, list2.Count);
+                    if (normalized >= 0 && normalized < list2.Count)
+                        slice.Add(list2[normalized]);
+                }
+                return slice.ToArray();
+            }
+
             var i = (int)Coercion.ToInt64(index);
             if (i < 0) i += list2.Count;
             if (i < 0 || i >= list2.Count) return null;
@@ -421,6 +458,32 @@ public sealed class TypeBridge
             }
         }
         throw new PwshRuntimeException($"Values of type [{type.FullName}] are not indexable.", location);
+    }
+
+    private static bool TryGetIndexList(object? index, out List<object?> indices)
+    {
+        if (index is Array array)
+        {
+            indices = array.Cast<object?>().ToList();
+            return true;
+        }
+
+        if (index is System.Collections.IEnumerable enumerable && index is not string)
+        {
+            indices = enumerable.Cast<object?>().ToList();
+            return true;
+        }
+
+        indices = null!;
+        return false;
+    }
+
+    private static int NormalizeIndex(object? index, int length)
+    {
+        var normalized = (int)Coercion.ToInt64(index);
+        if (normalized < 0)
+            normalized += length;
+        return normalized;
     }
 
     // ---------------- Helpers ----------------

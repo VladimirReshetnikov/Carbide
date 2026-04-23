@@ -44,6 +44,14 @@ public class InterpreterTests
     }
 
     [Fact]
+    public void BracedUnicodeVariableAssignAndRead()
+    {
+        var interp = new Interpreter();
+        EvalShared(interp, "${fooxyzzy`u{2195}} = 42");
+        Assert.Equal(42, EvalShared(interp, "${fooxyzzy`u{2195}}"));
+    }
+
+    [Fact]
     public void StringInterpolation()
     {
         var interp = new Interpreter();

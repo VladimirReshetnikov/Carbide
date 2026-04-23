@@ -1,4 +1,5 @@
 using CarbidePwsh.Lexer;
+using System.Numerics;
 using Xunit;
 using PwshLexer = CarbidePwsh.Lexer.Lexer;
 
@@ -40,6 +41,14 @@ public class LexerTests
     }
 
     [Fact]
+    public void LexesTrailingDotDoubleLiteral()
+    {
+        var t = Tokens("20.");
+        Assert.Equal(TokenKind.Number, t[0].Kind);
+        Assert.Equal(20.0, (double)t[0].Value!);
+    }
+
+    [Fact]
     public void LexesExponentLiteral()
     {
         var t = Tokens("1.5e-3");
@@ -73,6 +82,45 @@ public class LexerTests
         Assert.Single(t);
         Assert.Equal(TokenKind.Number, t[0].Kind);
         Assert.Equal(new Version(6, 3, 7600), Assert.IsType<Version>(t[0].Value));
+    }
+
+    [Fact]
+    public void LexesNullCoalescingOperator()
+    {
+        Assert.Equal(
+            new[] { TokenKind.Variable, TokenKind.QuestionQuestion, TokenKind.String },
+            Kinds("$x ?? 'fallback'"));
+    }
+
+    [Fact]
+    public void TreatsUnicodeWhitespaceAsWhitespace()
+    {
+        Assert.Equal(new[] { TokenKind.Identifier, TokenKind.Identifier }, Kinds("Write-Host\u00A0ok"));
+    }
+
+    [Fact]
+    public void LongDottedOidLexesAsIdentifier()
+    {
+        var token = Tokens("1.3.6.1.5.5.7.3.1").Single();
+        Assert.Equal(TokenKind.Identifier, token.Kind);
+        Assert.Equal("1.3.6.1.5.5.7.3.1", token.Text);
+    }
+
+    [Fact]
+    public void LexesLargeHexLiteralAsBigInteger()
+    {
+        var token = Tokens("0x07FFFFFFFFFFFFFFFF").Single();
+        Assert.Equal(TokenKind.Number, token.Kind);
+        Assert.Equal(BigInteger.Parse("07FFFFFFFFFFFFFFFF", System.Globalization.NumberStyles.HexNumber), token.Value);
+    }
+
+    [Theory]
+    [InlineData("-split")]
+    [InlineData("-isplit")]
+    [InlineData("-csplit")]
+    public void LexesSplitOperatorVariants(string input)
+    {
+        Assert.Equal(TokenKind.OpSplit, Tokens(input).Single().Kind);
     }
 
     [Fact]
@@ -149,6 +197,24 @@ public class LexerTests
         var (scope, name) = ((string? Scope, string Name))t[0].Value!;
         Assert.Null(scope);
         Assert.Equal("my name", name);
+    }
+
+    [Fact]
+    public void LexesBracedVariableWithUnicodeEscape()
+    {
+        var t = Tokens("${fooxyzzy`u{2195}}");
+        var (scope, name) = ((string? Scope, string Name))t[0].Value!;
+        Assert.Null(scope);
+        Assert.Equal("fooxyzzy↕", name);
+    }
+
+    [Fact]
+    public void LexesStatementStartNumericRedirectionAsNumberThenRedirection()
+    {
+        var t = Tokens("1>>variable:a");
+        Assert.Equal(new[] { TokenKind.Number, TokenKind.Redirection, TokenKind.Identifier, TokenKind.Colon, TokenKind.Identifier }, t.Select(static token => token.Kind));
+        Assert.Equal(1, Assert.IsType<int>(t[0].Value));
+        Assert.Equal(">>", t[1].Text);
     }
 
     [Theory]

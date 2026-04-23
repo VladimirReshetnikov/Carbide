@@ -24,12 +24,14 @@ public enum BinaryOp
     Like, ILike, CLike, NotLike, INotLike, CNotLike,
     Contains, ICContains, CContains, NotContains, INotContains, CNotContains,
     In, NotIn, CIn, CNotIn, IIn, INotIn,
+    Coalesce,
     Format, Join, Split,
 }
 
 public enum UnaryOp
 {
     Plus, Negate, Not, BNot,
+    Join, Split,
     PreIncrement, PreDecrement, PostIncrement, PostDecrement,
 }
 

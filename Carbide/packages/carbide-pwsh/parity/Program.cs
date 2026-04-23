@@ -18,6 +18,11 @@ if (args.Length >= 1 && args[0] == "parse")
     return CarbidePwsh.Parity.ParseFile.Run(args);
 }
 
+if (args.Length >= 1 && args[0] == "audit")
+{
+    return CarbidePwsh.Parity.BatchParseAudit.Run(args);
+}
+
 var pwshPath = Environment.GetEnvironmentVariable("PWSH")
     ?? @"C:\Program Files\PowerShell\7\pwsh.exe";
 

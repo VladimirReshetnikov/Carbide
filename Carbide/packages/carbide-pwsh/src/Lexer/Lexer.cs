@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text;
 using CarbidePwsh.Errors;
 
@@ -84,6 +85,8 @@ public sealed class Lexer
         ["f"] = TokenKind.OpFormat,
         ["join"] = TokenKind.OpJoin,
         ["split"] = TokenKind.OpSplit,
+        ["isplit"] = TokenKind.OpSplit,
+        ["csplit"] = TokenKind.OpSplit,
     };
 
     private static readonly Dictionary<string, long> NumericSuffixMultipliers = new(StringComparer.OrdinalIgnoreCase)
@@ -148,10 +151,10 @@ public sealed class Lexer
             return LexRedirection();
         if (IsDigit(ch) || (ch == '.' && IsDigit(Peek(1))))
             return LexNumber();
-        if (ch == '"')
-            return LexDoubleQuoted();
-        if (ch == '\'')
-            return LexSingleQuoted();
+        if (IsDoubleQuoteChar(ch))
+            return LexDoubleQuoted(ch, MatchingDoubleQuote(ch));
+        if (IsSingleQuoteChar(ch))
+            return LexSingleQuoted(ch, MatchingSingleQuote(ch));
         if (ch == '@' && Peek(1) == '"')
             return LexDoubleQuotedHereString();
         if (ch == '@' && Peek(1) == '\'')
@@ -162,6 +165,8 @@ public sealed class Lexer
         if (ch == '@' && Peek(1) == '{') { return TwoCharToken(TokenKind.AtLBrace, "@{"); }
         if (ch == '@' && IsIdentifierStart(Peek(1)))
             return LexSplat();
+        if (ch == '@') return OneCharTextToken(TokenKind.Identifier, "@", "@");
+        if (ch == '`') return LexBacktickText();
         if (ch == '(' ) return OneCharToken(TokenKind.LParen, "(");
         if (ch == ')' ) return OneCharToken(TokenKind.RParen, ")");
         if (ch == '[' ) return OneCharToken(TokenKind.LBracket, "[");
@@ -173,8 +178,10 @@ public sealed class Lexer
 
         if (ch == ':' && Peek(1) == ':') return TwoCharToken(TokenKind.ColonColon, "::");
         if (ch == ':') return OneCharToken(TokenKind.Colon, ":");
+        if (ch == '?' && Peek(1) == '?') return TwoCharToken(TokenKind.QuestionQuestion, "??");
         if (ch == '?') return OneCharToken(TokenKind.Question, "?");
         if (ch == '.' && Peek(1) == '.') return TwoCharToken(TokenKind.DotDot, "..");
+        if (ch == '.' && (Peek(1) == '\\' || Peek(1) == '/')) return LexGenericText();
         if (ch == '.') return OneCharToken(TokenKind.Dot, ".");
 
         if (ch == '=') return OneCharToken(TokenKind.Equal, "=");
@@ -191,14 +198,21 @@ public sealed class Lexer
         if (ch == '\\') return OneCharToken(TokenKind.Backslash, "\\");
         if (ch == '%') return OneCharToken(TokenKind.Percent, "%");
         if (ch == '!') return OneCharToken(TokenKind.Bang, "!");
+        if (ch == '|' && Peek(1) == '|') return TwoCharToken(TokenKind.OpOr, "||");
         if (ch == '|') return OneCharToken(TokenKind.Pipe, "|");
+        if (ch == '&' && Peek(1) == '&') return TwoCharToken(TokenKind.OpAnd, "&&");
         if (ch == '&') return OneCharToken(TokenKind.Ampersand, "&");
+        if (ch == '^') return OneCharTextToken(TokenKind.Identifier, "^", "^");
+        if (ch == '~') return OneCharTextToken(TokenKind.Identifier, "~", "~");
 
         if (IsDashLike(ch))
             return LexDashOperatorOrMinus();
 
         if (IsIdentifierStart(ch))
             return LexIdentifier();
+
+        if (CanStartGenericText(ch))
+            return LexGenericText();
 
         throw new PwshParseException($"Unexpected character '{ch}'.", CurrentLocation(1));
     }
@@ -240,16 +254,27 @@ public sealed class Lexer
                     segments++;
                 }
 
-                if (segments >= 3)
+                if (segments is >= 3 and <= 4)
                 {
                     while (_pos < probe) Advance();
                     isVersion = true;
+                }
+                else if (segments > 4)
+                {
+                    while (_pos < probe) Advance();
+                    var oidText = _source.Substring(startPos, _pos - startPos);
+                    return new Token(TokenKind.Identifier, oidText, oidText, LocationFrom(start));
                 }
                 else if (_pos < _source.Length && _source[_pos] == '.' && IsDigit(Peek(1)))
                 {
                     isFloat = true;
                     Advance();
                     while (_pos < _source.Length && IsDigit(_source[_pos])) Advance();
+                }
+                else if (_pos < _source.Length && _source[_pos] == '.' && Peek(1) != '.')
+                {
+                    isFloat = true;
+                    Advance();
                 }
             }
 
@@ -266,7 +291,8 @@ public sealed class Lexer
         var numericText = _source.Substring(startPos, _pos - startPos);
         long numericSuffixMultiplier = 1;
         bool hasNumericSuffix = !isVersion && TryConsumeNumericSuffix(out numericSuffixMultiplier);
-        bool hasLongSuffix = !isVersion && !hasNumericSuffix && !isFloat && TryConsumeLongSuffix();
+        string? numericTypeSuffix = !isVersion && !hasNumericSuffix ? TryConsumeNumericTypeSuffix() : null;
+        bool hasLongSuffix = !isVersion && !hasNumericSuffix && numericTypeSuffix is null && !isFloat && TryConsumeLongSuffix();
         var text = _source.Substring(startPos, _pos - startPos);
         object value;
         if (isVersion)
@@ -285,15 +311,47 @@ public sealed class Lexer
             }
             else
             {
-                throw new PwshParseException($"Invalid hex literal '{numericText}'.", LocationFrom(start));
+                if (BigInteger.TryParse(hexBody, System.Globalization.NumberStyles.HexNumber,
+                    System.Globalization.CultureInfo.InvariantCulture, out var big))
+                {
+                    value = big;
+                }
+                else
+                {
+                    throw new PwshParseException($"Invalid hex literal '{numericText}'.", LocationFrom(start));
+                }
             }
         }
         else if (isFloat)
         {
-            if (!double.TryParse(numericText, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var d))
+            if (string.Equals(numericTypeSuffix, "d", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!decimal.TryParse(numericText, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var dec))
+                    throw new PwshParseException($"Invalid numeric literal '{numericText}'.", LocationFrom(start));
+                value = dec;
+            }
+            else
+            {
+                if (!double.TryParse(numericText, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d))
+                    throw new PwshParseException($"Invalid numeric literal '{numericText}'.", LocationFrom(start));
+                value = d;
+            }
+        }
+        else if (string.Equals(numericTypeSuffix, "n", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!BigInteger.TryParse(numericText, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var big))
                 throw new PwshParseException($"Invalid numeric literal '{numericText}'.", LocationFrom(start));
-            value = d;
+            value = big;
+        }
+        else if (string.Equals(numericTypeSuffix, "d", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!decimal.TryParse(numericText, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var dec))
+                throw new PwshParseException($"Invalid numeric literal '{numericText}'.", LocationFrom(start));
+            value = dec;
         }
         else
         {
@@ -301,6 +359,11 @@ public sealed class Lexer
                 System.Globalization.CultureInfo.InvariantCulture, out var lv))
             {
                 value = hasLongSuffix || lv < int.MinValue || lv > int.MaxValue ? lv : (object)(int)lv;
+            }
+            else if (BigInteger.TryParse(numericText, System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture, out var big))
+            {
+                value = big;
             }
             else if (double.TryParse(numericText, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var d))
@@ -313,6 +376,17 @@ public sealed class Lexer
             }
         }
 
+        if (string.Equals(numericTypeSuffix, "uy", StringComparison.OrdinalIgnoreCase))
+        {
+            value = value switch
+            {
+                int i => unchecked((byte)i),
+                long l => unchecked((byte)l),
+                BigInteger big => (byte)big,
+                _ => value,
+            };
+        }
+
         if (hasNumericSuffix)
         {
             value = value switch
@@ -320,6 +394,7 @@ public sealed class Lexer
                 int i => checked((long)i * numericSuffixMultiplier),
                 long l => checked(l * numericSuffixMultiplier),
                 double d => d * numericSuffixMultiplier,
+                decimal m => m * numericSuffixMultiplier,
                 _ => value,
             };
         }
@@ -329,19 +404,19 @@ public sealed class Lexer
 
     // ---------- Strings ----------
 
-    private Token LexDoubleQuoted()
+    private Token LexDoubleQuoted(char opener, char closer)
     {
         var start = SnapshotLocation();
-        Advance(); // consume opening "
+        Advance();
         var parts = new List<StringPart>();
         var buf = new StringBuilder();
 
         while (_pos < _source.Length)
         {
             var c = _source[_pos];
-            if (c == '"')
+            if (IsMatchingQuote(c, opener, closer))
             {
-                if (Peek(1) == '"')
+                if (c == '"' && Peek(1) == '"')
                 {
                     buf.Append('"');
                     Advance();
@@ -357,23 +432,13 @@ public sealed class Lexer
                 Advance();
                 if (_pos >= _source.Length)
                     throw new PwshParseException("Unterminated backtick escape in string.", LocationFrom(start));
-                var esc = _source[_pos]; Advance();
-                buf.Append(esc switch
+                if (TryReadUnicodeEscapeAfterBacktick(out var unicode))
                 {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    '0' => '\0',
-                    'a' => '\a',
-                    'b' => '\b',
-                    'f' => '\f',
-                    'v' => '\v',
-                    '"' => '"',
-                    '\'' => '\'',
-                    '`' => '`',
-                    '$' => '$',
-                    _ => esc,
-                });
+                    buf.Append(unicode);
+                    continue;
+                }
+                var esc = _source[_pos]; Advance();
+                buf.Append(DecodeBacktickEscape(esc));
                 continue;
             }
             if (c == '$' && Peek(1) == '(')
@@ -386,6 +451,29 @@ public sealed class Lexer
                 while (_pos < _source.Length && depth > 0)
                 {
                     var cc = _source[_pos];
+                    if (cc == '`')
+                    {
+                        sb.Append(cc);
+                        Advance();
+                        if (_pos >= _source.Length)
+                            throw new PwshIncompleteInputException("Unterminated $(...) subexpression in string.", LocationFrom(exprLoc));
+                        if (_source[_pos] == 'u' && Peek(1) == '{')
+                        {
+                            sb.Append(_source[_pos]); Advance();
+                            sb.Append(_source[_pos]); Advance();
+                            while (_pos < _source.Length && _source[_pos] != '}')
+                            {
+                                sb.Append(_source[_pos]); Advance();
+                            }
+                            if (_pos < _source.Length)
+                            {
+                                sb.Append(_source[_pos]); Advance();
+                            }
+                            continue;
+                        }
+                        sb.Append(_source[_pos]); Advance();
+                        continue;
+                    }
                     if (cc == '(') depth++;
                     else if (cc == ')')
                     {
@@ -436,13 +524,9 @@ public sealed class Lexer
                 if (_pos < _source.Length && _source[_pos] == '{')
                 {
                     Advance(); // {
-                    var nameSb = new StringBuilder();
-                    while (_pos < _source.Length && _source[_pos] != '}')
-                    {
-                        nameSb.Append(_source[_pos]); Advance();
-                    }
+                    var nameText = ReadBracedVariableName(start);
                     if (_pos < _source.Length) Advance(); // }
-                    parts.Add(ParseVariableFragment(nameSb.ToString()));
+                    parts.Add(ParseVariableFragment(nameText));
                 }
                 else
                 {
@@ -451,15 +535,34 @@ public sealed class Lexer
                     {
                         nameSb.Append(_source[_pos]); Advance();
                     }
+                    if (_pos < _source.Length && _source[_pos] == '?')
+                    {
+                        nameSb.Append('?');
+                        Advance();
+                    }
                     var first = nameSb.ToString();
                     // Scope prefix? e.g. $env:PATH in string interpolation
-                    if (_pos < _source.Length && _source[_pos] == ':' && Peek(1) != ':' && IsIdentifierStart(Peek(1)))
+                    if (_pos < _source.Length && _source[_pos] == ':' && Peek(1) != ':' &&
+                        (IsIdentifierStart(Peek(1)) || IsScopedSpecialVariableChar(Peek(1))))
                     {
                         Advance(); // :
                         var nm = new StringBuilder();
-                        while (_pos < _source.Length && IsIdentifierPart(_source[_pos]))
+                        if (_pos < _source.Length && IsScopedSpecialVariableChar(_source[_pos]))
                         {
-                            nm.Append(_source[_pos]); Advance();
+                            nm.Append(_source[_pos]);
+                            Advance();
+                        }
+                        else
+                        {
+                            while (_pos < _source.Length && IsIdentifierPart(_source[_pos]))
+                            {
+                                nm.Append(_source[_pos]); Advance();
+                            }
+                            if (_pos < _source.Length && _source[_pos] == '?')
+                            {
+                                nm.Append('?');
+                                Advance();
+                            }
                         }
                         parts.Add(new VariablePart(first, nm.ToString()));
                     }
@@ -477,18 +580,18 @@ public sealed class Lexer
         throw new PwshIncompleteInputException("Unterminated double-quoted string.", LocationFrom(start));
     }
 
-    private Token LexSingleQuoted()
+    private Token LexSingleQuoted(char opener, char closer)
     {
         var start = SnapshotLocation();
-        Advance(); // consume opening '
+        Advance();
         var sb = new StringBuilder();
         while (_pos < _source.Length)
         {
             var c = _source[_pos];
-            if (c == '\'')
+            if (IsMatchingQuote(c, opener, closer))
             {
                 Advance();
-                if (_pos < _source.Length && _source[_pos] == '\'')
+                if (c == '\'' && _pos < _source.Length && _source[_pos] == '\'')
                 {
                     sb.Append('\''); Advance(); continue;
                 }
@@ -561,6 +664,38 @@ public sealed class Lexer
         return new VariablePart(null, inside);
     }
 
+    private string ReadBracedVariableName((int line, int col, int pos) start)
+    {
+        var nameSb = new StringBuilder();
+        while (_pos < _source.Length && _source[_pos] != '}')
+        {
+            if (_source[_pos] == '`')
+            {
+                Advance();
+                if (_pos >= _source.Length)
+                    throw new PwshParseException("Unterminated backtick escape in ${...} variable reference.", LocationFrom(start));
+                if (TryReadUnicodeEscapeAfterBacktick(out var unicode))
+                {
+                    nameSb.Append(unicode);
+                    continue;
+                }
+
+                var escaped = _source[_pos];
+                Advance();
+                nameSb.Append(DecodeBacktickEscape(escaped));
+                continue;
+            }
+
+            nameSb.Append(_source[_pos]);
+            Advance();
+        }
+
+        if (_pos >= _source.Length)
+            throw new PwshParseException("Unterminated ${...} variable reference.", LocationFrom(start));
+
+        return nameSb.ToString();
+    }
+
     // ---------- Dollar (variable or $() ) ----------
 
     private Token LexDollar()
@@ -575,16 +710,10 @@ public sealed class Lexer
         if (_pos < _source.Length && _source[_pos] == '{')
         {
             Advance();
-            var nameSb = new StringBuilder();
-            while (_pos < _source.Length && _source[_pos] != '}')
-            {
-                nameSb.Append(_source[_pos]); Advance();
-            }
-            if (_pos >= _source.Length)
-                throw new PwshParseException("Unterminated ${...} variable reference.", LocationFrom(start));
+            var nameText = ReadBracedVariableName(start);
             Advance(); // }
-            var v = ParseVariableFragment(nameSb.ToString());
-            return new Token(TokenKind.Variable, "${" + nameSb + "}", (v.Scope, v.Name), LocationFrom(start));
+            var v = ParseVariableFragment(nameText);
+            return new Token(TokenKind.Variable, "${" + nameText + "}", (v.Scope, v.Name), LocationFrom(start));
         }
 
         // Special single-char automatic variables: $?, $^, $$.
@@ -605,19 +734,40 @@ public sealed class Lexer
         }
         var first = nm.ToString();
         if (first.Length == 0)
-            throw new PwshParseException("Expected a variable name after '$'.", LocationFrom(start));
+            return new Token(TokenKind.Identifier, "$", "$", LocationFrom(start));
+
+        if (_pos < _source.Length && _source[_pos] == '?')
+        {
+            nm.Append('?');
+            Advance();
+            first = nm.ToString();
+        }
 
         string? scope = null;
         string name = first;
-        if (_pos < _source.Length && _source[_pos] == ':' && Peek(1) != ':' && IsIdentifierStart(Peek(1)))
+        if (_pos < _source.Length && _source[_pos] == ':' && Peek(1) != ':' &&
+            (IsIdentifierStart(Peek(1)) || IsScopedSpecialVariableChar(Peek(1))))
         {
             Advance(); // :
-            var nm2 = new StringBuilder();
-            while (_pos < _source.Length && IsIdentifierPart(_source[_pos]))
-            {
-                nm2.Append(_source[_pos]); Advance();
-            }
             scope = first;
+            var nm2 = new StringBuilder();
+            if (_pos < _source.Length && IsScopedSpecialVariableChar(_source[_pos]))
+            {
+                nm2.Append(_source[_pos]);
+                Advance();
+            }
+            else
+            {
+                while (_pos < _source.Length && IsIdentifierPart(_source[_pos]))
+                {
+                    nm2.Append(_source[_pos]); Advance();
+                }
+                if (_pos < _source.Length && _source[_pos] == '?')
+                {
+                    nm2.Append('?');
+                    Advance();
+                }
+            }
             name = nm2.ToString();
         }
 
@@ -672,7 +822,7 @@ public sealed class Lexer
         {
             var probe = _pos + 1;
             var sb = new StringBuilder();
-            while (probe < _source.Length && IsIdentifierPart(_source[probe]))
+            while (probe < _source.Length && char.IsLetter(_source[probe]))
             {
                 sb.Append(_source[probe]);
                 probe++;
@@ -746,6 +896,90 @@ public sealed class Lexer
         return new Token(kind, text, null, LocationFrom(start));
     }
 
+    private Token OneCharTextToken(TokenKind kind, string text, object? value)
+    {
+        var start = SnapshotLocation();
+        Advance();
+        return new Token(kind, text, value, LocationFrom(start));
+    }
+
+    private Token LexBacktickText()
+    {
+        var start = SnapshotLocation();
+        Advance();
+        if (_pos >= _source.Length)
+            throw new PwshParseException("Unterminated backtick escape.", LocationFrom(start));
+
+        if (IsDigit(_source[_pos]))
+        {
+            return new Token(TokenKind.Identifier, "`", "`", LocationFrom(start));
+        }
+
+        string decoded;
+        if (TryReadUnicodeEscapeAfterBacktick(out var unicode))
+        {
+            decoded = unicode;
+        }
+        else
+        {
+            var esc = _source[_pos];
+            Advance();
+            decoded = DecodeBacktickEscape(esc).ToString();
+        }
+
+        var text = _source.Substring(start.pos, _pos - start.pos);
+        return new Token(TokenKind.Identifier, text, decoded, LocationFrom(start));
+    }
+
+    private Token LexGenericText()
+    {
+        var start = SnapshotLocation();
+        var decoded = new StringBuilder();
+        while (_pos < _source.Length && !IsGenericTextTerminator(_source[_pos]))
+        {
+            if (_source[_pos] == '`')
+            {
+                Advance();
+                if (_pos >= _source.Length)
+                    throw new PwshParseException("Unterminated backtick escape.", LocationFrom(start));
+
+                if (TryReadUnicodeEscapeAfterBacktick(out var unicode))
+                {
+                    decoded.Append(unicode);
+                    continue;
+                }
+
+                var esc = _source[_pos];
+                Advance();
+                decoded.Append(DecodeBacktickEscape(esc));
+                continue;
+            }
+
+            decoded.Append(_source[_pos]);
+            Advance();
+        }
+
+        var text = _source.Substring(start.pos, _pos - start.pos);
+        return new Token(TokenKind.Identifier, text, decoded.ToString(), LocationFrom(start));
+    }
+
+    private static char DecodeBacktickEscape(char esc) => esc switch
+    {
+        'n' => '\n',
+        't' => '\t',
+        'r' => '\r',
+        '0' => '\0',
+        'a' => '\a',
+        'b' => '\b',
+        'f' => '\f',
+        'v' => '\v',
+        '"' => '"',
+        '\'' => '\'',
+        '`' => '`',
+        '$' => '$',
+        _ => esc,
+    };
+
     private bool IsRedirectionStart()
     {
         if (_pos >= _source.Length) return false;
@@ -753,10 +987,34 @@ public sealed class Lexer
         if (ch == '>') return true;
         if (ch == '*' && Peek(1) == '>') return true;
         if (!IsDigit(ch)) return false;
+        if (_pos >= 2 && _source[_pos - 1] == '.' && _source[_pos - 2] == '.')
+            return false;
+        if (!HasDigitLedRedirectionContext())
+            return false;
 
         var probe = _pos;
         while (probe < _source.Length && IsDigit(_source[probe])) probe++;
         return probe < _source.Length && _source[probe] == '>';
+    }
+
+    private bool HasDigitLedRedirectionContext()
+    {
+        var probe = _pos - 1;
+        while (probe >= 0 &&
+               char.IsWhiteSpace(_source[probe]) &&
+               _source[probe] is not '\r' and not '\n')
+        {
+            probe--;
+        }
+
+        if (probe < 0)
+            return false;
+
+        var prev = _source[probe];
+        if (prev is '\r' or '\n')
+            return false;
+
+        return prev is not (';' or '{' or '(' or '[' or ',' or '=' or ':' or '?' or '+' or '-' or '*' or '/' or '%' or '!' or '&' or '|' or '<' or '>');
     }
 
     private Token LexRedirection()
@@ -831,7 +1089,7 @@ public sealed class Lexer
         while (_pos < _source.Length)
         {
             var c = _source[_pos];
-            if (c == ' ' || c == '\t') { Advance(); continue; }
+            if (char.IsWhiteSpace(c) && c is not '\r' and not '\n') { Advance(); continue; }
             if (c == '#')
             {
                 while (_pos < _source.Length && _source[_pos] != '\n' && _source[_pos] != '\r') Advance();
@@ -877,11 +1135,75 @@ public sealed class Lexer
     private SourceLocation CurrentLocation(int length)
         => new(_line, _col, _pos, length);
 
+    private static bool IsMatchingQuote(char candidate, char opener, char closer)
+        => candidate == closer || candidate == opener;
+
+    private static bool IsDoubleQuoteChar(char c) => c is '"' or '\u201C' or '\u201D';
+    private static bool IsSingleQuoteChar(char c) => c is '\'' or '\u2018' or '\u2019';
+
+    private static char MatchingDoubleQuote(char c) => c switch
+    {
+        '\u201C' => '\u201D',
+        '\u201D' => '\u201D',
+        _ => '"',
+    };
+
+    private static char MatchingSingleQuote(char c) => c switch
+    {
+        '\u2018' => '\u2019',
+        '\u2019' => '\u2019',
+        _ => '\'',
+    };
+
     private static bool IsDigit(char c) => c >= '0' && c <= '9';
     private static bool IsHexDigit(char c) => IsDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
     private static bool IsIdentifierStart(char c) => c == '_' || char.IsLetter(c);
     private static bool IsIdentifierPart(char c) => c == '_' || char.IsLetterOrDigit(c);
     private static bool IsDashLike(char c) => c is '-' or '\u2013' or '\u2014' or '\u2212';
+    private static bool IsScopedSpecialVariableChar(char c) => c is '?' or '^' or '$';
+
+    private bool TryReadUnicodeEscapeAfterBacktick(out string unicode)
+    {
+        unicode = "";
+        if (_pos >= _source.Length || _source[_pos] != 'u' || Peek(1) != '{')
+            return false;
+
+        var start = SnapshotLocation();
+        Advance(); // u
+        Advance(); // {
+
+        var hex = new StringBuilder();
+        while (_pos < _source.Length && _source[_pos] != '}')
+        {
+            if (!IsHexDigit(_source[_pos]))
+                throw new PwshParseException("Invalid unicode escape after backtick.", LocationFrom(start));
+
+            hex.Append(_source[_pos]);
+            Advance();
+        }
+
+        if (_pos >= _source.Length || _source[_pos] != '}' || hex.Length == 0)
+            throw new PwshParseException("Unterminated unicode escape after backtick.", LocationFrom(start));
+
+        Advance(); // }
+
+        var codePoint = Convert.ToInt32(hex.ToString(), 16);
+        unicode = codePoint <= 0xFFFF
+            ? new string((char)codePoint, 1)
+            : char.ConvertFromUtf32(codePoint);
+        return true;
+    }
+
+    private static bool CanStartGenericText(char c)
+        => !char.IsWhiteSpace(c) &&
+           c is not '\r' and not '\n' and
+           not '(' and not ')' and
+           not '{' and not '}' and
+           not ';' and not ',' and not '|';
+
+    private static bool IsGenericTextTerminator(char c)
+        => char.IsWhiteSpace(c) ||
+           c is '\r' or '\n' or ';' or ',' or '|' or '(' or ')' or '{' or '}';
 
     private bool TryConsumeNumericSuffix(out long multiplier)
     {
@@ -904,6 +1226,27 @@ public sealed class Lexer
 
         multiplier = 1;
         return false;
+    }
+
+    private string? TryConsumeNumericTypeSuffix()
+    {
+        foreach (var suffix in new[] { "uy", "n", "d" })
+        {
+            if (_pos + suffix.Length > _source.Length)
+                continue;
+            if (!_source.AsSpan(_pos, suffix.Length).Equals(suffix, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var end = _pos + suffix.Length;
+            if (end < _source.Length && IsIdentifierPart(_source[end]))
+                continue;
+
+            _pos = end;
+            _col += suffix.Length;
+            return suffix;
+        }
+
+        return null;
     }
 
     private bool TryConsumeLongSuffix()

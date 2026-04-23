@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-23T02:59:44Z
-Repository HEAD: c1e734191d4326d3f6501084f30cd30226374804
+Updated (UTC): 2026-04-23T06:20:22Z
+Repository HEAD: e5c9260ef8608c859997cf9b4acd715e0690a93f
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -11,6 +11,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
 - [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
 - [carbide-pwsh repo PowerShell parse audit](reports/carbide-pwsh-repo-script-parse-audit__2026-04-23__02-59-32-0527852__9d3a7c1e4b62.md) — authoritative tracked-file audit of all repo PowerShell scripts against `pwsh.exe 7.6`, plus the mismatch catalog, the `carbide-pwsh` fixes that closed each gap, and the final `111 / 111` result.
+- [carbide-pwsh external GitHub corpus parse audit](reports/carbide-pwsh-external-github-corpus-parse-audit__2026-04-23__06-20-22__c2d0b7a8f4e1.md) — large-scale audit against a `6070`-file GitHub corpus downloaded under `C:\TestData`, documenting the final corpus-driven parser fixes and the `0` remaining `pwsh-ok / carbide-fail` files.
 - [Content-identified virtual executable stubs for `carbide-multishell`](reports/carbide-multishell-content-identified-stubs-report__2026-04-23__00-08-04__f85c83692721.md) — evaluates the path-vs-content identity trade for multishell executable stubs, compares raw GUID, text-manifest, and pseudo-PE designs, and grounds the recommendation in shebang, `binfmt_misc`, BusyBox, Windows App Execution Aliases, and npm shim prior art.
 - [Carbide T2.1 follow-up research report](reports/carbide-T21-follow-up-research-report__2026-04-20__18-20-09__6554172dc064.md) — reassessment of the browser interactive-async roadblock, including fresh local repros, upstream web research, git history, and updated recommendations.
 - [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.

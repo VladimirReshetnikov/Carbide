@@ -8,19 +8,25 @@ public sealed class RuntimeClass
     public string Name { get; }
     public IReadOnlyList<ClassPropertyAst> Properties { get; }
     public ClassMethodAst? Constructor { get; }
-    public IReadOnlyDictionary<string, ClassMethodAst> Methods { get; }
+    public IReadOnlyDictionary<string, ClassMethodAst> InstanceMethods { get; }
+    public IReadOnlyDictionary<string, ClassMethodAst> StaticMethods { get; }
 
     public RuntimeClass(ClassDefinitionAst ast)
     {
         Name = ast.Name;
         Properties = ast.Properties;
         Constructor = ast.Methods.FirstOrDefault(m => m.IsConstructor);
-        var methods = new Dictionary<string, ClassMethodAst>(StringComparer.OrdinalIgnoreCase);
+        var instanceMethods = new Dictionary<string, ClassMethodAst>(StringComparer.OrdinalIgnoreCase);
+        var staticMethods = new Dictionary<string, ClassMethodAst>(StringComparer.OrdinalIgnoreCase);
         foreach (var m in ast.Methods.Where(m => !m.IsConstructor))
         {
-            methods[m.Name] = m;
+            if (m.IsStatic)
+                staticMethods[m.Name] = m;
+            else
+                instanceMethods[m.Name] = m;
         }
-        Methods = methods;
+        InstanceMethods = instanceMethods;
+        StaticMethods = staticMethods;
     }
 }
 

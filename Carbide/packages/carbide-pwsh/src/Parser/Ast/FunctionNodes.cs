@@ -15,6 +15,7 @@ public sealed record FunctionDefinitionAst(
     ScriptAst? BeginBlock,
     ScriptAst? ProcessBlock,
     ScriptAst? EndBlock,
+    ScriptAst? CleanBlock,
     ScriptAst? SimpleBody,
     SourceLocation Location)
     : StatementAst(Location);

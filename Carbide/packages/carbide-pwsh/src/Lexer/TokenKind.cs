@@ -29,6 +29,7 @@ public enum TokenKind
     Dot,                // .
     Colon,              // : (drive qualifier like Env:FOO)
     ColonColon,         // ::
+    QuestionQuestion,   // ??
     Question,           // ?
     DotDot,             // ..
     Equal,              // =

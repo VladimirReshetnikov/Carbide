@@ -67,6 +67,25 @@ public class Phase3FunctionTests
     }
 
     [Fact]
+    public void CleanBlockRunsAfterNamedBlocks()
+    {
+        var host = NewShell();
+        host.Submit("function Counter { begin { $s = 0 } process { $s += $_ } end { $s } clean { $script:cleanSeen = $true } }");
+        Assert.Equal(6, host.Submit("1..3 | Counter"));
+        Assert.Equal(true, host.Submit("$script:cleanSeen"));
+    }
+
+    [Fact]
+    public void CleanBlockSkipsWhenNoNamedBlockExecuted()
+    {
+        var host = NewShell();
+        host.Submit("$script:cleanSeen = $false");
+        host.Submit("function Test-CleanOnly { clean { $script:cleanSeen = $true } }");
+        Assert.Null(host.Submit("Test-CleanOnly"));
+        Assert.Equal(false, host.Submit("$script:cleanSeen"));
+    }
+
+    [Fact]
     public void FunctionScopeIsolatesVariables()
     {
         var host = NewShell();

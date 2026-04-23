@@ -99,10 +99,42 @@ public class Phase3ControlFlowTests
     }
 
     [Fact]
+    public void SwitchExpressionAcceptsBareWordPatterns()
+    {
+        var host = NewShell();
+        host.Submit("$result = 'Passed'");
+        Assert.Equal("ok", host.Submit("$x = switch ($result) { Passed { 'ok' } default { 'no' } }; $x"));
+    }
+
+    [Fact]
     public void NestedLoopsBreakOuter()
     {
         var host = NewShell();
         var r = host.Submit("$sum = 0; foreach ($i in 1..3) { foreach ($j in 1..3) { $sum++; if ($j -eq 2) { break } } }; $sum");
         Assert.Equal(6, r);
+    }
+
+    [Fact]
+    public void LabeledBreakExitsOuterLoop()
+    {
+        var script = @"
+$sum = 0
+:outer foreach ($i in 1..3) {
+    foreach ($j in 1..3) {
+        $sum++
+        if ($j -eq 2) { break outer }
+    }
+}
+$sum
+";
+        Assert.Equal(2, NewShell().Submit(script));
+    }
+
+    [Fact]
+    public void ScopedForEachVariableAssignsIntoScope()
+    {
+        var host = NewShell();
+        host.Submit("foreach ($script:item in 1..1) { }");
+        Assert.Equal(1, host.Submit("$script:item"));
     }
 }

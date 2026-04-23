@@ -54,7 +54,7 @@ internal static class ParseFile
         }
     }
 
-    private static string ReadPowerShellSource(string path)
+    internal static string ReadPowerShellSource(string path)
     {
         var bytes = File.ReadAllBytes(path);
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)

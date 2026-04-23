@@ -52,6 +52,23 @@ public class Phase3ClassEnumTests
     }
 
     [Fact]
+    public void StaticClassMethod()
+    {
+        var host = NewShell();
+        host.Submit("class Factory { static [string] Name() { return 'factory' } }");
+        Assert.Equal("factory", host.Submit("[Factory]::Name()"));
+    }
+
+    [Fact]
+    public void BracketedGenericTypeArgumentsResolveAtRuntime()
+    {
+        var host = NewShell();
+        host.Submit("$map = [dictionary[[string], [int]]]::new()");
+        host.Submit("$map['answer'] = 42");
+        Assert.Equal(42, host.Submit("$map['answer']"));
+    }
+
+    [Fact]
     public void ClassIsTypeCheck()
     {
         var host = NewShell();

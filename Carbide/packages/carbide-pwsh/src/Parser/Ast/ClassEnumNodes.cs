@@ -29,12 +29,13 @@ public sealed record ClassDefinitionAst(
 
 public sealed record EnumMemberAst(
     string Name,
-    long? Value,
+    ExpressionAst? ValueExpression,
     SourceLocation Location)
     : AstNode(Location);
 
 public sealed record EnumDefinitionAst(
     string Name,
+    TypeLiteralAst? UnderlyingType,
     IReadOnlyList<EnumMemberAst> Members,
     SourceLocation Location)
     : StatementAst(Location);

@@ -18,8 +18,9 @@ The authoritative repo-wide parse audit now passes cleanly:
 Artifacts written during the final pass:
 
 - `src/Carbide/packages/carbide-pwsh/parity/repo-parse-baseline.json`
-- `tmp-pwsh-parse-summary.json`
-- `tmp-pwsh-parse-details.json`
+- `C:\TestData\pwsh-parse-audits\repo-scripts\tmp-pwsh-parse-summary.json`
+- `C:\TestData\pwsh-parse-audits\repo-scripts\tmp-pwsh-parse-details.json`
+- `C:\TestData\pwsh-parse-audits\README.md`
 
 This task also fixed one real repository script bug that `pwsh.exe` itself rejected, so the final green baseline reflects both `carbide-pwsh` parser work and one script correction in the repo.
 

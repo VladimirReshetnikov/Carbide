@@ -10,8 +10,9 @@ public sealed class ScriptFunction
     public ScriptAst? BeginBlock { get; }
     public ScriptAst? ProcessBlock { get; }
     public ScriptAst? EndBlock { get; }
+    public ScriptAst? CleanBlock { get; }
     public ScriptAst? SimpleBody { get; }
-    public bool IsPipelineParticipant => ProcessBlock != null || BeginBlock != null || EndBlock != null;
+    public bool IsPipelineParticipant => ProcessBlock != null || BeginBlock != null || EndBlock != null || CleanBlock != null;
 
     public ScriptFunction(FunctionDefinitionAst ast)
     {
@@ -20,6 +21,7 @@ public sealed class ScriptFunction
         BeginBlock = ast.BeginBlock;
         ProcessBlock = ast.ProcessBlock;
         EndBlock = ast.EndBlock;
+        CleanBlock = ast.CleanBlock;
         SimpleBody = ast.SimpleBody;
     }
 
@@ -41,12 +43,28 @@ public sealed class ScriptFunction
             {
                 return RunBlock(SimpleBody, interpreter);
             }
-            // Pipeline-participating function called without a pipeline: run begin, one
-            // process pass with no item (skip if process requires $_), then end.
+            // Pipeline-participating function called without a pipeline: run begin, then end.
             object? last = null;
-            if (BeginBlock != null) last = RunBlock(BeginBlock, interpreter) ?? last;
-            if (EndBlock != null) last = RunBlock(EndBlock, interpreter) ?? last;
-            return last;
+            bool executedNamedBlock = false;
+            try
+            {
+                if (BeginBlock != null)
+                {
+                    last = RunBlock(BeginBlock, interpreter) ?? last;
+                    executedNamedBlock = true;
+                }
+                if (EndBlock != null)
+                {
+                    last = RunBlock(EndBlock, interpreter) ?? last;
+                    executedNamedBlock = true;
+                }
+                return last;
+            }
+            finally
+            {
+                if (executedNamedBlock && CleanBlock != null)
+                    _ = RunBlock(CleanBlock, interpreter);
+            }
         }
     }
 
@@ -61,25 +79,43 @@ public sealed class ScriptFunction
         using (interpreter.Scope.Push(ScopeKind.Function))
         {
             BindParameters(positional, named, interpreter);
+            bool executedNamedBlock = false;
 
-            if (BeginBlock != null) AppendFrom(RunBlock(BeginBlock, interpreter), results);
-
-            if (ProcessBlock != null && input != null)
+            try
             {
-                foreach (var item in input)
+                if (BeginBlock != null)
                 {
-                    interpreter.Scope.Set(null, "_", item);
-                    interpreter.Scope.Set(null, "PSItem", item);
-                    AppendFrom(RunBlock(ProcessBlock, interpreter), results);
+                    AppendFrom(RunBlock(BeginBlock, interpreter), results);
+                    executedNamedBlock = true;
+                }
+
+                if (ProcessBlock != null && input != null)
+                {
+                    foreach (var item in input)
+                    {
+                        interpreter.Scope.Set(null, "_", item);
+                        interpreter.Scope.Set(null, "PSItem", item);
+                        AppendFrom(RunBlock(ProcessBlock, interpreter), results);
+                        executedNamedBlock = true;
+                    }
+                }
+                else if (SimpleBody != null)
+                {
+                    // Simple function in a pipeline: ignore input and call once.
+                    AppendFrom(RunBlock(SimpleBody, interpreter), results);
+                }
+
+                if (EndBlock != null)
+                {
+                    AppendFrom(RunBlock(EndBlock, interpreter), results);
+                    executedNamedBlock = true;
                 }
             }
-            else if (SimpleBody != null)
+            finally
             {
-                // Simple function in a pipeline: ignore input and call once.
-                AppendFrom(RunBlock(SimpleBody, interpreter), results);
+                if (executedNamedBlock && CleanBlock != null)
+                    AppendFrom(RunBlock(CleanBlock, interpreter), results);
             }
-
-            if (EndBlock != null) AppendFrom(RunBlock(EndBlock, interpreter), results);
         }
         return results;
     }

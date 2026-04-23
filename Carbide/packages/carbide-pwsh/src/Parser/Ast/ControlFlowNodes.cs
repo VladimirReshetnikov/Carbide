@@ -9,12 +9,14 @@ public sealed record IfStatementAst(
     : StatementAst(Location);
 
 public sealed record WhileStatementAst(
+    string? Label,
     ExpressionAst Condition,
     ScriptAst Body,
     SourceLocation Location)
     : StatementAst(Location);
 
 public sealed record DoWhileStatementAst(
+    string? Label,
     ScriptAst Body,
     ExpressionAst Condition,
     bool IsUntil,
@@ -22,6 +24,7 @@ public sealed record DoWhileStatementAst(
     : StatementAst(Location);
 
 public sealed record ForStatementAst(
+    string? Label,
     StatementAst? Init,
     ExpressionAst? Condition,
     StatementAst? Update,
@@ -30,6 +33,8 @@ public sealed record ForStatementAst(
     : StatementAst(Location);
 
 public sealed record ForEachStatementAst(
+    string? Label,
+    string? VariableScope,
     string VariableName,
     ExpressionAst Collection,
     ScriptAst Body,
@@ -37,6 +42,7 @@ public sealed record ForEachStatementAst(
     : StatementAst(Location);
 
 public sealed record SwitchStatementAst(
+    string? Label,
     bool IsWildcard,
     ExpressionAst Condition,
     IReadOnlyList<(ExpressionAst Pattern, ScriptAst Body)> Cases,

@@ -86,6 +86,7 @@ public static class Operators
             BinaryOp.NotIn or BinaryOp.INotIn => !ContainsOp(right, left, ignoreCase: true),
             BinaryOp.CNotIn => !ContainsOp(right, left, ignoreCase: false),
 
+            BinaryOp.Coalesce => left ?? right,
             BinaryOp.Format => FormatOp(left, right),
             BinaryOp.Join => JoinOp(left, right),
             BinaryOp.Split => SplitOp(left, right),
@@ -469,6 +470,8 @@ public static class Operators
         },
         UnaryOp.Not => !Coercion.CoerceToBool(operand),
         UnaryOp.BNot => ~Coercion.ToInt64(operand),
+        UnaryOp.Join => JoinOp(operand, string.Empty),
+        UnaryOp.Split => SplitOp(operand, "\\s+"),
         _ => throw new PwshRuntimeException($"Unsupported unary operator {op}."),
     };
 }
