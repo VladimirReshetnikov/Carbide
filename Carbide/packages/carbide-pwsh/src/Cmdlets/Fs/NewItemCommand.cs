@@ -27,3 +27,15 @@ public sealed class NewItemCommand : Cmdlet
         yield return file;
     }
 }
+
+public sealed class MkdirCommand : Cmdlet
+{
+    public override string Name => "mkdir";
+
+    public override IEnumerable<object?> Invoke(IEnumerable<object?>? input, ParameterBinding binding, CmdletContext context)
+    {
+        var path = binding.GetValue<string>("Path", 0, null)
+            ?? throw new PwshRuntimeException("mkdir requires a path argument.");
+        yield return context.Vfs.CreateDirectory(path);
+    }
+}

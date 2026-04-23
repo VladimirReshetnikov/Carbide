@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text;
+using CarbidePwsh.Cmdlets.Discovery;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Parser.Ast;
 using CarbidePwsh.Runtime;
@@ -112,10 +113,11 @@ public static class Pipeline
 
         var plan = BuildRedirectionPlan(redirections);
         var effectiveCtx = CreateEffectiveContext(ctx, plan);
+        var resolvedName = cmd.Name is "." or "&" ? cmd.Name : registry.ResolveAliasChain(cmd.Name);
 
         // Dispatch priority: cmdlet → user function → script/app registry → bare path
         // dispatch. This matches the proposal's §8.1 order.
-        if (registry.TryResolve(cmd.Name, out var cmdlet) && cmdlet != null)
+        if (registry.TryResolve(resolvedName, out var cmdlet) && cmdlet != null)
         {
             try
             {
@@ -131,7 +133,7 @@ public static class Pipeline
         }
 
         if (ctx.Interpreter.Functions != null
-            && ctx.Interpreter.Functions.TryGet(cmd.Name, out var func) && func != null)
+            && ctx.Interpreter.Functions.TryGet(resolvedName, out var func) && func != null)
         {
             try
             {
@@ -158,7 +160,7 @@ public static class Pipeline
         }
 
         // Dot-source: invoke the first positional as a script in the caller's scope.
-        if (cmd.Name == "." && positional.Count > 0)
+        if (resolvedName == "." && positional.Count > 0)
         {
             var scriptPath = Runtime.Coercion.FormatAsString(positional[0]);
             var scriptArgs = positional.Skip(1).ToArray();
@@ -170,7 +172,7 @@ public static class Pipeline
         }
 
         // Call operator `&`: invoke a script block or resolve a path-valued string.
-        if (cmd.Name == "&" && positional.Count > 0)
+        if (resolvedName == "&" && positional.Count > 0)
         {
             var callTarget = positional[0];
             var callArgs = positional.Skip(1).ToArray();
@@ -197,8 +199,15 @@ public static class Pipeline
                 cmd.Location);
         }
 
-        if (TryDispatchExternalCommand(cmd.Name, positional, input, effectiveCtx, plan, out var externalResult))
+        if (TryDispatchExternalCommand(resolvedName, positional, input, effectiveCtx, plan, out var externalResult))
             return externalResult;
+
+        if (BuiltinCommandCatalog.TryGetCmdlet(resolvedName, out var builtin))
+        {
+            throw new PwshRuntimeException(
+                $"The builtin cmdlet '{builtin.Name}' is recognized but not implemented in carbide-pwsh.",
+                cmd.Location);
+        }
 
         throw new PwshRuntimeException($"The term '{cmd.Name}' is not recognized as a cmdlet, function, or script.", cmd.Location);
     }

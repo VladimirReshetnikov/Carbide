@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Globalization;
 using System.Text;
+using CarbidePwsh.Cmdlets.Discovery;
 using CarbidePwsh.Runtime;
 using CarbideShellCore.Vfs;
 using PwshProviderItem = CarbidePwsh.Runtime.PwshProviderItem;
@@ -28,6 +29,10 @@ public static class OutputFormatter
         if (value is VfsNode[] vfsArr) return FormatVfsTable(vfsArr);
         if (value is IDictionary dict) return FormatDictionary(dict);
         if (value is PwshProviderItem single_provider) return FormatProviderItems(new[] { single_provider });
+        if (value is PwshCommandInfo singleCommand) return FormatCommandInfos(new[] { singleCommand });
+        if (value is PwshDriveInfo singleDrive) return FormatDriveInfos(new[] { singleDrive });
+        if (value is PwshProviderInfo singleProviderInfo) return FormatProviderInfos(new[] { singleProviderInfo });
+        if (value is PwshModuleInfo singleModule) return FormatModuleInfos(new[] { singleModule });
         if (value is Array arr)
         {
             // Homogeneous typed arrays get the table treatment.
@@ -42,6 +47,30 @@ public static class OutputFormatter
                 var list = new List<PwshProviderItem>();
                 foreach (var item in arr) if (item is PwshProviderItem p) list.Add(p);
                 if (list.Count == arr.Length) return FormatProviderItems(list.ToArray());
+            }
+            if (arr.Length > 0 && arr.GetValue(0) is PwshCommandInfo)
+            {
+                var list = new List<PwshCommandInfo>();
+                foreach (var item in arr) if (item is PwshCommandInfo p) list.Add(p);
+                if (list.Count == arr.Length) return FormatCommandInfos(list.ToArray());
+            }
+            if (arr.Length > 0 && arr.GetValue(0) is PwshDriveInfo)
+            {
+                var list = new List<PwshDriveInfo>();
+                foreach (var item in arr) if (item is PwshDriveInfo p) list.Add(p);
+                if (list.Count == arr.Length) return FormatDriveInfos(list.ToArray());
+            }
+            if (arr.Length > 0 && arr.GetValue(0) is PwshProviderInfo)
+            {
+                var list = new List<PwshProviderInfo>();
+                foreach (var item in arr) if (item is PwshProviderInfo p) list.Add(p);
+                if (list.Count == arr.Length) return FormatProviderInfos(list.ToArray());
+            }
+            if (arr.Length > 0 && arr.GetValue(0) is PwshModuleInfo)
+            {
+                var list = new List<PwshModuleInfo>();
+                foreach (var item in arr) if (item is PwshModuleInfo p) list.Add(p);
+                if (list.Count == arr.Length) return FormatModuleInfos(list.ToArray());
             }
             return FormatEnumerable(arr);
         }
@@ -164,6 +193,110 @@ public static class OutputFormatter
               .Append(nameField.PadRight(nameWidth)).Append(' ')
               .Append("".PadRight(verWidth)).Append(' ')
               .Append("");
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatCommandInfos(PwshCommandInfo[] items)
+    {
+        const int ctWidth = 15;
+        const int nameWidth = 50;
+        const int verWidth = 10;
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "CommandType".PadRight(ctWidth));
+        AppendColoredCell(sb, " Name".PadRight(nameWidth + 1));
+        AppendColoredCell(sb, " Version".PadRight(verWidth + 1));
+        AppendColoredCell(sb, " Source"); sb.AppendLine();
+        AppendColoredCell(sb, "-----------".PadRight(ctWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "-------".PadRight(verWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "------"); sb.AppendLine();
+        foreach (var it in items)
+        {
+            var nameField = it.Definition is null ? it.Name : $"{it.Name} -> {it.Definition}";
+            sb.Append(it.CommandType.PadRight(ctWidth)).Append(' ')
+              .Append(nameField.PadRight(nameWidth)).Append(' ')
+              .Append("".PadRight(verWidth)).Append(' ')
+              .Append(it.Source);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatDriveInfos(PwshDriveInfo[] items)
+    {
+        if (items.Length == 0) return "";
+        int nameWidth = Math.Max(4, items.Max(static i => i.Name.Length));
+        int providerWidth = Math.Max(8, items.Max(static i => i.Provider.Length));
+        int rootWidth = Math.Max(4, items.Max(static i => i.Root.Length));
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "Name".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "Provider".PadRight(providerWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "Root".PadRight(rootWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "CurrentLocation"); sb.AppendLine();
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "--------".PadRight(providerWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "----".PadRight(rootWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "---------------"); sb.AppendLine();
+        foreach (var it in items)
+        {
+            sb.Append(it.Name.PadRight(nameWidth)).Append(' ')
+              .Append(it.Provider.PadRight(providerWidth)).Append(' ')
+              .Append(it.Root.PadRight(rootWidth)).Append(' ')
+              .Append(it.CurrentLocation);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatProviderInfos(PwshProviderInfo[] items)
+    {
+        if (items.Length == 0) return "";
+        int nameWidth = Math.Max(4, items.Max(static i => i.Name.Length));
+        int drivesWidth = Math.Max(6, items.Max(static i => i.Drives.Length));
+        int homeWidth = Math.Max(4, items.Max(static i => i.Home.Length));
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "Name".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "Drives".PadRight(drivesWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "Home".PadRight(homeWidth)); sb.AppendLine();
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "------".PadRight(drivesWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "----".PadRight(homeWidth)); sb.AppendLine();
+        foreach (var it in items)
+        {
+            sb.Append(it.Name.PadRight(nameWidth)).Append(' ')
+              .Append(it.Drives.PadRight(drivesWidth)).Append(' ')
+              .Append(it.Home);
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatModuleInfos(PwshModuleInfo[] items)
+    {
+        if (items.Length == 0) return "";
+        int nameWidth = Math.Max(4, items.Max(static i => i.Name.Length));
+
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        AppendColoredCell(sb, "Name".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "Imported"); sb.Append(' ');
+        AppendColoredCell(sb, "Implemented"); sb.AppendLine();
+        AppendColoredCell(sb, "----".PadRight(nameWidth)); sb.Append(' ');
+        AppendColoredCell(sb, "--------"); sb.Append(' ');
+        AppendColoredCell(sb, "-----------"); sb.AppendLine();
+        foreach (var it in items)
+        {
+            sb.Append(it.Name.PadRight(nameWidth)).Append(' ')
+              .Append((it.IsImported ? "True" : "False").PadRight(8)).Append(' ')
+              .Append(it.IsImplemented ? "True" : "False");
             sb.AppendLine();
         }
         return sb.ToString();

@@ -1,6 +1,7 @@
 using System.Reflection;
 using CarbidePwsh.Cmdlets;
 using CarbidePwsh.Cmdlets.App;
+using CarbidePwsh.Cmdlets.Discovery;
 using CarbidePwsh.Cmdlets.Fs;
 using CarbidePwsh.Cmdlets.Json;
 using CarbidePwsh.Cmdlets.Output;
@@ -78,6 +79,8 @@ public sealed class ShellHost
         Interpreter.Scope.Set("global", "?", true);
         Interpreter.Scope.Set("global", "ErrorActionPreference", "Continue");
         Interpreter.Scope.Set("global", "Error", new List<ErrorRecord>());
+        foreach (var module in BuiltinCommandCatalog.ModuleNames)
+            Interpreter.ImportedModules.Add(module);
 
         Kernel = new PwshKernel(this);
         Dispatcher.Register(Kernel);
@@ -267,6 +270,8 @@ public sealed class ShellHost
         r.Register(() => new WriteHostCommand());
         r.Register(() => new WriteErrorCommand());
         r.Register(() => new OutStringCommand());
+        r.Register(() => new OutHostCommand());
+        r.Register(() => new OutDefaultCommand());
         r.Register(() => new ReadHostCommand());
 
         // Shape.
@@ -287,13 +292,17 @@ public sealed class ShellHost
         r.Register(() => new SetContentCommand());
         r.Register(() => new AddContentCommand());
         r.Register(() => new NewItemCommand());
+        r.Register(() => new MkdirCommand());
         r.Register(() => new RemoveItemCommand());
         r.Register(() => new TestPathCommand());
         r.Register(() => new GetItemCommand());
         r.Register(() => new SetItemCommand());
         r.Register(() => new SetLocationCommand());
+        r.Register(() => new PushLocationCommand());
+        r.Register(() => new PopLocationCommand());
         r.Register(() => new GetLocationCommand());
         r.Register(() => new ResolvePathCommand());
+        r.Register(() => new ConvertPathCommand());
         r.Register(() => new JoinPathCommand());
         r.Register(() => new SplitPathCommand());
         r.Register(() => new CopyItemCommand());
@@ -311,6 +320,21 @@ public sealed class ShellHost
         r.Register(() => new GetRandomCommand());
         r.Register(() => new NewGuidCommand());
         r.Register(() => new InvokeExpressionCommand());
+        r.Register(() => new GetCommandCommand());
+        r.Register(() => new GetAliasCommand());
+        r.Register(() => new NewAliasCommand());
+        r.Register(() => new SetAliasCommand());
+        r.Register(() => new RemoveAliasCommand());
+        r.Register(() => new GetVariableCommand());
+        r.Register(() => new NewVariableCommand());
+        r.Register(() => new SetVariableCommand());
+        r.Register(() => new RemoveVariableCommand());
+        r.Register(() => new ClearVariableCommand());
+        r.Register(() => new GetPSDriveCommand());
+        r.Register(() => new GetPSProviderCommand());
+        r.Register(() => new GetModuleCommand());
+        r.Register(() => new ImportModuleCommand());
+        r.Register(() => new GetHelpCommand());
 
         // App.
         r.Register(() => new RegisterCarbideAppCommand());

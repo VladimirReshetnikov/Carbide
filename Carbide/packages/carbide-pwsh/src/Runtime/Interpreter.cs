@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Specialized;
 using System.Text;
 using CarbidePwsh.Cmdlets;
+using CarbidePwsh.Cmdlets.Discovery;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Lexer;
 using CarbidePwsh.Parser.Ast;
@@ -55,6 +56,12 @@ public sealed class Interpreter
     /// the supplied path. <c>Set-Location X:</c> is the only thing that mutates it.
     /// </summary>
     public PwshDriveKind CurrentDrive { get; set; } = PwshDriveKind.FileSystem;
+
+    /// <summary>Backs <c>Push-Location</c> / <c>Pop-Location</c>.</summary>
+    public Stack<(PwshDriveKind Drive, string Path)> LocationStack { get; } = new();
+
+    /// <summary>Minimal builtin-module state used by <c>Get-Module</c> / <c>Import-Module</c>.</summary>
+    public HashSet<string> ImportedModules { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Raised to run a script file path when the interpreter encounters it as a
     /// command name. Set by <see cref="Host.ShellHost"/>; returns the result of the script.</summary>

@@ -6,7 +6,7 @@ namespace CarbidePwsh.Cmdlets.Fs;
 public sealed class RemoveItemCommand : Cmdlet
 {
     public override string Name => "Remove-Item";
-    public override IEnumerable<string> Aliases => new[] { "rm", "del", "erase", "ri" };
+    public override IEnumerable<string> Aliases => new[] { "rm", "del", "erase", "ri", "rd", "rmdir" };
 
     public override IEnumerable<object?> Invoke(IEnumerable<object?>? input, ParameterBinding binding, CmdletContext context)
     {

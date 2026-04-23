@@ -124,13 +124,16 @@ $env:PATH                        # environment variables
 |---|---|
 | Pipeline shape | Where-Object, ForEach-Object, Select-Object, Sort-Object, Group-Object, Measure-Object |
 | Output | Write-Output, Write-Host (colored), Write-Error, Out-String, Read-Host |
+| Discovery / session state | Get-Command, Get-Alias, New/Set/Remove-Alias, Get/New/Set/Remove/Clear-Variable, Get-PSDrive, Get-PSProvider, Get-Module, Import-Module, Get-Help |
 | JSON | ConvertTo-Json, ConvertFrom-Json |
-| Filesystem | Get-ChildItem, Get/Set/Add-Content, New-Item, Remove-Item, Test-Path, Set/Get-Location, Resolve-Path, Join-Path, Copy-Item, Move-Item |
+| Filesystem | Get-ChildItem, Get/Set/Add-Content, New-Item, `mkdir`, Remove-Item, Test-Path, Set/Get/Push/Pop-Location, Resolve/Convert-Path, Join-Path, Copy-Item, Move-Item |
 | System | Start-Sleep, Get-Date, Get-Random, New-Guid, Invoke-Expression |
 | App | Register-CarbideApp, Unregister-CarbideApp, Get-CarbideApp |
 
 Aliases follow PowerShell conventions: `ls`, `dir`, `cat`, `cd`, `pwd`, `mv`, `cp`, `rm`,
-`sort`, `where`, `foreach`, `select`, `group`, `measure`, `echo`, `sleep`, `iex`.
+`sort`, `where`, `foreach`, `select`, `group`, `measure`, `echo`, `sleep`, `iex`, `gcm`,
+`gal`, `gv`, `set`, `md`, `mkdir`, `rd`, `rmdir`, `pushd`, `popd`, plus the broader
+PowerShell 7.6 builtin alias surface as recognized command-discovery metadata.
 
 ## Automatic variables
 
