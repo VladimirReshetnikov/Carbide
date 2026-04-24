@@ -1,8 +1,8 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-23T21:12:38Z
-Repository HEAD: e5c1e2b48eea1534033dbf6bcd549b2059db91e7
+Updated (UTC): 2026-04-24T00:17:09Z
+Repository HEAD: 88b1db86277bb9620d8e12d59a0814ece3a42a45
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
@@ -13,6 +13,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [carbide-pwsh repo PowerShell parse audit](reports/carbide-pwsh-repo-script-parse-audit__2026-04-23__02-59-32-0527852__9d3a7c1e4b62.md) — authoritative tracked-file audit of all repo PowerShell scripts against `pwsh.exe 7.6`, plus the mismatch catalog, the `carbide-pwsh` fixes that closed each gap, and the final `111 / 111` result.
 - [carbide-pwsh external GitHub corpus parse audit](reports/carbide-pwsh-external-github-corpus-parse-audit__2026-04-23__06-20-22__c2d0b7a8f4e1.md) — large-scale audit against a `6070`-file GitHub corpus downloaded under `C:\TestData`, documenting the final corpus-driven parser fixes and the `0` remaining `pwsh-ok / carbide-fail` files.
 - [Scope report: unifying Carbide shell endpoints around one shared session](reports/carbide-shell-endpoint-unification-scope-report__2026-04-23__21-12-38__9c7d7f44715e.md) — evaluates the work required to retire `carbide-multishell` as a separate browser endpoint while making `carbide-pwsh`, `carbide-cmd`, and `carbide-bash` all boot the same shared session, with emphasis on dependency-loading, prompt-UX, browser-manifest drift, and project-graph traps.
+- [Scope report: converging Carbide browser shells onto `carbide-pwsh` only](reports/carbide-pwsh-single-endpoint-scope-report__2026-04-24__00-17-09__f4e7687b27b5.md) — evaluates the narrower plan where `carbide-pwsh` is the only public browser endpoint, `cmd` and `bash` are entered from inside it, browser-side dependency loading for the full executable catalog is accepted, and the remaining key trade-off is shared-session reuse versus preserving the pwsh-first prompt UX.
 - [Content-identified virtual executable stubs for `carbide-multishell`](reports/carbide-multishell-content-identified-stubs-report__2026-04-23__00-08-04__f85c83692721.md) — evaluates the path-vs-content identity trade for multishell executable stubs, compares raw GUID, text-manifest, and pseudo-PE designs, and grounds the recommendation in shebang, `binfmt_misc`, BusyBox, Windows App Execution Aliases, and npm shim prior art.
 - [Carbide T2.1 follow-up research report](reports/carbide-T21-follow-up-research-report__2026-04-20__18-20-09__6554172dc064.md) — reassessment of the browser interactive-async roadblock, including fresh local repros, upstream web research, git history, and updated recommendations.
 - [Carbide usability report](reports/Carbide-Usability-Report.md) — hands-on scenarios beyond the baseline tests; notes usability, limitations, and follow-up proposals.
