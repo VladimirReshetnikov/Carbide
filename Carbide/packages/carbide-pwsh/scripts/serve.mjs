@@ -49,12 +49,16 @@ const server = createServer(async (req, res) => {
             res.writeHead(403); res.end("Forbidden"); return;
         }
         const st = await stat(abs);
+        const filePath = st.isDirectory() ? path.join(abs, "index.html") : abs;
         if (st.isDirectory()) {
-            res.writeHead(404); res.end("Directory listings disabled"); return;
+            const indexStat = await stat(filePath);
+            if (!indexStat.isFile()) {
+                res.writeHead(404); res.end("Directory listings disabled"); return;
+            }
         }
-        const data = await readFile(abs);
+        const data = await readFile(filePath);
         res.writeHead(200, {
-            "content-type": guessMime(abs),
+            "content-type": guessMime(filePath),
             "cache-control": "no-store",
             "access-control-allow-origin": "*",
         });

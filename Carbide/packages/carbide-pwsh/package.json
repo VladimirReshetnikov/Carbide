@@ -2,7 +2,7 @@
   "name": "@carbide/carbide-pwsh",
   "version": "0.1.0",
   "private": true,
-  "description": "A PowerShell-flavored shell (Phase 3 scripting + lightweight prompt editor), compiled and run in the browser by Carbide.",
+  "description": "The public Carbide shell endpoint: a pwsh-first shared session with nested cmd/bash and one virtual executable catalog.",
   "type": "module",
   "scripts": {
     "serve": "node scripts/serve.mjs",
@@ -13,7 +13,11 @@
     "wasm",
     "mono-wasm",
     "powershell",
+    "pwsh",
+    "cmd",
+    "bash",
     "shell",
+    "multishell",
     "repl",
     "xterm"
   ]

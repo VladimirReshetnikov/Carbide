@@ -23,9 +23,24 @@
     <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <TrimmerSingleWarn>true</TrimmerSingleWarn>
+    <DefineConstants>$(DefineConstants);CARBIDE_PWSH_EMBEDDED_MULTISHELL</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\carbide-shell-core\src\CarbideShellCore.csproj" />
+    <ProjectReference Include="..\..\carbide-cmd\src\CarbideCmd.csproj" />
+    <ProjectReference Include="..\..\carbide-bash\src\CarbideBash.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\carbide-multishell\src\MultishellSession.cs" Link="Shared\MultishellSession.cs" />
+    <Compile Include="..\..\carbide-multishell\src\VirtualExecutableCatalog.cs" Link="Shared\VirtualExecutableCatalog.cs" />
+    <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Core.cs" Link="Shared\MultishellVirtualExecutableHandler.Core.cs" />
+    <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Basic.cs" Link="Shared\MultishellVirtualExecutableHandler.Basic.cs" />
+    <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Advanced.cs" Link="Shared\MultishellVirtualExecutableHandler.Advanced.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.39.0" />
   </ItemGroup>
 </Project>

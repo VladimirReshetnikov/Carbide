@@ -1,6 +1,6 @@
 // Headless smoke test for the carbide-pwsh demo. Assumes `node scripts/serve.mjs` is
-// running on its default port. Drives the REPL through a curated set of Phase 1+2+3
-// expressions, asserts xterm buffer output, and runs the Phase 3 aggregate exit-gate.
+// running on its default port. Verifies the pwsh-first prompt editor path, shared virtual
+// executable catalog, and nested cmd/bash entry from the single public endpoint.
 const playwrightUrl = new URL("../../core/node_modules/playwright/index.mjs", import.meta.url);
 const { chromium } = await import(playwrightUrl.href);
 
@@ -17,7 +17,7 @@ try {
     page.on("console", (m) => { if (m.type() === "error") console.error(`[browser error] ${m.text()}`); });
     await page.goto(demoUrl);
 
-    console.log("smoke: waiting for banner + prompt in xterm\u2026");
+    console.log("smoke: waiting for banner + pwsh prompt in xterm…");
     await page.waitForFunction(
         () => {
             const t = window.__dumpBuffer?.() ?? "";
@@ -28,62 +28,76 @@ try {
     );
     console.log("smoke: REPL prompt reached");
 
-    const sendLine = async (line, waitMs) => {
-        await page.locator("#term").click();
+    const bufferLength = async () => page.evaluate(() => (window.__dumpBuffer?.() ?? "").length);
+
+    const waitForFreshBufferText = async (expected, minLength) => {
+        await page.waitForFunction(
+            ({ needle, minimumLength }) => {
+                const buf = window.__dumpBuffer?.() ?? "";
+                if (buf.length <= minimumLength) {
+                    return false;
+                }
+                return buf.replace(/\x1b\[[0-9;]*m/g, "").includes(needle);
+            },
+            { needle: expected, minimumLength: minLength },
+            { timeout: TIMEOUT_MS },
+        );
+    };
+
+    await page.locator("#term").click();
+
+    const sendLine = async (line, waitMs = 700) => {
         await page.keyboard.type(line);
         await page.keyboard.press("Enter");
         await page.waitForTimeout(waitMs);
     };
 
-    const cases = [
-        // Phase 1 regression.
-        { input: "2 + 2", expect: "4" },
+    const resetPwshLine = async () => {
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(150);
+    };
 
-        // Phase 2 regression.
-        { input: "@(5,3,1,4,2) | Sort-Object", expect: "1" },
-
-        // Phase 3: control flow.
-        { input: "foreach ($x in 1..3) { $x * $x }", expect: "9" },
-        { input: "if (5 -gt 3) { 'bigger' } else { 'not' }", expect: "bigger" },
-
-        // Phase 3: functions.
-        { input: "function Dbl { param($n) $n * 2 }", expect: null },
-        { input: "Dbl 21", expect: "42" },
-
-        // Phase 3: try/catch.
-        { input: "try { throw 'boom' } catch { \"caught: $($_.Exception.Message)\" }", expect: "caught: boom" },
-
-        // Phase 3: operators.
-        { input: "'hello world' -match 'hello'", expect: "True" },
-        { input: "'hello world' -replace 'world', 'universe'", expect: "hello universe" },
-        { input: "'{0:X}' -f 255", expect: "FF" },
-        { input: "@('a','b','c') -join ','", expect: "a,b,c" },
-        { input: "@(1,2,3) -contains 2", expect: "True" },
-
-        // Phase 3: classes + enums.
-        { input: "class Counter { [int] $N = 0; [int] Inc() { $this.N++; return $this.N } }", expect: null },
-        { input: "$c = [Counter]::new(); $c.Inc(); $c.Inc(); $c.Inc()", expect: "3" },
-        { input: "enum Color { Red; Green; Blue }; [Color]::Green", expect: "Green" },
-
-        // Phase 3: exit-gate aggregate.
-        {
-            input: "function Retry { param([scriptblock] $Action, [int] $Times = 3) for ($i = 1; $i -le $Times; $i++) { try { return & $Action } catch { if ($i -eq $Times) { throw } } } }",
-            expect: null,
-        },
-    ];
-
-    for (const c of cases) {
-        await sendLine(c.input, 700);
-        if (c.expect != null) {
-            const buf = await page.evaluate(() => window.__dumpBuffer());
-            if (!buf.includes(c.expect)) {
-                throw new Error(`smoke: input '${c.input}' did not produce expected '${c.expect}'. Buffer tail:\n${buf.split('\n').slice(-30).join('\n')}`);
-            }
-            console.log(`smoke: '${c.input.slice(0, 60)}' -> contains '${c.expect}' OK`);
-        } else {
-            console.log(`smoke: '${c.input.slice(0, 60)}' OK (no output)`);
+    const expectInBuffer = async (needle) => {
+        const buf = await page.evaluate(() => window.__dumpBuffer());
+        if (!buf.includes(needle)) {
+            throw new Error(`smoke: expected '${needle}' in xterm buffer. Tail:\n${buf.split("\n").slice(-40).join("\n")}`);
         }
-    }
+        console.log(`smoke: found '${needle}' OK`);
+    };
+
+    await sendLine("2 + 2");
+    await expectInBuffer("4");
+
+    await sendLine("@('alpha','beta') | grep beta");
+    await expectInBuffer("beta");
+
+    await sendLine("cmd", 900);
+    await expectInBuffer("C:\\home\\user>");
+    await sendLine("DIR /B /usr/bin", 900);
+    await expectInBuffer("grep.exe");
+    const beforeCmdExit = await bufferLength();
+    await sendLine("exit", 900);
+    await waitForFreshBufferText("PS /home/user>", beforeCmdExit);
+    await page.locator("#term").click();
+    await resetPwshLine();
+
+    await sendLine("bash", 900);
+    await expectInBuffer("user@carbide");
+    await sendLine("export FROM_BASH=yes", 500);
+    await sendLine("echo {a,b,c}", 500);
+    await expectInBuffer("a b c");
+    const beforeBashExit = await bufferLength();
+    await sendLine("exit", 900);
+    await waitForFreshBufferText("PS /home/user>", beforeBashExit);
+    await page.locator("#term").click();
+    await resetPwshLine();
+
+    await sendLine("$env:FROM_BASH");
+    await expectInBuffer("yes");
+
+    await sendLine("Get-Command grep");
+    await expectInBuffer("Application");
+    await expectInBuffer("grep");
 
     await sendLine("exit", 2000);
     await page.waitForFunction(

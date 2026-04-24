@@ -2,7 +2,7 @@
   "name": "@carbide/carbide-multishell",
   "version": "0.1.0",
   "private": true,
-  "description": "A pwsh + cmd + bash session sharing one VFS, env, and dispatcher — compiled and run in the browser by Carbide.",
+  "description": "Legacy browser route for the shared pwsh/cmd/bash Carbide session; now redirects to carbide-pwsh while the generic runner remains internal.",
   "type": "module",
   "scripts": {
     "serve": "node scripts/serve.mjs",

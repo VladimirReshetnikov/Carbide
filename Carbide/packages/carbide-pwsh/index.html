@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>carbide-pwsh — a PowerShell-flavored shell, compiled in the browser</title>
+  <title>carbide-pwsh — pwsh-first shared shell session in the browser</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
   <style>
     :root { color-scheme: dark; }
@@ -10,6 +10,7 @@
     header { padding: 12px 16px; border-bottom: 1px solid #333; display: flex; gap: 16px; align-items: baseline; }
     header h1 { font-size: 16px; margin: 0; color: #7cc; }
     header .sub { color: #888; font-size: 12px; }
+    header .hint { color: #666; font-size: 11px; font-family: ui-monospace, monospace; }
     header .status { margin-left: auto; color: #aaa; font-size: 12px; font-family: ui-monospace, monospace; }
     header .status[data-state="ready"] { color: #7c7; }
     header .status[data-state="error"] { color: #e77; }
@@ -21,7 +22,8 @@
 <body>
   <header>
     <h1>carbide-pwsh</h1>
-    <span class="sub">a PowerShell-flavored shell — Phase 3 scripting + lightweight prompt editor</span>
+    <span class="sub">pwsh-first public endpoint with nested cmd/bash and one shared executable catalog</span>
+    <span class="hint">try: <code>cmd</code> · <code>bash</code> · <code>@('alpha','beta') | grep beta</code></span>
     <span id="status" class="status" data-state="init">booting&hellip;</span>
   </header>
   <div id="term"></div>
@@ -30,6 +32,11 @@
     import { Terminal } from "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/+esm";
     import { FitAddon } from "https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/+esm";
     import { CarbideSession, BrowserHostAdapter } from "/packages/core/dist/index.js";
+    import {
+      attachSharedShellReferences,
+      createPwshSingleEndpointManifest,
+      loadShellDemoSources,
+    } from "/packages/carbide-shell-core/browser-shell-demo.mjs";
 
     const statusEl = document.getElementById("status");
     const setStatus = (text, state) => {
@@ -53,122 +60,18 @@
     term.open(document.getElementById("term"));
     fit.fit();
     window.addEventListener("resize", () => fit.fit());
-    // Expose the terminal + a buffer dump for smoke/debug scripts.
     window.__term = term;
     window.__dumpBuffer = () => {
-      const b = term.buffer.active;
+      const buffer = term.buffer.active;
       const out = [];
-      for (let y = 0; y < b.length; y++) {
-        out.push(b.getLine(y)?.translateToString(true) ?? "");
+      for (let y = 0; y < buffer.length; y++) {
+        out.push(buffer.getLine(y)?.translateToString(true) ?? "");
       }
       return out.join("\n");
     };
 
-    // carbide-pwsh-local sources.
-    const PWSH_SOURCE_FILES = [
-      "src/Program.cs",
-      "src/Errors/SourceLocation.cs",
-      "src/Errors/PwshException.cs",
-      "src/Lexer/TokenKind.cs",
-      "src/Lexer/Token.cs",
-      "src/Lexer/Lexer.cs",
-      "src/Parser/Ast/AstNode.cs",
-      "src/Parser/Ast/AstNodes.cs",
-      "src/Parser/Ast/ControlFlowNodes.cs",
-      "src/Parser/Ast/FunctionNodes.cs",
-      "src/Parser/Ast/ErrorNodes.cs",
-      "src/Parser/Ast/ClassEnumNodes.cs",
-      "src/Parser/Parser.cs",
-      "src/Runtime/Scope.cs",
-      "src/Runtime/Coercion.cs",
-      "src/Runtime/Operators.cs",
-      "src/Runtime/TypeAliases.cs",
-      "src/Runtime/TypeBridge.cs",
-      "src/Runtime/Interpreter.cs",
-      "src/Runtime/ScriptBlock.cs",
-      "src/Runtime/LoopControl.cs",
-      "src/Runtime/ErrorRecord.cs",
-      "src/Runtime/ScriptFunction.cs",
-      "src/Runtime/FunctionRegistry.cs",
-      "src/Runtime/RuntimeClass.cs",
-      "src/Runtime/RuntimeEnum.cs",
-      "src/Runtime/Providers.cs",
-      "src/Runtime/WildcardPattern.cs",
-      "src/Cmdlets/Cmdlet.cs",
-      "src/Cmdlets/ParameterBinding.cs",
-      "src/Cmdlets/CmdletRegistry.cs",
-      "src/Cmdlets/Pipeline.cs",
-      "src/Cmdlets/Discovery/BuiltinCommandCatalog.cs",
-      "src/Cmdlets/Discovery/CommandDiscoveryCommands.cs",
-      "src/Cmdlets/Discovery/DiscoveryModels.cs",
-      "src/Cmdlets/Discovery/SessionStateCommands.cs",
-      "src/Cmdlets/Output/WriteOutputCommand.cs",
-      "src/Cmdlets/Output/WriteHostCommand.cs",
-      "src/Cmdlets/Output/WriteErrorCommand.cs",
-      "src/Cmdlets/Output/OutStringCommand.cs",
-      "src/Cmdlets/Output/OutHostCommands.cs",
-      "src/Cmdlets/Output/ReadHostCommand.cs",
-      "src/Cmdlets/Shape/WhereObjectCommand.cs",
-      "src/Cmdlets/Shape/ForEachObjectCommand.cs",
-      "src/Cmdlets/Shape/SelectObjectCommand.cs",
-      "src/Cmdlets/Shape/SortObjectCommand.cs",
-      "src/Cmdlets/Shape/GroupObjectCommand.cs",
-      "src/Cmdlets/Shape/MeasureObjectCommand.cs",
-      "src/Cmdlets/Json/ConvertToJsonCommand.cs",
-      "src/Cmdlets/Json/ConvertFromJsonCommand.cs",
-      "src/Cmdlets/Fs/GetChildItemCommand.cs",
-      "src/Cmdlets/Fs/GetContentCommand.cs",
-      "src/Cmdlets/Fs/SetContentCommand.cs",
-      "src/Cmdlets/Fs/AddContentCommand.cs",
-      "src/Cmdlets/Fs/NewItemCommand.cs",
-      "src/Cmdlets/Fs/RemoveItemCommand.cs",
-      "src/Cmdlets/Fs/TestPathCommand.cs",
-      "src/Cmdlets/Fs/LocationCommands.cs",
-      "src/Cmdlets/Fs/ItemCommands.cs",
-      "src/Cmdlets/Fs/PathAndNewObject.cs",
-      "src/Cmdlets/Fs/CopyMoveCommands.cs",
-      "src/Cmdlets/Sys/SystemCommands.cs",
-      "src/Cmdlets/Sys/StrictMode.cs",
-      "src/Cmdlets/App/AppCommands.cs",
-      "src/Cmdlets/Shell/CrossShellCommands.cs",
-      "src/Host/Banner.cs",
-      "src/Host/OutputFormatter.cs",
-      "src/Host/PwshPromptEditor.cs",
-      "src/Host/PwshKernel.cs",
-      "src/Host/ShellHost.cs",
-    ];
-
-    // Shared carbide-shell-core sources compiled into the same project on the browser
-    // side — the WASM path is source-list-based, not assembly-reference-based.
-    const SHARED_SOURCE_FILES = [
-      "src/Errors/ShellException.cs",
-      "src/Vfs/VfsPath.cs",
-      "src/Vfs/VfsNode.cs",
-      "src/Vfs/VirtualFileSystem.cs",
-      "src/Vfs/VfsSnapshot.cs",
-      "src/Apps/AppRegistry.cs",
-      "src/Apps/StubInstaller.cs",
-      "src/Env/EnvVarStore.cs",
-      "src/Dispatch/IShellKernel.cs",
-      "src/Dispatch/ShellExecutionContext.cs",
-      "src/Dispatch/ShellDispatcher.cs",
-      "src/Dispatch/VirtualExecutable.cs",
-      "src/Io/ShellArgTokenizer.cs",
-    ];
-
-    async function loadSources() {
-      const fetchOne = async (pkg, rel) => {
-        const r = await fetch(`/packages/${pkg}/${rel}`);
-        if (!r.ok) throw new Error(`failed to fetch ${pkg}/${rel}: HTTP ${r.status}`);
-        return [`${pkg}/${rel.replace(/^src\//, "")}`, await r.text()];
-      };
-      const pwsh = PWSH_SOURCE_FILES.map((rel) => fetchOne("carbide-pwsh", rel));
-      const shared = SHARED_SOURCE_FILES.map((rel) => fetchOne("carbide-shell-core", rel));
-      return Promise.all([...pwsh, ...shared]);
-    }
-
     async function main() {
-      setStatus("initialising Carbide session\u2026");
+      setStatus("initialising Carbide session…");
       const adapter = new BrowserHostAdapter({
         frameworkAssetsBaseUrl: new URL(
           "/packages/core/src/bin/Release/net10.0/publish/wwwroot/_framework/",
@@ -177,9 +80,10 @@
       });
       const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
 
-      setStatus("compiling carbide-pwsh\u2026");
+      setStatus("compiling carbide-pwsh…");
       const project = session.createProject();
-      const sources = await loadSources();
+      await attachSharedShellReferences(session, project);
+      const sources = await loadShellDemoSources(createPwshSingleEndpointManifest());
       for (const [name, body] of sources) {
         project.addSource(name, body);
       }
@@ -187,7 +91,7 @@
       setStatus("running", "ready");
       const handle = project.runInteractive({ terminal: term, stderrStyle: "red" });
       const result = await handle.exitPromise;
-      setStatus(result.success ? `exit \u2713` : `exit \u2717 (${result.exitCode ?? "?"})`, result.success ? "ready" : "error");
+      setStatus(result.success ? `exit ✓` : `exit ✗ (${result.exitCode ?? "?"})`, result.success ? "ready" : "error");
       await session.shutdown();
     }
 

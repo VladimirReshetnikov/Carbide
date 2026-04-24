@@ -1,6 +1,8 @@
 using System.Text;
 using CarbidePwsh.Errors;
 using CarbidePwsh.Runtime;
+using CarbideShellCore.Dispatch;
+using CarbideShellCore.Vfs;
 
 namespace CarbidePwsh.Cmdlets.Discovery;
 
@@ -259,11 +261,84 @@ internal static class DiscoveryHelpers
                 IsImplementedCommand(alias.Definition, registry));
         }
 
-        if (interpreter.Functions is null)
+        if (interpreter.Functions is not null)
+        {
+            foreach (var functionName in interpreter.Functions.Names.OrderBy(static n => n, StringComparer.OrdinalIgnoreCase))
+                yield return new PwshCommandInfo("Function", functionName, Source: "CarbidePwsh", IsImplemented: true);
+        }
+
+        foreach (var external in EnumerateVisibleExternalCommandInfos(interpreter)
+            .OrderBy(static info => info.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static info => info.Definition, StringComparer.OrdinalIgnoreCase))
+        {
+            yield return external;
+        }
+    }
+
+    public static IEnumerable<string> EnumerateVisibleExternalCommandNames(Interpreter interpreter, string callerShellName = "pwsh")
+        => EnumerateVisibleExternalCommandInfos(interpreter, callerShellName)
+            .Select(static info => info.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public static IEnumerable<PwshCommandInfo> EnumerateVisibleExternalCommandInfos(
+        Interpreter interpreter,
+        string callerShellName = "pwsh")
+    {
+        var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (interpreter.Apps is not null)
+        {
+            foreach (var app in interpreter.Apps.All.OrderBy(static kv => kv.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                if (!yielded.Add(app.Key))
+                    continue;
+
+                yield return new PwshCommandInfo(
+                    "Application",
+                    app.Key,
+                    app.Value,
+                    Source: "CarbideApp",
+                    IsImplemented: true);
+            }
+        }
+
+        if (interpreter.Dispatcher is null || interpreter.Vfs is null || interpreter.Env is null || interpreter.Apps is null)
             yield break;
 
-        foreach (var functionName in interpreter.Functions.Names.OrderBy(static n => n, StringComparer.OrdinalIgnoreCase))
-            yield return new PwshCommandInfo("Function", functionName, Source: "CarbidePwsh", IsImplemented: true);
+        var ctx = new ShellExecutionContext
+        {
+            Args = Array.Empty<string>(),
+            Input = TextReader.Null,
+            Output = TextWriter.Null,
+            Error = TextWriter.Null,
+            Vfs = interpreter.Vfs,
+            Env = interpreter.Env,
+            Apps = interpreter.Apps,
+            Dispatcher = interpreter.Dispatcher,
+        };
+
+        foreach (var definition in interpreter.Dispatcher.RegisteredVirtualExecutables)
+        {
+            foreach (var name in ExpandVirtualExecutableDiscoveryNames(definition))
+            {
+                if (!yielded.Add(name))
+                    continue;
+
+                var resolution = interpreter.Dispatcher.Resolve(name, ctx, callerShellName);
+                if (resolution.Kind != ResolutionKind.VirtualExecutable
+                    || resolution.VirtualExecutable is null
+                    || resolution.VirtualExecutablePath is null)
+                {
+                    continue;
+                }
+
+                yield return new PwshCommandInfo(
+                    "Application",
+                    name,
+                    resolution.VirtualExecutablePath,
+                    Source: resolution.VirtualExecutable.HandlerKey,
+                    IsImplemented: true);
+            }
+        }
     }
 
     public static bool IsImplementedCommand(string name, CmdletRegistry registry)
@@ -280,5 +355,45 @@ internal static class DiscoveryHelpers
         yield return new PwshDriveInfo("Env", "Environment", "Env:\\", context.Interpreter.CurrentDrive == PwshDriveKind.Env ? "Env:\\" : "");
         yield return new PwshDriveInfo("Function", "Function", "Function:\\", context.Interpreter.CurrentDrive == PwshDriveKind.Function ? "Function:\\" : "");
         yield return new PwshDriveInfo("Variable", "Variable", "Variable:\\", context.Interpreter.CurrentDrive == PwshDriveKind.Variable ? "Variable:\\" : "");
+    }
+
+    private static IEnumerable<string> ExpandVirtualExecutableDiscoveryNames(VirtualExecutableDefinition definition)
+    {
+        var yielded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var name in definition.SearchNames)
+        {
+            if (yielded.Add(name))
+                yield return name;
+
+            if (TryGetImplicitInvocationName(name, out var implicitName) && yielded.Add(implicitName))
+                yield return implicitName;
+        }
+
+        foreach (var stubPath in definition.StubPaths)
+        {
+            var leaf = VfsPath.SplitLeaf(stubPath).Leaf;
+            if (yielded.Add(leaf))
+                yield return leaf;
+
+            if (TryGetImplicitInvocationName(leaf, out var implicitName) && yielded.Add(implicitName))
+                yield return implicitName;
+        }
+    }
+
+    private static bool TryGetImplicitInvocationName(string commandName, out string implicitName)
+    {
+        implicitName = "";
+        var extension = Path.GetExtension(commandName);
+        if (!extension.Equals(".exe", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".com", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        implicitName = commandName[..^extension.Length];
+        return implicitName.Length > 0;
     }
 }

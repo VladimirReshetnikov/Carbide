@@ -1,6 +1,6 @@
-// Headless smoke test for the carbide-multishell demo. Assumes `node scripts/serve.mjs`
-// is running on its default port. Drives the REPL through a cross-shell exercise that
-// touches pwsh, cmd, and bash via the sub-REPL / stub-path mechanics.
+// Headless smoke test for the legacy carbide-multishell URL. Assumes `node scripts/serve.mjs`
+// is running on its default port. The old browser route should redirect to carbide-pwsh,
+// which now hosts the public shared pwsh/cmd/bash session.
 const playwrightUrl = new URL("../../core/node_modules/playwright/index.mjs", import.meta.url);
 const { chromium } = await import(playwrightUrl.href);
 
@@ -17,68 +17,78 @@ try {
     page.on("console", (m) => { if (m.type() === "error") console.error(`[browser error] ${m.text()}`); });
     await page.goto(demoUrl);
 
-    console.log("smoke: waiting for banner + pwsh prompt in xterm\u2026");
+    console.log("smoke: waiting for redirect to carbide-pwsh...");
     await page.waitForFunction(
         () => {
             const t = window.__dumpBuffer?.() ?? "";
-            return t.includes("Carbide Multishell") && t.includes("PS ");
+            return window.location.pathname.includes("/packages/carbide-pwsh/")
+                && t.includes("carbide-pwsh")
+                && t.includes("PS ");
         },
         undefined,
         { timeout: TIMEOUT_MS },
     );
-    console.log("smoke: initial pwsh REPL reached");
+    console.log("smoke: redirected pwsh REPL reached");
 
-    const sendLine = async (line, waitMs) => {
-        await page.evaluate((l) => window.__term.input(l), line + "\r");
+    const bufferLength = async () => page.evaluate(() => (window.__dumpBuffer?.() ?? "").length);
+
+    const waitForFreshBufferText = async (expected, minLength) => {
+        await page.waitForFunction(
+            ({ needle, minimumLength }) => {
+                const buf = window.__dumpBuffer?.() ?? "";
+                if (buf.length <= minimumLength) {
+                    return false;
+                }
+                return buf.replace(/\x1b\[[0-9;]*m/g, "").includes(needle);
+            },
+            { needle: expected, minimumLength: minLength },
+            { timeout: TIMEOUT_MS },
+        );
+    };
+
+    const sendLine = async (line, waitMs = 700) => {
+        await page.locator("#term").click();
+        await page.keyboard.type(line);
+        await page.keyboard.press("Enter");
         await page.waitForTimeout(waitMs);
+    };
+
+    const resetPwshLine = async () => {
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(150);
     };
 
     const expectInBuffer = async (needle) => {
         const buf = await page.evaluate(() => window.__dumpBuffer());
         if (!buf.includes(needle)) {
-            throw new Error(`smoke: expected '${needle}' in xterm buffer. Tail:\n${buf.split('\n').slice(-40).join('\n')}`);
+            throw new Error(`smoke: expected '${needle}' in xterm buffer. Tail:\n${buf.split("\n").slice(-40).join("\n")}`);
         }
         console.log(`smoke: found '${needle}' OK`);
     };
 
-    // Start in pwsh. A trivial check.
     await sendLine("2 + 2", 500);
     await expectInBuffer("4");
 
-    // Enter bash via bare invocation. Prompt should change.
-    await sendLine("bash", 800);
-    await expectInBuffer("user@carbide");
+    await sendLine("cmd", 900);
+    await expectInBuffer("C:\\home\\user>");
+    await sendLine("DIR /B /usr/bin", 700);
+    await expectInBuffer("grep.exe");
+    const beforeCmdExit = await bufferLength();
+    await sendLine("exit", 900);
+    await waitForFreshBufferText("PS /home/user>", beforeCmdExit);
+    await page.locator("#term").click();
+    await resetPwshLine();
 
-    // Run something bash-specific: brace expansion.
+    await sendLine("bash", 900);
+    await expectInBuffer("user@carbide");
     await sendLine("echo {a,b,c}", 500);
     await expectInBuffer("a b c");
+    const beforeBashExit = await bufferLength();
+    await sendLine("exit", 900);
+    await waitForFreshBufferText("PS /home/user>", beforeBashExit);
+    await page.locator("#term").click();
+    await resetPwshLine();
 
-    // Set an env var in bash; leave bash; read it from pwsh.
-    await sendLine("export FROM_BASH=yes", 400);
-    await sendLine("exit", 800);
-    await expectInBuffer("PS ");
-    await sendLine("$env:FROM_BASH", 500);
-    await expectInBuffer("yes");
-
-    // Enter cmd, list the stub executables.
-    await sendLine("cmd", 800);
-    await expectInBuffer("C:\\");
-    await sendLine("DIR /B /usr/bin", 600);
-    await expectInBuffer("bash");
-    await expectInBuffer("cmd.exe");
-
-    // Invoke a stub by path.
-    await sendLine("/usr/bin/bash", 800);
-    await expectInBuffer("user@carbide");
-    await sendLine("echo nested", 500);
-    await expectInBuffer("nested");
-    await sendLine("exit", 500); // leave nested bash
-    await sendLine("exit", 500); // leave cmd
-
-    // Back in pwsh.
-    await expectInBuffer("PS ");
-
-    // Clean session exit.
     await sendLine("exit", 2000);
     await page.waitForFunction(
         () => {

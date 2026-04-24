@@ -9,7 +9,11 @@ using CarbideShellCore.Errors;
 using CarbideShellCore.Vfs;
 using SharpCompress.Compressors.BZip2;
 
+#if CARBIDE_PWSH_EMBEDDED_MULTISHELL
+namespace CarbidePwsh.SharedMultishell;
+#else
 namespace CarbideMultishell;
+#endif
 
 internal sealed partial class MultishellVirtualExecutableHandler
 {

@@ -133,8 +133,8 @@ public sealed class ShellHost
         foreach (var functionName in Functions.Names)
             names.Add(functionName);
 
-        foreach (var appName in Apps.All.Keys)
-            names.Add(appName);
+        foreach (var externalName in DiscoveryHelpers.EnumerateVisibleExternalCommandNames(Interpreter, Kernel.Name))
+            names.Add(externalName);
 
         return names.ToArray();
     }

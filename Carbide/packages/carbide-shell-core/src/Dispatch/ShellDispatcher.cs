@@ -29,6 +29,13 @@ public sealed class ShellDispatcher
     public int LastExitCode { get; set; }
 
     /// <summary>
+    /// Snapshot of every registered virtual executable definition. Used by discovery and
+    /// browser hosts that need to surface the session-wide tool catalog coherently.
+    /// </summary>
+    public IReadOnlyList<VirtualExecutableDefinition> RegisteredVirtualExecutables
+        => _virtualExecutables.All;
+
+    /// <summary>
     /// When <see langword="true"/>, <see cref="EnterSubShell"/> throws a
     /// <see cref="CarbideShellCore.Errors.RequestSubShellException"/> instead of running
     /// <see cref="RunInteractive"/> inline. The outer async REPL loop catches the

@@ -1,5 +1,6 @@
 using CarbideShellCore.Dispatch;
 using CarbideShellCore.Vfs;
+using CarbidePwsh.Cmdlets.Discovery;
 using Xunit;
 
 namespace CarbideMultishell.Tests;
@@ -181,6 +182,32 @@ public class VirtualExecutableTests
         }
 
         Assert.Contains("beta", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PwshInteractiveCommandNamesIncludeSharedVirtualExecutables()
+    {
+        var session = new MultishellSession();
+
+        var names = session.Pwsh.GetInteractiveCommandNames();
+
+        Assert.Contains("grep", names);
+        Assert.Contains("grep.exe", names);
+        Assert.Contains("findstr", names);
+        Assert.Contains("tar", names);
+    }
+
+    [Fact]
+    public void GetCommandCanSeeSharedVirtualExecutablesFromPwsh()
+    {
+        var session = new MultishellSession();
+
+        var result = Assert.IsType<PwshCommandInfo>(session.Pwsh.Submit("Get-Command grep"));
+
+        Assert.Equal("Application", result.CommandType);
+        Assert.Equal("grep", result.Name);
+        Assert.True(result.IsImplemented);
+        Assert.EndsWith("/usr/bin/grep.exe", result.Definition, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ShellExecutionContext BuildContext(MultishellSession session)

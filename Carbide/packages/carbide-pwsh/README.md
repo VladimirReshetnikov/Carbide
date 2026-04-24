@@ -4,9 +4,10 @@ A PowerShell-flavored shell, compiled from C# in the browser and run on Mono-WAS
 [Carbide](../../README.md). **Phase 3** (current) closes the loop on "useful scripting
 language": control flow, user-defined functions, error handling, classes, enums, script
 files, Carbide-compiled app invocation, regex/format/join/split/containment operators,
-and a proper scope stack. The interactive prompt now also has a lightweight editor layer
-for the common `pwsh` REPL conveniences that fit Carbide's current browser/console host
-without a larger PSReadLine-style redesign.
+and a proper scope stack. `carbide-pwsh` is now also the single public Carbide shell
+endpoint in the browser: it starts with the richer pwsh prompt/editor UX, but it boots a
+shared session that can enter nested `cmd` and `bash` shells and exposes one shared
+virtual executable catalog across all three.
 
 Source docs:
 
@@ -17,16 +18,40 @@ Source docs:
 
 ## Running the demo
 
-Prerequisites: `@carbide/core` must already be built — the demo fetches its published
-`_framework/` directly from `/packages/core/src/bin/Release/net10.0/publish/`.
+Prerequisites:
+
+- `@carbide/core` must already be built — the demo fetches its published `_framework/`
+  directly from `/packages/core/src/bin/Release/net10.0/publish/`.
+- `src/CarbidePwsh.csproj` should be built at least once so the browser host can fetch
+  `SharpCompress.dll` for the shared executable catalog.
 
 ```bash
 cd src/Carbide/packages/carbide-pwsh
+dotnet build src/CarbidePwsh.csproj
 node scripts/serve.mjs
 # -> carbide-pwsh demo server: http://127.0.0.1:34571/packages/carbide-pwsh/
 ```
 
 Open that URL in any modern browser.
+
+## Shared shell session
+
+The browser page under `packages/carbide-pwsh/` is the public entrypoint for the whole
+shared shell runtime:
+
+- typing `cmd` enters the cmd subset shell
+- typing `bash` enters the bash subset shell
+- typing `exit` leaves the current nested shell and returns to the previous one
+- pwsh, cmd, and bash share one VFS, one environment-variable store, one current
+  directory flow, and one dispatcher-backed virtual executable catalog
+
+That means state round-trips the way you would expect in one session:
+
+- a variable exported in bash is visible later in pwsh as `$env:NAME`
+- files created in cmd or bash are immediately visible from pwsh
+- shared tools such as `grep`, `findstr`, `tar`, and related VFS-backed executables are
+  invokable from any shell flavor, and pwsh command discovery now surfaces them through
+  `Get-Command` and tab completion
 
 ## Interactive prompt conveniences
 
@@ -36,9 +61,9 @@ basic typing workflows you expect from day-to-day `pwsh` use:
 - `Esc` clears the current input line.
 - `Ctrl+C` abandons the current line, prints red `^C`, and returns to a fresh prompt.
 - `UpArrow` / `DownArrow` walk recent command history.
-- `Tab` completes the current command name from cmdlets, aliases, functions, apps, and
-  recognized builtin placeholders; repeated `Tab` cycles forward and `Shift+Tab` cycles
-  backward.
+- `Tab` completes the current command name from cmdlets, aliases, functions, registered
+  apps, and shared virtual executables; repeated `Tab` cycles forward and `Shift+Tab`
+  cycles backward.
 - `LeftArrow` / `RightArrow`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Backspace`,
   `Delete`, and `Ctrl+L` all work in the prompt.
 
@@ -172,15 +197,15 @@ PowerShell 7.6 builtin alias surface as recognized command-discovery metadata.
 
 | path | purpose |
 |---|---|
-| `index.html` | xterm.js host page; fetches the ~50 C# sources, compiles, runs `project.runInteractive`. |
-| `src/Program.cs` | REPL entry point with multi-line input. |
+| `index.html` | Public browser page for the pwsh-first shared shell session; imports the shared browser manifest/helper, compiles the runtime, and runs `project.runInteractive`. |
+| `src/Program.cs` | pwsh-first outer runner: keeps `PwshPromptEditor` for pwsh, but pushes/pops nested cmd/bash kernels on one shared shell stack. |
 | `src/Errors/` | Exception hierarchy + `SourceLocation` + `ErrorRecord`. |
 | `src/Lexer/` | Tokenizer with hyphenated-command-name folding, pipe token, keyword identifiers, all dashed operators. |
 | `src/Parser/` | Recursive-descent parser producing an AST covering control flow, functions, try/catch, classes, enums. |
 | `src/Runtime/` | Scope stack, coercion, operators (incl. regex/format/join/split/contains), type bridge, interpreter, script blocks, script functions, runtime classes/enums. |
 | `src/Vfs/` | Virtualized filesystem (tree, paths, snapshot). |
 | `src/Cmdlets/` | Cmdlet base, registry, pipeline runtime, catalog. |
-| `src/Host/` | Banner, output formatter, persistent `ShellHost` with script loader + app invoker. |
+| `src/Host/` | Banner, output formatter, persistent `ShellHost`, pwsh prompt editor, script loader, and shared-command discovery bridge. |
 | `test/` | xUnit tests spanning Phase 1, 2, and 3 surfaces. |
 
 ## Local development
@@ -191,7 +216,7 @@ cd src/Carbide/packages/carbide-pwsh
 dotnet build src/CarbidePwsh.csproj
 dotnet test test/CarbidePwsh.Tests.csproj
 
-# Run the REPL locally (no browser):
+# Run the pwsh-first shared session locally (no browser):
 dotnet run --project src/CarbidePwsh.csproj
 ```
 

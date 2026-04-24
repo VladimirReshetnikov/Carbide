@@ -2,7 +2,11 @@ using CarbideShellCore.Apps;
 using CarbideShellCore.Dispatch;
 using CarbideShellCore.Vfs;
 
+#if CARBIDE_PWSH_EMBEDDED_MULTISHELL
+namespace CarbidePwsh.SharedMultishell;
+#else
 namespace CarbideMultishell;
+#endif
 
 internal static class VirtualExecutableCatalog
 {

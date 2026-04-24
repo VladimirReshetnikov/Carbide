@@ -14,7 +14,11 @@ using CarbideShellCore.Env;
 using CarbideShellCore.Errors;
 using CarbideShellCore.Vfs;
 
+#if CARBIDE_PWSH_EMBEDDED_MULTISHELL
+namespace CarbidePwsh.SharedMultishell;
+#else
 namespace CarbideMultishell;
+#endif
 
 internal sealed partial class MultishellVirtualExecutableHandler : IVirtualExecutableHandler
 {

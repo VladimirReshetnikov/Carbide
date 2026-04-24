@@ -3,7 +3,11 @@ using CarbideShellCore.Dispatch;
 using CarbideShellCore.Env;
 using CarbideShellCore.Vfs;
 
+#if CARBIDE_PWSH_EMBEDDED_MULTISHELL
+namespace CarbidePwsh.SharedMultishell;
+#else
 namespace CarbideMultishell;
+#endif
 
 /// <summary>
 /// Canonical multishell session wiring. Creates one shared
