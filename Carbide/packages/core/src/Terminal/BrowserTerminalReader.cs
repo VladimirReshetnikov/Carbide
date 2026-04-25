@@ -125,6 +125,15 @@ internal sealed class BrowserTerminalReader : TextReader
         return text;
     }
 
+    /// <summary>
+    /// Return unconsumed key-mode bytes to the front of the raw input buffer.
+    /// </summary>
+    internal void PrependRaw(string data)
+    {
+        if (_closed || string.IsNullOrEmpty(data)) return;
+        _partialLineBuffer.Insert(0, data);
+    }
+
     /// <summary>Whether any raw byte is available from the key-mode buffer.</summary>
     internal bool HasPartialBytes => _partialLineBuffer.Length > 0;
 

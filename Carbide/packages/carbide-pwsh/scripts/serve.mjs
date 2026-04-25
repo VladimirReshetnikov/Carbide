@@ -13,11 +13,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // From `.../packages/carbide-pwsh/scripts/` up 3 to the Carbide repo root.
-const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
-const DEMO_URL_PATH = "packages/carbide-pwsh/";
-const PORT = Number(process.env.PORT ?? 34571);
+export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
+export const DEMO_URL_PATH = "packages/carbide-pwsh/";
+export const DEFAULT_PORT = Number(process.env.PORT ?? 34571);
 
-function guessMime(filePath) {
+export function guessMime(filePath) {
     const ext = path.extname(filePath).toLowerCase();
     switch (ext) {
         case ".wasm": return "application/wasm";
@@ -35,41 +35,65 @@ function guessMime(filePath) {
     }
 }
 
-const server = createServer(async (req, res) => {
-    try {
-        const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
-        let pathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-        if (pathname === "" ||
-            pathname === DEMO_URL_PATH.replace(/\/$/, "") ||
-            pathname === DEMO_URL_PATH) {
-            pathname = DEMO_URL_PATH + "index.html";
-        }
-        const abs = path.resolve(REPO_ROOT, pathname);
-        if (!abs.startsWith(REPO_ROOT)) {
-            res.writeHead(403); res.end("Forbidden"); return;
-        }
-        const st = await stat(abs);
-        const filePath = st.isDirectory() ? path.join(abs, "index.html") : abs;
-        if (st.isDirectory()) {
-            const indexStat = await stat(filePath);
-            if (!indexStat.isFile()) {
-                res.writeHead(404); res.end("Directory listings disabled"); return;
+export function createCarbidePwshStaticServer({ repoRoot = REPO_ROOT, demoUrlPath = DEMO_URL_PATH } = {}) {
+    return createServer(async (req, res) => {
+        try {
+            const url = new URL(req.url ?? "/", "http://127.0.0.1");
+            let pathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+            if (pathname === "" ||
+                pathname === demoUrlPath.replace(/\/$/, "") ||
+                pathname === demoUrlPath) {
+                pathname = demoUrlPath + "index.html";
             }
+            const abs = path.resolve(repoRoot, pathname);
+            if (!abs.startsWith(repoRoot)) {
+                res.writeHead(403); res.end("Forbidden"); return;
+            }
+            const st = await stat(abs);
+            const filePath = st.isDirectory() ? path.join(abs, "index.html") : abs;
+            if (st.isDirectory()) {
+                const indexStat = await stat(filePath);
+                if (!indexStat.isFile()) {
+                    res.writeHead(404); res.end("Directory listings disabled"); return;
+                }
+            }
+            const data = await readFile(filePath);
+            res.writeHead(200, {
+                "content-type": guessMime(filePath),
+                "cache-control": "no-store",
+                "access-control-allow-origin": "*",
+            });
+            res.end(data);
+        } catch {
+            res.writeHead(404); res.end("Not found");
         }
-        const data = await readFile(filePath);
-        res.writeHead(200, {
-            "content-type": guessMime(filePath),
-            "cache-control": "no-store",
-            "access-control-allow-origin": "*",
-        });
-        res.end(data);
-    } catch {
-        res.writeHead(404); res.end("Not found");
-    }
-});
+    });
+}
 
-server.listen(PORT, "127.0.0.1", () => {
-    const url = `http://127.0.0.1:${PORT}/${DEMO_URL_PATH}`;
+export async function startCarbidePwshStaticServer({
+    port = DEFAULT_PORT,
+    host = "127.0.0.1",
+    repoRoot = REPO_ROOT,
+    demoUrlPath = DEMO_URL_PATH,
+} = {}) {
+    const server = createCarbidePwshStaticServer({ repoRoot, demoUrlPath });
+    await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, host, () => {
+            server.off("error", reject);
+            resolve();
+        });
+    });
+
+    const address = server.address();
+    const actualPort = typeof address === "object" && address ? address.port : port;
+    const url = `http://${host}:${actualPort}/${demoUrlPath}`;
+    return { server, url, repoRoot, port: actualPort };
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+    const { url } = await startCarbidePwshStaticServer({ port: DEFAULT_PORT });
     console.log(`carbide-pwsh demo server: ${url}`);
     console.log(`  repo root = ${REPO_ROOT}`);
-});
+}

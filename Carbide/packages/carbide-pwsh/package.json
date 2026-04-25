@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "serve": "node scripts/serve.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:browser": "node --test --test-force-exit test/browser/*.test.mjs",
+    "test:browser:dotnet": "node --test --test-force-exit test/browser/dotnet-interactive.test.mjs"
   },
   "keywords": [
     "carbide",

@@ -71,6 +71,10 @@ public static class CarbideConsole
 
                 if (bufferEnd > 0 && TryParse(buffer, ref bufferEnd, out var key))
                 {
+                    if (bufferEnd > 0)
+                    {
+                        state.Reader.PrependRaw(new string(buffer, 0, bufferEnd));
+                    }
                     if (!intercept && key.KeyChar != '\0')
                     {
                         Console.Out.Write(key.KeyChar);

@@ -1,15 +1,17 @@
 # Carbide — design docs
 
 Created (UTC): 2026-04-17T16:16:47Z
-Updated (UTC): 2026-04-24T00:17:09Z
-Repository HEAD: 88b1db86277bb9620d8e12d59a0814ece3a42a45
+Updated (UTC): 2026-04-25T22:35:24Z
+Repository HEAD: 020144bd373ad7d9aa29914e84c14963d18d87f4
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
 ## Documents
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
+- [carbide-pwsh browser interactive test infrastructure](carbide-pwsh-browser-interactive-test-infrastructure__2026-04-25__22-33-27__a819b7f46f3d.md) — operational contract for browser-level `carbide-pwsh` tests that drive the real xterm endpoint with keyboard/paste input.
 - [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
+- [carbide-pwsh browser dotnet interactive test report](reports/carbide-pwsh-browser-dotnet-interactive-test-report__2026-04-25__22-33-27__89aacdfaa490.md) — implementation and validation report for the browser-level `dotnet` facade scenarios, including the paste-chunk prompt bug found and fixed by the new harness.
 - [carbide-pwsh repo PowerShell parse audit](reports/carbide-pwsh-repo-script-parse-audit__2026-04-23__02-59-32-0527852__9d3a7c1e4b62.md) — authoritative tracked-file audit of all repo PowerShell scripts against `pwsh.exe 7.6`, plus the mismatch catalog, the `carbide-pwsh` fixes that closed each gap, and the final `111 / 111` result.
 - [carbide-pwsh external GitHub corpus parse audit](reports/carbide-pwsh-external-github-corpus-parse-audit__2026-04-23__06-20-22__c2d0b7a8f4e1.md) — large-scale audit against a `6070`-file GitHub corpus downloaded under `C:\TestData`, documenting the final corpus-driven parser fixes and the `0` remaining `pwsh-ok / carbide-fail` files.
 - [Scope report: unifying Carbide shell endpoints around one shared session](reports/carbide-shell-endpoint-unification-scope-report__2026-04-23__21-12-38__9c7d7f44715e.md) — evaluates the work required to retire `carbide-multishell` as a separate browser endpoint while making `carbide-pwsh`, `carbide-cmd`, and `carbide-bash` all boot the same shared session, with emphasis on dependency-loading, prompt-UX, browser-manifest drift, and project-graph traps.

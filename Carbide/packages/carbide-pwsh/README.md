@@ -226,6 +226,24 @@ dotnet test test/CarbidePwsh.Tests.csproj
 dotnet run --project src/CarbidePwsh.csproj
 ```
 
+### Browser interactive tests
+
+The package has a browser-level harness that starts the real demo endpoint, launches
+Chromium, waits for the xterm-hosted pwsh prompt, and sends keyboard/paste input through
+the terminal:
+
+```bash
+cd src/Carbide/packages/core
+npm run build:dotnet
+npm run build:ts
+
+cd ../carbide-pwsh
+npm run test:browser:dotnet
+```
+
+The operational contract lives in
+[`carbide-pwsh browser interactive test infrastructure`](../../docs/carbide-pwsh-browser-interactive-test-infrastructure__2026-04-25__22-33-27__a819b7f46f3d.md).
+
 Sample Phase 3 session:
 
 ```
