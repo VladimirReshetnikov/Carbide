@@ -153,6 +153,33 @@ public static partial class CompilationInterop
         return JsonSerializer.Serialize(result, CarbideJsonContext.Default.RunResult);
     }
 
+    [JSExport]
+    public static async Task<string> RunAssemblyAsync(string sessionId, string runAssemblyOptionsJson)
+    {
+        var dto = JsonSerializer.Deserialize(
+            runAssemblyOptionsJson,
+            CarbideJsonContext.Default.RunAssemblyOptionsDto)
+            ?? throw new InvalidOperationException("RunAssemblyOptions payload is required.");
+        ValidateSchemaVersion(dto.SchemaVersion, "RunAssemblyOptions");
+        if (string.IsNullOrWhiteSpace(dto.PeBase64))
+        {
+            throw new InvalidOperationException("RunAssemblyOptions.peBase64 is required.");
+        }
+
+        var peBytes = Convert.FromBase64String(dto.PeBase64);
+        var references = (dto.ReferencesBase64 ?? Array.Empty<string>())
+            .Where(static value => !string.IsNullOrWhiteSpace(value))
+            .Select(Convert.FromBase64String)
+            .ToArray();
+        var result = await Host.Dispatch(s => s.RunAssemblyAsync(
+            sessionId,
+            peBytes,
+            references,
+            dto.Args ?? Array.Empty<string>(),
+            dto.Stdin)).ConfigureAwait(false);
+        return JsonSerializer.Serialize(result, CarbideJsonContext.Default.RunResult);
+    }
+
     /// <summary>
     /// T1 — interactive run. <paramref name="optionsJson"/> is a
     /// <c>RunInteractiveOptionsRequest</c>-shaped JSON string. The C# side installs
@@ -341,6 +368,15 @@ internal sealed class RunOptionsDto
     public string? Stdin { get; set; }
 }
 
+internal sealed class RunAssemblyOptionsDto
+{
+    public int? SchemaVersion { get; set; } = 5;
+    public string? PeBase64 { get; set; }
+    public string[]? ReferencesBase64 { get; set; }
+    public string[]? Args { get; set; }
+    public string? Stdin { get; set; }
+}
+
 /// <summary>
 /// T1 — wire shape of <c>RunInteractiveOptionsRequest</c>. Parsed from the second argument
 /// of the <c>RunInteractiveAsync</c> JSExport. Unlike <see cref="RunOptionsDto"/>, the
@@ -366,6 +402,7 @@ internal sealed class RunInteractiveOptionsDto
 [JsonSerializable(typeof(BuildResultDto))]
 [JsonSerializable(typeof(ProjectOptionsDto))]
 [JsonSerializable(typeof(RunOptionsDto))]
+[JsonSerializable(typeof(RunAssemblyOptionsDto))]
 [JsonSerializable(typeof(RunInteractiveOptionsDto))]
 internal sealed partial class CarbideJsonContext : JsonSerializerContext
 {

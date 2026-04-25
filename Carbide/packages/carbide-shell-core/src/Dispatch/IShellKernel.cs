@@ -34,11 +34,32 @@ public interface IShellKernel
     int Execute(string source, ShellExecutionContext ctx);
 
     /// <summary>
+    /// Async counterpart to <see cref="Execute"/>. Kernels whose command dispatch may cross
+    /// browser host boundaries should override this method; purely synchronous kernels can
+    /// inherit the default adapter.
+    /// </summary>
+    ValueTask<int> ExecuteAsync(
+        string source,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Execute(source, ctx));
+
+    /// <summary>
     /// Evaluate a script file by absolute VFS path. Default behavior reads the file and
     /// calls <see cref="Execute"/>; kernels that want shebang handling or other preprocessing
     /// override this method.
     /// </summary>
     int ExecuteFile(string absolutePath, ShellExecutionContext ctx);
+
+    /// <summary>
+    /// Async counterpart to <see cref="ExecuteFile"/>. The default implementation preserves
+    /// existing synchronous shell behavior.
+    /// </summary>
+    ValueTask<int> ExecuteFileAsync(
+        string absolutePath,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(ExecuteFile(absolutePath, ctx));
 
     /// <summary>
     /// Return <see langword="true"/> if the given source is syntactically complete enough

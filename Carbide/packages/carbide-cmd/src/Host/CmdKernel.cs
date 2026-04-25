@@ -27,6 +27,16 @@ public sealed class CmdKernel : IShellKernel
         return interp.Execute(script);
     }
 
+    public async ValueTask<int> ExecuteAsync(
+        string source,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        var script = Parser.CmdParser.ParseString(source);
+        var interp = new Interpreter(ctx) { Positional = new List<string>(ctx.Args) };
+        return await interp.ExecuteAsync(script, cancellationToken).ConfigureAwait(false);
+    }
+
     public int ExecuteFile(string absolutePath, ShellExecutionContext ctx)
     {
         var file = ctx.Vfs.Resolve(absolutePath) as VfsFile
@@ -37,6 +47,21 @@ public sealed class CmdKernel : IShellKernel
         var script = Parser.CmdParser.ParseString(file.ReadText());
         var interp = new Interpreter(scoped) { Positional = args };
         return interp.Execute(script);
+    }
+
+    public async ValueTask<int> ExecuteFileAsync(
+        string absolutePath,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        var file = ctx.Vfs.Resolve(absolutePath) as VfsFile
+            ?? throw new Errors.CmdRuntimeException($"The system cannot find the file specified - {absolutePath}");
+        var args = new List<string> { absolutePath };
+        args.AddRange(ctx.Args.Skip(1));
+        var scoped = ctx.With(args: args);
+        var script = Parser.CmdParser.ParseString(file.ReadText());
+        var interp = new Interpreter(scoped) { Positional = args };
+        return await interp.ExecuteAsync(script, cancellationToken).ConfigureAwait(false);
     }
 
     public bool IsCompleteInput(string source)

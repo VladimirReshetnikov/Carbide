@@ -13,6 +13,7 @@ internal static class VirtualExecutableCatalog
     private const string HandlerKey = "carbide-multishell";
     private static readonly string[] PosixRoots = ["/usr/bin", "/bin", "/Program Files/Git/usr/bin"];
     private static readonly string[] WindowsRoots = ["/Windows/System32"];
+    private static readonly string[] SdkPosixRoots = ["/usr/bin", "/bin", "/Program Files/Git/usr/bin"];
 
     public static void Install(VirtualFileSystem vfs, ShellDispatcher dispatcher)
     {
@@ -77,6 +78,7 @@ internal static class VirtualExecutableCatalog
 
         yield return Language("python", "python", "python.exe", "python3", "python3.exe");
         yield return Language("perl", "perl", "perl.exe");
+        yield return Sdk("dotnet", "dotnet", "dotnet.exe");
 
         yield return Windows("windows-cscript", "cscript.exe");
         yield return Windows("windows-fc", "fc.exe");
@@ -114,6 +116,16 @@ internal static class VirtualExecutableCatalog
             commandId,
             VirtualExecutablePersonality.Language,
             BuildPaths(PosixRoots, basenames),
+            basenames,
+            HandlerKey);
+
+    private static VirtualExecutableDefinition Sdk(string commandId, params string[] basenames)
+        => new(
+            commandId,
+            VirtualExecutablePersonality.Sdk,
+            BuildPaths(SdkPosixRoots, basenames)
+                .Concat(["/Program Files/dotnet/dotnet.exe"])
+                .ToArray(),
             basenames,
             HandlerKey);
 

@@ -16,6 +16,9 @@ public class VirtualExecutableTests
         Assert.True(session.Vfs.IsFile("/Program Files/Git/usr/bin/grep.exe"));
         Assert.True(session.Vfs.IsFile("/usr/bin/awk.exe"));
         Assert.True(session.Vfs.IsFile("/usr/bin/sed.exe"));
+        Assert.True(session.Vfs.IsFile("/usr/bin/dotnet"));
+        Assert.True(session.Vfs.IsFile("/usr/bin/dotnet.exe"));
+        Assert.True(session.Vfs.IsFile("/Program Files/dotnet/dotnet.exe"));
         Assert.True(session.Vfs.IsFile("/Windows/System32/cscript.exe"));
         Assert.True(session.Vfs.IsFile("/Windows/System32/findstr.exe"));
         Assert.True(session.Vfs.IsFile("/Windows/System32/robocopy.exe"));
@@ -64,6 +67,49 @@ public class VirtualExecutableTests
         Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve("cscript", ctx, "pwsh").VirtualExecutablePath);
         Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve("cscript.exe", ctx, "bash").VirtualExecutablePath);
         Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve(@"C:\Windows\System32\cscript", ctx, "cmd").VirtualExecutablePath);
+    }
+
+    [Fact]
+    public void DotnetResolvesFromAllShellFlavors()
+    {
+        var session = new MultishellSession();
+        var ctx = BuildContext(session);
+
+        Assert.Equal("/usr/bin/dotnet", session.Dispatcher.Resolve("dotnet", ctx, "pwsh").VirtualExecutablePath);
+        Assert.Equal("/usr/bin/dotnet", session.Dispatcher.Resolve("dotnet", ctx, "cmd").VirtualExecutablePath);
+        Assert.Equal("/usr/bin/dotnet", session.Dispatcher.Resolve("dotnet", ctx, "bash").VirtualExecutablePath);
+        Assert.Equal("/Program Files/dotnet/dotnet.exe", session.Dispatcher.Resolve("/Program Files/dotnet/dotnet", ctx, "pwsh").VirtualExecutablePath);
+    }
+
+    [Fact]
+    public async Task DotnetLocalHelpDoesNotRequireHostBridge()
+    {
+        var session = new MultishellSession();
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var ctx = new ShellExecutionContext
+        {
+            Args = Array.Empty<string>(),
+            Input = TextReader.Null,
+            Output = stdout,
+            Error = stderr,
+            Vfs = session.Vfs,
+            Env = session.Env,
+            Apps = session.Apps,
+            Dispatcher = session.Dispatcher,
+        };
+        var resolution = session.Dispatcher.Resolve("dotnet", ctx, "pwsh");
+
+        var code = await session.Dispatcher.ExecuteVirtualExecutableAsync(
+            resolution.VirtualExecutable!,
+            resolution.VirtualExecutablePath!,
+            "dotnet",
+            ["--help"],
+            ctx);
+
+        Assert.Equal(0, code);
+        Assert.Contains("Carbide dotnet facade", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Equal("", stderr.ToString());
     }
 
     [Fact]

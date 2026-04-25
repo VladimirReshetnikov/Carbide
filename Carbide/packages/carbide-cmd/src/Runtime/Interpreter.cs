@@ -76,6 +76,53 @@ public sealed class Interpreter
         return LastExitCode;
     }
 
+    public async ValueTask<int> ExecuteAsync(
+        ScriptAst script,
+        CancellationToken cancellationToken = default)
+    {
+        _currentScript = script;
+        _labels.Clear();
+        for (int i = 0; i < script.Lines.Count; i++)
+        {
+            if (script.Lines[i] is LabelLineAst label)
+                _labels[label.Name] = i;
+        }
+
+        int idx = 0;
+        while (idx < script.Lines.Count)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = script.Lines[idx];
+            try
+            {
+                if (line is CommandLineAst cmd)
+                {
+                    bool previousEcho = EchoOn;
+                    if (cmd.EchoSuppressed) EchoOn = false;
+                    try { await ExecuteChainAsync(cmd.Chain, cancellationToken).ConfigureAwait(false); }
+                    finally { if (cmd.EchoSuppressed) EchoOn = previousEcho; }
+                }
+                idx++;
+            }
+            catch (CmdGotoException g)
+            {
+                if (g.Label.Equals("EOF", StringComparison.OrdinalIgnoreCase))
+                {
+                    return LastExitCode;
+                }
+                if (!_labels.TryGetValue(g.Label, out var target))
+                    throw new CmdRuntimeException($"The system cannot find the batch label specified - {g.Label}");
+                idx = target + 1;
+            }
+            catch (CmdExitException e)
+            {
+                LastExitCode = e.Code;
+                return LastExitCode;
+            }
+        }
+        return LastExitCode;
+    }
+
     private void ExecuteChain(CommandChainAst chain)
     {
         // Collect adjacent pipe segments first so a single buffered run can stitch them.
@@ -116,6 +163,48 @@ public sealed class Interpreter
         }
     }
 
+    private async ValueTask ExecuteChainAsync(
+        CommandChainAst chain,
+        CancellationToken cancellationToken)
+    {
+        var segments = new List<List<ChainedStatementAst>>();
+        var current = new List<ChainedStatementAst>();
+        for (int i = 0; i < chain.Items.Count; i++)
+        {
+            var item = chain.Items[i];
+            if (item.Op == ChainOperator.Pipe && current.Count > 0)
+            {
+                current.Add(item);
+                continue;
+            }
+            if (current.Count > 0) segments.Add(current);
+            current = new List<ChainedStatementAst> { item };
+        }
+        if (current.Count > 0) segments.Add(current);
+
+        foreach (var seg in segments)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var first = seg[0];
+            switch (first.Op)
+            {
+                case ChainOperator.None:
+                case ChainOperator.Sequence:
+                    await ExecutePipelineAsync(seg, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ChainOperator.And:
+                    if (LastExitCode == 0) await ExecutePipelineAsync(seg, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ChainOperator.Or:
+                    if (LastExitCode != 0) await ExecutePipelineAsync(seg, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ChainOperator.Pipe:
+                    await ExecutePipelineAsync(seg, cancellationToken).ConfigureAwait(false);
+                    break;
+            }
+        }
+    }
+
     private void ExecutePipeline(List<ChainedStatementAst> segment)
     {
         if (segment.Count == 1)
@@ -134,6 +223,33 @@ public sealed class Interpreter
             }
             var capture = new StringWriter();
             ExecuteStatementWith(segment[i].Statement, stageIn, capture, Context.Error);
+            stageIn = new StringReader(capture.ToString());
+        }
+    }
+
+    private async ValueTask ExecutePipelineAsync(
+        List<ChainedStatementAst> segment,
+        CancellationToken cancellationToken)
+    {
+        if (segment.Count == 1)
+        {
+            await ExecuteStatementAsync(segment[0].Statement, cancellationToken, Context.Input, Context.Output, Context.Error)
+                .ConfigureAwait(false);
+            return;
+        }
+        TextReader stageIn = Context.Input;
+        for (int i = 0; i < segment.Count; i++)
+        {
+            bool isLast = i == segment.Count - 1;
+            if (isLast)
+            {
+                await ExecuteStatementAsync(segment[i].Statement, cancellationToken, stageIn, Context.Output, Context.Error)
+                    .ConfigureAwait(false);
+                break;
+            }
+            var capture = new StringWriter();
+            await ExecuteStatementAsync(segment[i].Statement, cancellationToken, stageIn, capture, Context.Error)
+                .ConfigureAwait(false);
             stageIn = new StringReader(capture.ToString());
         }
     }
@@ -179,6 +295,23 @@ public sealed class Interpreter
             default:
                 throw new CmdRuntimeException($"Unsupported statement shape: {stmt.GetType().Name}");
         }
+    }
+
+    private async ValueTask ExecuteStatementAsync(
+        StatementAst stmt,
+        CancellationToken cancellationToken,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr)
+    {
+        if (stmt is SimpleCommandAst sc)
+        {
+            await ExecuteSimpleAsync(sc, cancellationToken, stdin, stdout, stderr)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        ExecuteStatementWith(stmt, stdin, stdout, stderr);
     }
 
     private void ExecuteSimple(SimpleCommandAst sc, TextReader stdin, TextWriter stdout, TextWriter stderr)
@@ -228,6 +361,65 @@ public sealed class Interpreter
 
             var argv = sc.Arguments.Select(ExpandWord).ToList();
             InvokeCommand(sc.Name, argv, finalStdin, finalStdout, finalStderr);
+        }
+        finally
+        {
+            foreach (var d in toDispose) d.Dispose();
+        }
+    }
+
+    private async ValueTask ExecuteSimpleAsync(
+        SimpleCommandAst sc,
+        CancellationToken cancellationToken,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr)
+    {
+        TextWriter finalStdout = stdout;
+        TextWriter finalStderr = stderr;
+        TextReader finalStdin = stdin;
+        List<IDisposable> toDispose = new();
+
+        try
+        {
+            foreach (var r in sc.Redirections)
+            {
+                switch (r)
+                {
+                    case StdoutRedirection sor:
+                    {
+                        var path = ExpandWord(sor.Target);
+                        var writer = new VfsTextWriter(Context.Vfs, path, sor.Append);
+                        toDispose.Add(writer);
+                        finalStdout = writer;
+                        break;
+                    }
+                    case StdinRedirection sir:
+                    {
+                        var path = ExpandWord(sir.Target);
+                        var abs = Context.Vfs.Normalize(path);
+                        var file = Context.Vfs.Resolve(abs) as VfsFile
+                            ?? throw new CmdRuntimeException($"The system cannot find the file specified - {abs}");
+                        finalStdin = new StringReader(file.ReadText());
+                        break;
+                    }
+                    case StderrRedirection ser:
+                    {
+                        var path = ExpandWord(ser.Target);
+                        var writer = new VfsTextWriter(Context.Vfs, path, append: false);
+                        toDispose.Add(writer);
+                        finalStderr = writer;
+                        break;
+                    }
+                    case StderrMergeRedirection:
+                        finalStderr = finalStdout;
+                        break;
+                }
+            }
+
+            var argv = sc.Arguments.Select(ExpandWord).ToList();
+            await InvokeCommandAsync(sc.Name, argv, cancellationToken, finalStdin, finalStdout, finalStderr)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -351,6 +543,80 @@ public sealed class Interpreter
         stderr.WriteLine($"'{name}' is not recognized as an internal or external command,");
         stderr.WriteLine("operable program or batch file.");
         LastExitCode = 9009; // classic cmd "not found" code
+        Context.Dispatcher.LastExitCode = LastExitCode;
+    }
+
+    private async ValueTask InvokeCommandAsync(
+        string name,
+        List<string> argv,
+        CancellationToken cancellationToken,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr)
+    {
+        var builtin = Builtins.BuiltinRegistry.TryGet(name);
+        if (builtin is not null)
+        {
+            try
+            {
+                LastExitCode = builtin(this, argv, stdin, stdout, stderr);
+                Context.Dispatcher.LastExitCode = LastExitCode;
+                return;
+            }
+            catch (VfsException ex)
+            {
+                stderr.WriteLine(ex.Message);
+                LastExitCode = 1;
+                Context.Dispatcher.LastExitCode = 1;
+                return;
+            }
+            catch (CmdRuntimeException ex)
+            {
+                stderr.WriteLine(ex.Message);
+                LastExitCode = 1;
+                Context.Dispatcher.LastExitCode = 1;
+                return;
+            }
+        }
+
+        var resolution = Context.Dispatcher.Resolve(name, Context, "cmd");
+        switch (resolution.Kind)
+        {
+            case ResolutionKind.NamedShell when resolution.Kernel is not null:
+            {
+                LastExitCode = CrossShellLauncher.Launch(resolution.Kernel, argv, Context, stdin, stdout, stderr);
+                Context.Dispatcher.LastExitCode = LastExitCode;
+                return;
+            }
+            case ResolutionKind.VirtualExecutable
+                when resolution.VirtualExecutable is not null && resolution.VirtualExecutablePath is not null:
+            {
+                var childCtx = Context.With(args: argv, input: stdin, output: stdout, error: stderr);
+                LastExitCode = await Context.Dispatcher.ExecuteVirtualExecutableAsync(
+                    resolution.VirtualExecutable,
+                    resolution.VirtualExecutablePath,
+                    name,
+                    argv,
+                    childCtx,
+                    cancellationToken).ConfigureAwait(false);
+                Context.Dispatcher.LastExitCode = LastExitCode;
+                return;
+            }
+            case ResolutionKind.Script when resolution.Kernel is not null && resolution.ScriptPath is not null:
+            {
+                var childCtx = Context.With(args: argv, input: stdin, output: stdout, error: stderr);
+                LastExitCode = await Context.Dispatcher.ExecuteScriptAsync(
+                    resolution.ScriptPath,
+                    resolution.Kernel,
+                    childCtx,
+                    cancellationToken).ConfigureAwait(false);
+                return;
+            }
+        }
+
+        stderr.WriteLine($"'{name}' is not recognized as an internal or external command,");
+        stderr.WriteLine("operable program or batch file.");
+        LastExitCode = 9009;
         Context.Dispatcher.LastExitCode = LastExitCode;
     }
 

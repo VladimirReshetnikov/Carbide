@@ -99,6 +99,19 @@ export interface RunOptions {
     stdin?: string | null;
 }
 
+export interface RunAssemblyOptions extends RunOptions {
+    /**
+     * Executable assembly bytes. This must be a managed PE with an entry point; library
+     * assemblies fail with a missing-entry-point diagnostic in the returned RunResult.
+     */
+    pe: Uint8Array;
+    /**
+     * Runtime-loadable dependency assemblies. These are preloaded into the same collectible
+     * AssemblyLoadContext as the executable assembly and resolved by simple assembly name.
+     */
+    references?: readonly Uint8Array[];
+}
+
 /**
  * T1 — options for {@link Project.runInteractive}. Requires a caller-supplied xterm.js
  * `Terminal` instance; the host page owns xterm's DOM lifecycle, Carbide owns the bridge.

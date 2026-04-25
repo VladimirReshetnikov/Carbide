@@ -130,7 +130,7 @@ while (stack.Count > 0)
 
     try
     {
-        lastExit = active.Execute(source, ctx);
+        lastExit = await active.ExecuteAsync(source, ctx);
     }
     catch (RequestSubShellException req)
     {

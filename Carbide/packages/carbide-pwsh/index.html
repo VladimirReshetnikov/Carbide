@@ -35,6 +35,7 @@
     import {
       attachSharedShellReferences,
       createPwshSingleEndpointManifest,
+      installDotnetFacade,
       loadShellDemoSources,
     } from "/packages/carbide-shell-core/browser-shell-demo.mjs";
 
@@ -79,9 +80,10 @@
         ).toString(),
       });
       const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      installDotnetFacade(session);
 
       setStatus("compiling carbide-pwsh…");
-      const project = session.createProject();
+      const project = session.createProject({ nullable: true });
       await attachSharedShellReferences(session, project);
       const sources = await loadShellDemoSources(createPwshSingleEndpointManifest());
       for (const [name, body] of sources) {

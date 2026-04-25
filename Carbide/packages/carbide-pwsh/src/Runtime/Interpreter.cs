@@ -43,6 +43,19 @@ public sealed class Interpreter
         return last;
     }
 
+    public async ValueTask<object?> EvaluateAsync(
+        ScriptAst script,
+        CancellationToken cancellationToken = default)
+    {
+        object? last = null;
+        foreach (var s in script.Statements)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            last = await EvaluateStatementAsync(s, cancellationToken).ConfigureAwait(false);
+        }
+        return last;
+    }
+
     public FunctionRegistry? Functions { get; set; }
     public ClassRegistry? Classes { get; set; }
     public AppRegistry? Apps { get; set; }
@@ -92,6 +105,15 @@ public sealed class Interpreter
         BlockStatementAst bs => ExecuteBlock(bs),
         _ => throw new PwshRuntimeException($"Unsupported statement node: {statement.GetType().Name}", statement.Location),
     };
+
+    public ValueTask<object?> EvaluateStatementAsync(
+        StatementAst statement,
+        CancellationToken cancellationToken = default)
+        => statement switch
+        {
+            PipelineAst p => ExecutePipelineAsync(p, cancellationToken),
+            _ => ValueTask.FromResult(EvaluateStatement(statement)),
+        };
 
     private object? ExecuteBlock(BlockStatementAst block)
     {
@@ -332,6 +354,19 @@ public sealed class Interpreter
                 pipeline.Location);
         var ctx = new CmdletContext(this, Vfs, PipelineOutput, PipelineError);
         return Cmdlets.Pipeline.Run(pipeline, ctx, Registry);
+    }
+
+    private async ValueTask<object?> ExecutePipelineAsync(
+        PipelineAst pipeline,
+        CancellationToken cancellationToken)
+    {
+        if (Registry == null || Vfs == null || PipelineOutput == null || PipelineError == null)
+            throw new PwshRuntimeException(
+                "Pipeline infrastructure is not wired up (ShellHost should install it).",
+                pipeline.Location);
+        var ctx = new CmdletContext(this, Vfs, PipelineOutput, PipelineError);
+        return await Cmdlets.Pipeline.RunAsync(pipeline, ctx, Registry, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private object? ExecuteAssignment(AssignmentStatementAst a)

@@ -38,6 +38,26 @@ public sealed class Interpreter
         return LastExitCode;
     }
 
+    public async ValueTask<int> ExecuteAsync(
+        ScriptAst script,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            foreach (var s in script.Statements)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await ExecuteStatementAsync(s, Context.Input, Context.Output, Context.Error, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (BashExitException e)
+        {
+            LastExitCode = e.Code;
+        }
+        return LastExitCode;
+    }
+
     internal int ExecuteStatement(StatementAst stmt, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         switch (stmt)
@@ -56,6 +76,22 @@ public sealed class Interpreter
             case BlockAst block: return ExecuteBlock(block, stdin, stdout, stderr);
             default: throw new BashRuntimeException($"Unsupported statement type: {stmt.GetType().Name}");
         }
+    }
+
+    internal async ValueTask<int> ExecuteStatementAsync(
+        StatementAst stmt,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        return stmt switch
+        {
+            SimpleCommandAst sc => await ExecuteSimpleAsync(sc, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false),
+            PipelineAst pipe => await ExecutePipelineAsync(pipe, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false),
+            ListAst list => await ExecuteListAsync(list, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false),
+            _ => ExecuteStatement(stmt, stdin, stdout, stderr),
+        };
     }
 
     private int ExecuteList(ListAst list, TextReader stdin, TextWriter stdout, TextWriter stderr)
@@ -81,6 +117,35 @@ public sealed class Interpreter
         return last;
     }
 
+    private async ValueTask<int> ExecuteListAsync(
+        ListAst list,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        int last = 0;
+        foreach (var item in list.Items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            switch (item.Op)
+            {
+                case ListOperator.None:
+                case ListOperator.Sequence:
+                    last = await ExecuteStatementAsync(item.Pipeline, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ListOperator.And:
+                    if (last == 0) last = await ExecuteStatementAsync(item.Pipeline, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false);
+                    break;
+                case ListOperator.Or:
+                    if (last != 0) last = await ExecuteStatementAsync(item.Pipeline, stdin, stdout, stderr, cancellationToken).ConfigureAwait(false);
+                    break;
+            }
+        }
+        LastExitCode = last;
+        return last;
+    }
+
     private int ExecutePipeline(PipelineAst pipe, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         if (pipe.Stages.Count == 1) return ExecuteStatement(pipe.Stages[0], stdin, stdout, stderr);
@@ -96,6 +161,39 @@ public sealed class Interpreter
             }
             var capture = new StringWriter();
             ExecuteStatement(pipe.Stages[i], cur, capture, stderr);
+            cur = new StringReader(capture.ToString());
+        }
+        LastExitCode = last;
+        return last;
+    }
+
+    private async ValueTask<int> ExecutePipelineAsync(
+        PipelineAst pipe,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        if (pipe.Stages.Count == 1)
+        {
+            return await ExecuteStatementAsync(pipe.Stages[0], stdin, stdout, stderr, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        TextReader cur = stdin;
+        int last = 0;
+        for (int i = 0; i < pipe.Stages.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool isLast = i == pipe.Stages.Count - 1;
+            if (isLast)
+            {
+                last = await ExecuteStatementAsync(pipe.Stages[i], cur, stdout, stderr, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            }
+            var capture = new StringWriter();
+            await ExecuteStatementAsync(pipe.Stages[i], cur, capture, stderr, cancellationToken)
+                .ConfigureAwait(false);
             cur = new StringReader(capture.ToString());
         }
         LastExitCode = last;
@@ -326,6 +424,124 @@ public sealed class Interpreter
         }
     }
 
+    private async ValueTask<int> ExecuteSimpleAsync(
+        SimpleCommandAst sc,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        var expander = MakeExpansion(stdin, stdout, stderr);
+
+        TextWriter finalStdout = stdout;
+        TextWriter finalStderr = stderr;
+        TextReader finalStdin = stdin;
+        List<IDisposable> toDispose = new();
+        try
+        {
+            foreach (var r in sc.Redirections)
+            {
+                switch (r)
+                {
+                    case StdoutRedirection sor:
+                    {
+                        var path = string.Join("", expander.Expand(sor.Target));
+                        var writer = new VfsTextWriter(Context.Vfs, path, sor.Append);
+                        toDispose.Add(writer);
+                        finalStdout = writer;
+                        break;
+                    }
+                    case StdinRedirection sir:
+                    {
+                        var path = string.Join("", expander.Expand(sir.Target));
+                        var abs = Context.Vfs.Normalize(path);
+                        var file = Context.Vfs.Resolve(abs) as VfsFile
+                            ?? throw new BashRuntimeException($"{abs}: No such file or directory");
+                        finalStdin = new StringReader(file.ReadText());
+                        break;
+                    }
+                    case StderrRedirection ser:
+                    {
+                        var path = string.Join("", expander.Expand(ser.Target));
+                        var writer = new VfsTextWriter(Context.Vfs, path, append: false);
+                        toDispose.Add(writer);
+                        finalStderr = writer;
+                        break;
+                    }
+                    case HeredocRedirection hd:
+                    {
+                        var body = hd.Expandable
+                            ? expander.ExpandDouble(hd.Body)
+                            : hd.Body;
+                        if (!body.EndsWith('\n')) body += "\n";
+                        finalStdin = new StringReader(body);
+                        break;
+                    }
+                    case HereStringRedirection hs:
+                    {
+                        var content = expander.ExpandDouble(hs.Content);
+                        finalStdin = new StringReader(content + "\n");
+                        break;
+                    }
+                }
+            }
+
+            if (sc.Words.Count == 0)
+            {
+                foreach (var a in sc.Assignments)
+                {
+                    var val = string.Join("", expander.Expand(a.Value));
+                    Context.Env.Set(a.Name, val);
+                }
+                LastExitCode = 0;
+                return 0;
+            }
+
+            var priorValues = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (var a in sc.Assignments)
+            {
+                priorValues[a.Name] = Context.Env.Get(a.Name);
+                Context.Env.Set(a.Name, string.Join("", expander.Expand(a.Value)));
+            }
+
+            try
+            {
+                var argv = new List<string>();
+                foreach (var w in sc.Words)
+                {
+                    foreach (var braceExpanded in BraceExpansion.Expand(w))
+                    {
+                        foreach (var parameterExpanded in expander.Expand(braceExpanded))
+                        {
+                            argv.AddRange(Globbing.Expand(parameterExpanded, Context.Vfs, Context.Vfs.CurrentLocation));
+                        }
+                    }
+                }
+                if (argv.Count == 0) { LastExitCode = 0; return 0; }
+
+                LastExitCode = await InvokeCommandAsync(
+                    argv,
+                    finalStdin,
+                    finalStdout,
+                    finalStderr,
+                    cancellationToken).ConfigureAwait(false);
+                Context.Dispatcher.LastExitCode = LastExitCode;
+                return LastExitCode;
+            }
+            finally
+            {
+                if (sc.Assignments.Count > 0 && sc.Words.Count > 0)
+                {
+                    foreach (var kv in priorValues) Context.Env.Set(kv.Key, kv.Value);
+                }
+            }
+        }
+        finally
+        {
+            foreach (var d in toDispose) d.Dispose();
+        }
+    }
+
     private Expansion MakeExpansion(TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
         return new Expansion(
@@ -427,6 +643,90 @@ public sealed class Interpreter
         {
             var child = Context.With(args: rest, input: stdin, output: stdout, error: stderr);
             return Context.Dispatcher.ExecuteScript(resolution.ScriptPath, resolution.Kernel, child);
+        }
+
+        stderr.WriteLine($"bash: {name}: command not found");
+        return 127;
+    }
+
+    private async ValueTask<int> InvokeCommandAsync(
+        List<string> argv,
+        TextReader stdin,
+        TextWriter stdout,
+        TextWriter stderr,
+        CancellationToken cancellationToken)
+    {
+        var name = argv[0];
+        var rest = argv.Skip(1).ToList();
+
+        if (Aliases.TryGetValue(name, out var aliasTarget))
+        {
+            var expanded = aliasTarget.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+            expanded.AddRange(rest);
+            argv = expanded;
+            name = argv[0];
+            rest = argv.Skip(1).ToList();
+        }
+
+        if (Functions.TryGetValue(name, out var func))
+        {
+            var savedPositional = Positional;
+            Positional = new List<string> { name };
+            Positional.AddRange(rest);
+            try
+            {
+                try { return ExecuteStatement(func.Body, stdin, stdout, stderr); }
+                catch (BashReturnException ret) { return ret.Code; }
+            }
+            finally
+            {
+                Positional = savedPositional;
+            }
+        }
+
+        var builtin = Builtins.BuiltinRegistry.TryGet(name);
+        if (builtin is not null)
+        {
+            try
+            {
+                return builtin(this, rest, stdin, stdout, stderr);
+            }
+            catch (VfsException ex)
+            {
+                stderr.WriteLine($"{name}: {ex.Message}");
+                return 1;
+            }
+            catch (BashRuntimeException ex)
+            {
+                stderr.WriteLine($"{name}: {ex.Message}");
+                return 1;
+            }
+        }
+
+        var resolution = Context.Dispatcher.Resolve(name, Context, "bash");
+        if (resolution.Kind == ResolutionKind.NamedShell && resolution.Kernel is not null)
+            return CrossShellLauncher.Launch(resolution.Kernel, rest, Context, stdin, stdout, stderr);
+        if (resolution.Kind == ResolutionKind.VirtualExecutable
+            && resolution.VirtualExecutable is not null
+            && resolution.VirtualExecutablePath is not null)
+        {
+            var child = Context.With(args: rest, input: stdin, output: stdout, error: stderr);
+            return await Context.Dispatcher.ExecuteVirtualExecutableAsync(
+                resolution.VirtualExecutable,
+                resolution.VirtualExecutablePath,
+                name,
+                rest,
+                child,
+                cancellationToken).ConfigureAwait(false);
+        }
+        if (resolution.Kind == ResolutionKind.Script && resolution.Kernel is not null && resolution.ScriptPath is not null)
+        {
+            var child = Context.With(args: rest, input: stdin, output: stdout, error: stderr);
+            return await Context.Dispatcher.ExecuteScriptAsync(
+                resolution.ScriptPath,
+                resolution.Kernel,
+                child,
+                cancellationToken).ConfigureAwait(false);
         }
 
         stderr.WriteLine($"bash: {name}: command not found");

@@ -160,6 +160,23 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     public Task<RunResult> RunAsync(string projectId, string[]? args = null, string? stdin = null)
         => GetProject(projectId).RunAsync(args ?? Array.Empty<string>(), stdin);
 
+    public Task<RunResult> RunAssemblyAsync(
+        string sessionId,
+        byte[] peBytes,
+        IReadOnlyList<byte[]> references,
+        string[]? args = null,
+        string? stdin = null)
+    {
+        _ = GetSession(sessionId);
+        return AssemblyRunner.RunAsync(new RunAssemblyRequest
+        {
+            PeBytes = peBytes,
+            References = references,
+            Args = args ?? Array.Empty<string>(),
+            Stdin = stdin,
+        });
+    }
+
     /// <summary>
     /// T1 — interactive run. Installs streaming stdout/stderr writers that push buffered
     /// chunks to the JS terminal bridge (<c>globalThis.Carbide.Terminal.{write,writeErr}</c>)

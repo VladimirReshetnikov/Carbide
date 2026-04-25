@@ -96,6 +96,15 @@ internal sealed partial class MultishellVirtualExecutableHandler : IVirtualExecu
         _ => Unsupported(invocation, $"Unsupported virtual executable id '{invocation.Definition.CommandId}'."),
     };
 
+    public ValueTask<int> ExecuteAsync(
+        VirtualExecutableInvocation invocation,
+        CancellationToken cancellationToken = default)
+        => invocation.Definition.CommandId switch
+        {
+            "dotnet" => ExecuteDotnetAsync(invocation, cancellationToken),
+            _ => ValueTask.FromResult(Execute(invocation)),
+        };
+
     private static int RunBashBuiltin(VirtualExecutableInvocation invocation, BashBuiltinDelegate builtin, IReadOnlyList<string>? args = null)
     {
         var effectiveArgs = args ?? invocation.Args;

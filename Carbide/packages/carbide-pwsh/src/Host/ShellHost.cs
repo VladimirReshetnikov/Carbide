@@ -162,9 +162,41 @@ public sealed class ShellHost
         }
     }
 
+    public async ValueTask<object?> SubmitAsync(string source, CancellationToken cancellationToken = default)
+    {
+        Interpreter.PipelineOutput = Console.Out;
+        Interpreter.PipelineError = Console.Error;
+        var script = PwshParser.ParseString(source);
+        try
+        {
+            return await Interpreter.EvaluateAsync(script, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not PwshIncompleteInputException
+                                 && ex is not CarbideShellCore.Errors.RequestSubShellException)
+        {
+            var record = ex is PwshTerminatingException pt ? pt.Error : new ErrorRecord(ex);
+            if (Interpreter.Scope.Get("global", "Error") is List<ErrorRecord> errors)
+            {
+                errors.Insert(0, record);
+                if (errors.Count > 256) errors.RemoveRange(256, errors.Count - 256);
+            }
+            Interpreter.Scope.Set("global", "?", false);
+            throw;
+        }
+    }
+
     public void SubmitAndRender(string source, TextWriter output)
     {
         var result = Submit(source);
+        RenderResult(result, output);
+    }
+
+    public async ValueTask SubmitAndRenderAsync(
+        string source,
+        TextWriter output,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await SubmitAsync(source, cancellationToken).ConfigureAwait(false);
         RenderResult(result, output);
     }
 

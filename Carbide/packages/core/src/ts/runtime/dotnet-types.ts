@@ -107,6 +107,7 @@ export interface CarbideInteropExports {
      * stdin), which skips JSON parsing on the C# side.
      */
     RunAsync(projectId: string, runOptionsJson: string): Promise<string>;
+    RunAssemblyAsync(sessionId: string, runAssemblyOptionsJson: string): Promise<string>;
     /**
      * T1 — interactive run path. `optionsJson` is a
      * {@link import("../interop/schema.js").RunInteractiveOptionsRequest}-shaped JSON

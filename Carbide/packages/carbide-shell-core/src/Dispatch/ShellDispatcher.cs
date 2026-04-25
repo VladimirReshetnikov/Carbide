@@ -168,6 +168,18 @@ public sealed class ShellDispatcher
         return code;
     }
 
+    public async ValueTask<int> ExecuteInlineAsync(
+        IShellKernel kernel,
+        string source,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        if (kernel is null) throw new DispatchException("No kernel supplied to ExecuteInline.");
+        var code = await kernel.ExecuteAsync(source, ctx, cancellationToken).ConfigureAwait(false);
+        LastExitCode = code;
+        return code;
+    }
+
     /// <summary>
     /// Execute a VFS script file with the given kernel and context. The script's absolute
     /// VFS path is prepended to <c>ctx.Args</c> at index 0 so that shells observing their
@@ -180,6 +192,21 @@ public sealed class ShellDispatcher
         args.AddRange(ctx.Args);
         var scoped = ctx.With(args: args);
         var code = kernel.ExecuteFile(absolutePath, scoped);
+        LastExitCode = code;
+        return code;
+    }
+
+    public async ValueTask<int> ExecuteScriptAsync(
+        string absolutePath,
+        IShellKernel kernel,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        if (kernel is null) throw new DispatchException("No kernel supplied to ExecuteScript.");
+        var args = new List<string> { absolutePath };
+        args.AddRange(ctx.Args);
+        var scoped = ctx.With(args: args);
+        var code = await kernel.ExecuteFileAsync(absolutePath, scoped, cancellationToken).ConfigureAwait(false);
         LastExitCode = code;
         return code;
     }
@@ -214,6 +241,37 @@ public sealed class ShellDispatcher
         };
 
         var code = handler.Execute(invocation);
+        LastExitCode = code;
+        return code;
+    }
+
+    public async ValueTask<int> ExecuteVirtualExecutableAsync(
+        VirtualExecutableDefinition definition,
+        string resolvedPath,
+        string invokedAs,
+        IReadOnlyList<string> args,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_virtualHandlers.TryGetValue(definition.HandlerKey, out var handler))
+            throw new DispatchException($"No virtual executable handler is registered for '{definition.HandlerKey}'.");
+
+        var invocation = new VirtualExecutableInvocation
+        {
+            Definition = definition,
+            ResolvedPath = resolvedPath,
+            InvokedAs = invokedAs,
+            Args = args,
+            Input = ctx.Input,
+            Output = ctx.Output,
+            Error = ctx.Error,
+            Vfs = ctx.Vfs,
+            Env = ctx.Env,
+            Apps = ctx.Apps,
+            Dispatcher = this,
+        };
+
+        var code = await handler.ExecuteAsync(invocation, cancellationToken).ConfigureAwait(false);
         LastExitCode = code;
         return code;
     }

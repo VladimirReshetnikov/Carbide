@@ -15,6 +15,7 @@ public enum VirtualExecutablePersonality
     Gnu,
     Windows,
     Language,
+    Sdk,
 }
 
 /// <summary>
@@ -58,6 +59,11 @@ public sealed class VirtualExecutableInvocation
 public interface IVirtualExecutableHandler
 {
     int Execute(VirtualExecutableInvocation invocation);
+
+    ValueTask<int> ExecuteAsync(
+        VirtualExecutableInvocation invocation,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Execute(invocation));
 }
 
 /// <summary>

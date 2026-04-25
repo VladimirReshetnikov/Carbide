@@ -39,12 +39,56 @@ public static class Pipeline
         };
     }
 
+    public static async ValueTask<object?> RunAsync(
+        PipelineAst pipeline,
+        CmdletContext ctx,
+        CmdletRegistry registry,
+        CancellationToken cancellationToken = default)
+    {
+        IEnumerable<object?>? input = null;
+
+        foreach (var stage in pipeline.Stages)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            input = await RunStageAsync(stage, input, ctx, registry, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (input == null) return null;
+        var list = input.ToList();
+        return list.Count switch
+        {
+            0 => null,
+            1 => list[0],
+            _ => list.ToArray(),
+        };
+    }
+
     private static IEnumerable<object?> RunStage(AstNode stage, IEnumerable<object?>? input, CmdletContext ctx, CmdletRegistry registry)
     {
         switch (stage)
         {
             case CommandAst cmd:
                 return RunCommand(cmd, input, ctx, registry);
+            case ExpressionAst expr:
+                return ExpressionToEnumerable(ctx.Interpreter.Eval(expr));
+            default:
+                throw new PwshRuntimeException($"Unsupported pipeline stage: {stage.GetType().Name}", stage.Location);
+        }
+    }
+
+    private static async ValueTask<IEnumerable<object?>> RunStageAsync(
+        AstNode stage,
+        IEnumerable<object?>? input,
+        CmdletContext ctx,
+        CmdletRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        switch (stage)
+        {
+            case CommandAst cmd:
+                return await RunCommandAsync(cmd, input, ctx, registry, cancellationToken)
+                    .ConfigureAwait(false);
             case ExpressionAst expr:
                 return ExpressionToEnumerable(ctx.Interpreter.Eval(expr));
             default:
@@ -220,10 +264,190 @@ public static class Pipeline
         throw new PwshRuntimeException($"The term '{cmd.Name}' is not recognized as a cmdlet, function, or script.", cmd.Location);
     }
 
+    private static async ValueTask<IEnumerable<object?>> RunCommandAsync(
+        CommandAst cmd,
+        IEnumerable<object?>? input,
+        CmdletContext ctx,
+        CmdletRegistry registry,
+        CancellationToken cancellationToken)
+    {
+        var positional = new List<object?>();
+        var nativeArguments = new List<object?>();
+        var named = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var redirections = new List<CommandRedirectionAst>();
+
+        for (int i = 0; i < cmd.Elements.Count; i++)
+        {
+            var el = cmd.Elements[i];
+            if (el is CommandParameterAst param)
+            {
+                nativeArguments.Add("-" + param.Name);
+                if (i + 1 < cmd.Elements.Count && cmd.Elements[i + 1] is CommandArgumentAst valueArg)
+                {
+                    var value = ctx.Interpreter.Eval(valueArg.Expression);
+                    named[param.Name] = value;
+                    nativeArguments.Add(value);
+                    i++;
+                }
+                else
+                {
+                    named[param.Name] = true;
+                }
+            }
+            else if (el is CommandArgumentAst arg)
+            {
+                var value = ctx.Interpreter.Eval(arg.Expression);
+                positional.Add(value);
+                nativeArguments.Add(value);
+            }
+            else if (el is CommandSplatAst splat)
+            {
+                var value = ctx.Interpreter.Eval(splat.Expression);
+                ApplySplat(value, positional, named);
+                ApplyNativeSplat(value, nativeArguments);
+            }
+            else if (el is CommandRedirectionAst redirection)
+            {
+                redirections.Add(redirection);
+            }
+        }
+
+        var plan = BuildRedirectionPlan(redirections);
+        var effectiveCtx = CreateEffectiveContext(ctx, plan);
+        var resolvedName = cmd.Name is "." or "&" ? cmd.Name : registry.ResolveAliasChain(cmd.Name);
+
+        if (registry.TryResolve(resolvedName, out var cmdlet) && cmdlet != null)
+        {
+            try
+            {
+                var result = cmdlet.Invoke(input, new ParameterBinding(positional, named), effectiveCtx).ToList();
+                ctx.Scope.Set("global", "?", true);
+                return plan.SuppressSuccessOutput ? Array.Empty<object?>() : result;
+            }
+            catch
+            {
+                ctx.Scope.Set("global", "?", false);
+                throw;
+            }
+        }
+
+        if (ctx.Interpreter.Functions != null
+            && ctx.Interpreter.Functions.TryGet(resolvedName, out var func) && func != null)
+        {
+            try
+            {
+                IEnumerable<object?> result;
+                if (func.IsPipelineParticipant)
+                {
+                    result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                        func.InvokeAsPipelineStage(input, positional, named, ctx.Interpreter).ToList());
+                }
+                else
+                {
+                    var returnValue = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                        func.Invoke(positional, named, ctx.Interpreter));
+                    result = ExpressionToEnumerable(returnValue).ToList();
+                }
+                ctx.Scope.Set("global", "?", true);
+                return plan.SuppressSuccessOutput ? Array.Empty<object?>() : result;
+            }
+            catch
+            {
+                ctx.Scope.Set("global", "?", false);
+                throw;
+            }
+        }
+
+        if (resolvedName == "." && positional.Count > 0)
+        {
+            var scriptPath = Runtime.Coercion.FormatAsString(positional[0]);
+            var scriptArgs = positional.Skip(1).ToArray();
+            if (ctx.Interpreter.RunScriptFile == null)
+                throw new PwshRuntimeException("Script loader is not wired up.", cmd.Location);
+            var result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () =>
+                ctx.Interpreter.RunScriptFile(scriptPath, /*dotSource*/ true, scriptArgs));
+            return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(result).ToList();
+        }
+
+        if (resolvedName == "&" && positional.Count > 0)
+        {
+            var callTarget = positional[0];
+            var callArgs = positional.Skip(1).ToArray();
+            if (callTarget is Runtime.ScriptBlock sb)
+            {
+                var savedArgs = ctx.Scope.Get(null, "args");
+                ctx.Scope.Set(null, "args", callArgs);
+                try
+                {
+                    var result = RunWithInterpreterWriters(ctx.Interpreter, effectiveCtx, () => sb.Invoke());
+                    return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(result).ToList();
+                }
+                finally
+                {
+                    ctx.Scope.Set(null, "args", savedArgs);
+                }
+            }
+            if (callTarget is string path)
+            {
+                return await DispatchPathAsync(path, callArgs, effectiveCtx, plan, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            throw new PwshRuntimeException(
+                $"Call operator '&' requires a script block or path string; got [{callTarget?.GetType().Name ?? "null"}].",
+                cmd.Location);
+        }
+
+        if (await TryDispatchExternalCommandAsync(
+                resolvedName,
+                nativeArguments,
+                input,
+                effectiveCtx,
+                plan,
+                cancellationToken).ConfigureAwait(false) is { Found: true } external)
+        {
+            return external.Result;
+        }
+
+        if (BuiltinCommandCatalog.TryGetCmdlet(resolvedName, out var builtin))
+        {
+            throw new PwshRuntimeException(
+                $"The builtin cmdlet '{builtin.Name}' is recognized but not implemented in carbide-pwsh.",
+                cmd.Location);
+        }
+
+        throw new PwshRuntimeException($"The term '{cmd.Name}' is not recognized as a cmdlet, function, or script.", cmd.Location);
+    }
+
     private static IEnumerable<object?> DispatchPath(string path, IReadOnlyList<object?> args, CmdletContext ctx, CommandRedirectionPlan plan)
     {
         if (TryDispatchExternalCommand(path, args, null, ctx, plan, out var result))
             return result;
+
+        if (ctx.Interpreter.RunScriptFile == null)
+            throw new PwshRuntimeException("Script loader is not wired up.", Errors.SourceLocation.None);
+        var scriptResult = RunWithInterpreterWriters(ctx.Interpreter, ctx, () =>
+            ctx.Interpreter.RunScriptFile(path, /*dotSource*/ false, args));
+        return plan.SuppressSuccessOutput ? Array.Empty<object?>() : ExpressionToEnumerable(scriptResult).ToList();
+    }
+
+    private static async ValueTask<IEnumerable<object?>> DispatchPathAsync(
+        string path,
+        IReadOnlyList<object?> args,
+        CmdletContext ctx,
+        CommandRedirectionPlan plan,
+        CancellationToken cancellationToken)
+    {
+        var external = await TryDispatchExternalCommandAsync(
+            path,
+            args,
+            null,
+            ctx,
+            plan,
+            cancellationToken).ConfigureAwait(false);
+        if (external.Found)
+        {
+            return external.Result;
+        }
 
         if (ctx.Interpreter.RunScriptFile == null)
             throw new PwshRuntimeException("Script loader is not wired up.", Errors.SourceLocation.None);
@@ -297,6 +521,79 @@ public static class Pipeline
             ? Array.Empty<object?>()
             : ReadOutputLines(stdout.ToString());
         return true;
+    }
+
+    private sealed record ExternalDispatchResult(bool Found, IEnumerable<object?> Result);
+
+    private static async ValueTask<ExternalDispatchResult> TryDispatchExternalCommandAsync(
+        string commandName,
+        IReadOnlyList<object?> args,
+        IEnumerable<object?>? input,
+        CmdletContext ctx,
+        CommandRedirectionPlan plan,
+        CancellationToken cancellationToken)
+    {
+        if (ctx.Interpreter.Dispatcher == null || ctx.Interpreter.Env == null || ctx.Interpreter.Apps == null)
+            return new ExternalDispatchResult(false, Array.Empty<object?>());
+
+        var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
+        var stdin = input == null
+            ? UsesInteractiveNativeInput(commandName, stringArgs) ? Console.In : TextReader.Null
+            : new StringReader(StringifyPipelineInput(input));
+        var stdout = new StringWriter();
+        var stderr = plan.MergeErrorToOutput ? stdout : new StringWriter();
+        var shellCtx = new ShellExecutionContext
+        {
+            Args = stringArgs,
+            Input = stdin,
+            Output = stdout,
+            Error = stderr,
+            Vfs = ctx.Vfs,
+            Env = ctx.Interpreter.Env,
+            Apps = ctx.Interpreter.Apps,
+            Dispatcher = ctx.Interpreter.Dispatcher,
+        };
+
+        var resolution = ctx.Interpreter.Dispatcher.Resolve(commandName, shellCtx, "pwsh");
+        int code;
+        switch (resolution.Kind)
+        {
+            case ResolutionKind.VirtualExecutable
+                when resolution.VirtualExecutable is not null && resolution.VirtualExecutablePath is not null:
+                code = await ctx.Interpreter.Dispatcher.ExecuteVirtualExecutableAsync(
+                    resolution.VirtualExecutable,
+                    resolution.VirtualExecutablePath,
+                    commandName,
+                    stringArgs,
+                    shellCtx,
+                    cancellationToken).ConfigureAwait(false);
+                break;
+            case ResolutionKind.Script when resolution.Kernel is not null && resolution.ScriptPath is not null:
+                code = await ctx.Interpreter.Dispatcher.ExecuteScriptAsync(
+                    resolution.ScriptPath,
+                    resolution.Kernel,
+                    shellCtx,
+                    cancellationToken).ConfigureAwait(false);
+                break;
+            case ResolutionKind.App when resolution.AppPath is not null:
+                if (ctx.Interpreter.RunApp == null)
+                    throw new PwshRuntimeException("App invoker is not wired up.", Errors.SourceLocation.None);
+                code = ctx.Interpreter.RunApp(resolution.AppPath, args);
+                break;
+            default:
+                return new ExternalDispatchResult(false, Array.Empty<object?>());
+        }
+
+        var stderrText = stderr.ToString();
+        if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
+            ctx.Error.Write(stderrText);
+
+        ctx.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
+        ctx.Scope.Set("global", "?", code == 0);
+        var result = plan.SuppressSuccessOutput
+            ? Array.Empty<object?>()
+            : ReadOutputLines(stdout.ToString());
+        return new ExternalDispatchResult(true, result);
     }
 
     private static bool UsesInteractiveNativeInput(string commandName, IReadOnlyList<string> args)

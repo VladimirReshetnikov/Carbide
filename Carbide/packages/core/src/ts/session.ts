@@ -2,8 +2,8 @@ import type { HostAdapter } from "./host/adapter.js";
 import { BrowserHostAdapter } from "./host/browser/browser-adapter.js";
 import { bootRuntime } from "./runtime/boot.js";
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import { SCHEMA_VERSION, type ProjectOptionsRequest } from "./interop/schema.js";
-import type { ProjectOptions, ReferenceHandle } from "./types.js";
+import { parseRunResult, SCHEMA_VERSION, type ProjectOptionsRequest } from "./interop/schema.js";
+import type { ProjectOptions, ReferenceHandle, RunAssemblyOptions, RunResult } from "./types.js";
 import { Project } from "./project.js";
 
 export interface CarbideOptions {
@@ -151,6 +151,30 @@ export class CarbideSession {
         this.interop.RemoveReference(this.sessionId, mh.id);
         mh.disposed = true;
         this.handles.delete(mh);
+    }
+
+    async runAssembly(options: RunAssemblyOptions): Promise<RunResult> {
+        this.assertAlive();
+        if (!options || !(options.pe instanceof Uint8Array)) {
+            throw new TypeError("CarbideSession.runAssembly: options.pe must be a Uint8Array.");
+        }
+        if (options.pe.length === 0) {
+            throw new Error("CarbideSession.runAssembly: options.pe must be non-empty.");
+        }
+        const payload = {
+            schemaVersion: SCHEMA_VERSION,
+            peBase64: bytesToBase64(options.pe),
+            referencesBase64: (options.references ?? []).map((bytes) => {
+                if (!(bytes instanceof Uint8Array)) {
+                    throw new TypeError("CarbideSession.runAssembly: every reference must be a Uint8Array.");
+                }
+                return bytesToBase64(bytes);
+            }),
+            args: options.args ? [...options.args] : [],
+            stdin: options.stdin ?? null,
+        };
+        const json = await this.interop.RunAssemblyAsync(this.sessionId, JSON.stringify(payload));
+        return parseRunResult(json);
     }
 
     async shutdown(): Promise<void> {

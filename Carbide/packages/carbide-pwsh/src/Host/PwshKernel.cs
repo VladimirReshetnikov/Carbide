@@ -75,6 +75,51 @@ public sealed class PwshKernel : IShellKernel
         }
     }
 
+    public async ValueTask<int> ExecuteAsync(
+        string source,
+        ShellExecutionContext ctx,
+        CancellationToken cancellationToken = default)
+    {
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
+        var originalIn = Console.In;
+        bool swapOut = !ReferenceEquals(ctx.Output, originalOut);
+        bool swapErr = !ReferenceEquals(ctx.Error, originalErr);
+        bool swapIn = !ReferenceEquals(ctx.Input, originalIn);
+        try
+        {
+            if (swapOut) Console.SetOut(ctx.Output);
+            if (swapErr) Console.SetError(ctx.Error);
+            if (swapIn) Console.SetIn(ctx.Input);
+            try
+            {
+                await _host.SubmitAndRenderAsync(source, ctx.Output, cancellationToken)
+                    .ConfigureAwait(false);
+                return 0;
+            }
+            catch (RequestSubShellException)
+            {
+                throw;
+            }
+            catch (PwshException ex)
+            {
+                ctx.Error.WriteLine(ex.Message);
+                return 1;
+            }
+            catch (Exception ex)
+            {
+                ctx.Error.WriteLine($"pwsh: {ex.Message}");
+                return 1;
+            }
+        }
+        finally
+        {
+            if (swapOut) Console.SetOut(originalOut);
+            if (swapErr) Console.SetError(originalErr);
+            if (swapIn) Console.SetIn(originalIn);
+        }
+    }
+
     public int ExecuteFile(string absolutePath, ShellExecutionContext ctx)
     {
         var file = ctx.Vfs.Resolve(absolutePath) as VfsFile;
