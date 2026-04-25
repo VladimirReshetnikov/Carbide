@@ -40,6 +40,7 @@
     <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Advanced.cs" Link="Shared\MultishellVirtualExecutableHandler.Advanced.cs" />
     <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Python.cs" Link="Shared\MultishellVirtualExecutableHandler.Python.cs" />
     <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.Perl.cs" Link="Shared\MultishellVirtualExecutableHandler.Perl.cs" />
+    <Compile Include="..\..\carbide-multishell\src\MultishellVirtualExecutableHandler.CScript.cs" Link="Shared\MultishellVirtualExecutableHandler.CScript.cs" />
   </ItemGroup>
 
   <ItemGroup>

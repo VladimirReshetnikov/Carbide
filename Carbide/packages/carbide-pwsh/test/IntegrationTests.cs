@@ -77,5 +77,9 @@ public class IntegrationTests
         Assert.Equal("value", host.Submit("python -c \"import sys; print(sys.argv[1])\" value"));
         Assert.Equal("perl 5-compatible Carbide subset (CarbidePerl 0.1)", host.Submit("perl -v"));
         Assert.Equal("value", host.Submit("perl -e \"print qq(value\\n)\""));
+
+        var session = new MultishellSession();
+        session.Vfs.CreateTextFile("/work/echo.js", """WScript.Echo(WScript.Arguments(0));""", overwrite: false);
+        Assert.Equal("value", session.Pwsh.Submit("cscript.exe //nologo /work/echo.js value"));
     }
 }

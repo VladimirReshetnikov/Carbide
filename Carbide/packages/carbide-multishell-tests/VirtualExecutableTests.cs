@@ -16,6 +16,7 @@ public class VirtualExecutableTests
         Assert.True(session.Vfs.IsFile("/Program Files/Git/usr/bin/grep.exe"));
         Assert.True(session.Vfs.IsFile("/usr/bin/awk.exe"));
         Assert.True(session.Vfs.IsFile("/usr/bin/sed.exe"));
+        Assert.True(session.Vfs.IsFile("/Windows/System32/cscript.exe"));
         Assert.True(session.Vfs.IsFile("/Windows/System32/findstr.exe"));
         Assert.True(session.Vfs.IsFile("/Windows/System32/robocopy.exe"));
     }
@@ -51,6 +52,18 @@ public class VirtualExecutableTests
         var ctx = BuildContext(session);
         var bashFind = session.Dispatcher.Resolve("find", ctx, "bash");
         Assert.Equal("/Windows/System32/find.exe", bashFind.VirtualExecutablePath);
+    }
+
+    [Fact]
+    public void CScriptResolvesFromAllShellFlavors()
+    {
+        var session = new MultishellSession();
+        var ctx = BuildContext(session);
+
+        Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve("cscript", ctx, "cmd").VirtualExecutablePath);
+        Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve("cscript", ctx, "pwsh").VirtualExecutablePath);
+        Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve("cscript.exe", ctx, "bash").VirtualExecutablePath);
+        Assert.Equal("/Windows/System32/cscript.exe", session.Dispatcher.Resolve(@"C:\Windows\System32\cscript", ctx, "cmd").VirtualExecutablePath);
     }
 
     [Fact]
@@ -194,6 +207,8 @@ public class VirtualExecutableTests
         Assert.Contains("grep", names);
         Assert.Contains("grep.exe", names);
         Assert.Contains("findstr", names);
+        Assert.Contains("cscript", names);
+        Assert.Contains("cscript.exe", names);
         Assert.Contains("tar", names);
     }
 
