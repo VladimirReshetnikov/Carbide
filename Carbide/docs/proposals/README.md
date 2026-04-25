@@ -1,8 +1,8 @@
 # Carbide — proposals
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-25T01:49:24Z
-- Repository HEAD: 9259b98cb7d6e14a3546cc90bae3a987b13825f7
+- Updated (UTC): 2026-04-25T02:00:52Z
+- Repository HEAD: f709468966129b173d12ef792cd5027cdb4ecf62
 
 This directory holds forward-looking design proposals that build on Carbide's current planning and research corpus.
 
@@ -15,3 +15,4 @@ This directory holds forward-looking design proposals that build on Carbide's cu
 - [Virtual executable stubs for common `System32` and Git `usr/bin` tools in `carbide-multishell`](carbide-multishell-vfs-executable-stubs-proposal__2026-04-22__23-10-39-000000__6827e976e1d5.md) — catalog and runtime contract for stubbed utility executables such as `robocopy.exe`, `grep.exe`, `sed.exe`, `awk.exe`, `findstr.exe`, and `tar.exe`, including exact install roots, name-collision handling, and minimum supported feature subsets.
 - [`cscript.exe` as a VFS-backed Windows Script Host stub](carbide-cscript-vfs-stub-proposal__2026-04-25__01-27-24-221525__eedac3f4e353.md) - proposal for adding `cscript.exe` to the Windows virtual executable catalog with shell-implemented Windows Script Host semantics, bounded script-engine support, VFS-only automation objects, and explicit non-goals for real COM, registry, network, GUI, and host-process behavior.
 - [`python.exe` and `perl.exe` VFS stubs for polyglot scripting](carbide-polyglot-python-perl-vfs-stubs-proposal__2026-04-25__01-45-48-877104__08ffa527c45a.md) - proposal for adding Python and Perl language-host virtual executable stubs with bounded shell-implemented runtimes, VFS-only behavior, cross-shell discovery, shebang integration, and honest subset diagnostics for multi-language scripting.
+- [Python VFS stub feature scope](carbide-python-vfs-stub-feature-scope-proposal__2026-04-25__01-58-17-000000__f827726e7db0.md) - detailed Python-first proposal defining the command-line contract, syntax subset, runtime object model, builtins, standard-library modules, VFS behavior, subprocess facade, shebang integration, diagnostics, and test matrix for the initial `python.exe` virtual executable runtime.
