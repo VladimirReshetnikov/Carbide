@@ -78,6 +78,7 @@ internal sealed partial class MultishellVirtualExecutableHandler : IVirtualExecu
         "gnu-whoami" => ExecuteGnuWhoami(invocation),
         "gnu-xargs" => ExecuteGnuXargs(invocation),
         "gnu-yes" => ExecuteGnuYes(invocation),
+        "perl" => ExecutePerl(invocation),
         "python" => ExecutePython(invocation),
         "windows-fc" => ExecuteWindowsFc(invocation),
         "windows-find" => ExecuteWindowsFind(invocation),

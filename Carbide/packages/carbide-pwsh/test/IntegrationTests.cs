@@ -75,5 +75,7 @@ public class IntegrationTests
 
         Assert.Equal("Python 3-compatible Carbide subset", host.Submit("python -V"));
         Assert.Equal("value", host.Submit("python -c \"import sys; print(sys.argv[1])\" value"));
+        Assert.Equal("perl 5-compatible Carbide subset (CarbidePerl 0.1)", host.Submit("perl -v"));
+        Assert.Equal("value", host.Submit("perl -e \"print qq(value\\n)\""));
     }
 }

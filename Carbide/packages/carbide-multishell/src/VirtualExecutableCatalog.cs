@@ -76,6 +76,7 @@ internal static class VirtualExecutableCatalog
         yield return Posix("gnu-yes", "yes.exe");
 
         yield return Language("python", "python", "python.exe", "python3", "python3.exe");
+        yield return Language("perl", "perl", "perl.exe");
 
         yield return Windows("windows-fc", "fc.exe");
         yield return Windows("windows-find", "find.exe");

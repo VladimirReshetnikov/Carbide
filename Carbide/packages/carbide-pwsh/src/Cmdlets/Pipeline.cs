@@ -244,12 +244,12 @@ public static class Pipeline
         if (ctx.Interpreter.Dispatcher == null || ctx.Interpreter.Env == null || ctx.Interpreter.Apps == null)
             return false;
 
+        var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
         var stdin = input == null
-            ? TextReader.Null
+            ? UsesInteractiveNativeInput(commandName, stringArgs) ? Console.In : TextReader.Null
             : new StringReader(StringifyPipelineInput(input));
         var stdout = new StringWriter();
         var stderr = plan.MergeErrorToOutput ? stdout : new StringWriter();
-        var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
         var shellCtx = new ShellExecutionContext
         {
             Args = stringArgs,
@@ -297,6 +297,26 @@ public static class Pipeline
             ? Array.Empty<object?>()
             : ReadOutputLines(stdout.ToString());
         return true;
+    }
+
+    private static bool UsesInteractiveNativeInput(string commandName, IReadOnlyList<string> args)
+    {
+        if (string.Equals(commandName, "perl", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(commandName, "perl.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return args.Any(static arg => arg.StartsWith("-d", StringComparison.Ordinal))
+                && args.Any(static arg => string.Equals(arg, "0", StringComparison.Ordinal));
+        }
+
+        if (string.Equals(commandName, "python", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(commandName, "python.exe", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(commandName, "python3", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(commandName, "python3.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return args.Count == 0 || args.Contains("-i", StringComparer.Ordinal);
+        }
+
+        return false;
     }
 
     private static CmdletContext CreateEffectiveContext(CmdletContext ctx, CommandRedirectionPlan plan)
