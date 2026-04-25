@@ -19,6 +19,7 @@
   - `src/Carbide/docs/implementation/carbide-multishell-vfs-executables-implementation-plan__2026-04-23__00-04-38-000000__16b5b67bb710.md`
 - External references:
   - Python command line and environment: `https://docs.python.org/3/using/cmdline.html`
+  - Python interpreter tutorial: `https://docs.python.org/3/tutorial/interpreter.html`
   - Python language reference: `https://docs.python.org/3/reference/index.html`
   - Python standard library reference: `https://docs.python.org/3/library/index.html`
   - Python `sys` module: `https://docs.python.org/3/library/sys.html`
@@ -31,16 +32,17 @@
 
 ## Summary
 
-Carbide should implement Python first as a bounded, shell-hosted language runtime behind virtual executable stubs named `python`, `python3`, `python.exe`, and `python3.exe`. The implementation should target common polyglot scripting use cases: one-liners, small scripts, VFS-backed file operations, JSON and regex transformations, argument parsing, path manipulation, and limited subprocess-style dispatch into other Carbide virtual executables.
+Carbide should implement Python first as a bounded, shell-hosted language runtime behind virtual executable stubs named `python`, `python3`, `python.exe`, and `python3.exe`. The implementation should target common polyglot scripting use cases: interactive exploration, one-liners, small scripts, VFS-backed file operations, JSON and regex transformations, argument parsing, path manipulation, and limited subprocess-style dispatch into other Carbide virtual executables.
 
 This proposal is intentionally narrower than "implement Python." It defines a compatibility contract for the first useful Python runtime:
 
 - Python command-line invocation compatible with the common `python [-c|-m|script|-] [args...]` forms.
+- Interactive REPL mode for bare `python` in an interactive terminal and for `python -i`.
 - A Python 3 language subset broad enough for ordinary glue scripts.
 - VFS-only filesystem semantics.
 - A small standard-library surface implemented as Carbide modules.
 - Explicit unsupported-feature diagnostics instead of silent partial behavior.
-- Tests that prove behavior across `pwsh`, `cmd`, `bash`, shebang dispatch, and `/usr/bin/env`.
+- Tests that prove behavior across `pwsh`, `cmd`, `bash`, interactive terminal sessions, shebang dispatch, and `/usr/bin/env`.
 
 The target is not CPython conformance. The target is to make Python-shaped build and automation scripts run inside Carbide's browser-safe shell environment with predictable limits.
 
@@ -54,6 +56,7 @@ Normative claims in this document:
 - Python filesystem access must go through Carbide's VFS abstractions.
 - Python environment access must go through Carbide's environment store.
 - Python subprocess-like behavior, if supported, must dispatch through `ShellDispatcher` and must only launch Carbide-visible commands.
+- Python interactive mode must use the same sandbox, module loader, VFS, environment store, cancellation model, and diagnostics as non-interactive execution.
 - Unsupported Python features must fail with explicit Carbide subset diagnostics.
 
 Descriptive or recommended claims:
@@ -143,12 +146,16 @@ The command-line parser should model the important CPython interface shape witho
 
 Support these in the first Python implementation:
 
+- `python` in an interactive terminal, entering the Carbide Python REPL.
 - `python script.py [args...]`
 - `python3 script.py [args...]`
 - `python.exe script.py [args...]`
 - `python -c "code" [args...]`
 - `python -m module [args...]` for an allow-listed module set.
 - `python - [args...]` to read source from stdin.
+- `python -i script.py [args...]` to run a script and then enter the REPL.
+- `python -i -c "code" [args...]` to run inline code and then enter the REPL.
+- `python -i -m module [args...]` to run an allow-listed module and then enter the REPL.
 - `python -V`
 - `python --version`
 - `python -VV`
@@ -158,10 +165,11 @@ Support these in the first Python implementation:
 - `python --help-env`
 - `python --help-all`
 
-Interactive mode is out of scope for the first slice, so a bare `python` should not start a partial REPL unless we deliberately implement one. Recommended first behavior for bare `python`:
+Bare `python` behavior depends on the input mode:
 
-- If stdin has text, parse and execute stdin as a script.
-- If stdin is empty or interactive, print a Carbide-specific diagnostic explaining that interactive Python is not supported yet, then exit with code `2`.
+- If stdin is connected to an interactive Carbide terminal, start the REPL.
+- If stdin contains piped or redirected text, parse and execute stdin as a script.
+- If the host cannot distinguish interactive input from redirected input, prefer an explicit shell execution-mode flag rather than guessing from an empty reader.
 
 ### `sys.argv` contract
 
@@ -174,6 +182,8 @@ Set `sys.argv` as follows:
 | `python script.py a b` | script argument as provided or normalized VFS path, choose one and test it | `a`, `b` |
 | `python - a b` | `-` | `a`, `b` |
 | bare stdin execution | empty string or `-`, choose one and document it | arguments after interpreter options |
+| bare interactive REPL | empty string | no script arguments |
+| `python -i script.py a b` after script execution | same as script execution | `a`, `b`; REPL keeps the same `sys.argv` |
 
 The implementation should preserve argument strings exactly after shell parsing. Do not reinterpret backslashes or quotes inside the Python runtime.
 
@@ -182,7 +192,7 @@ The implementation should preserve argument strings exactly after shell parsing.
 Construct `sys.path` from:
 
 - Script directory for `python script.py`, unless `-I` or `-P` suppresses it.
-- Current directory for `python -c`, `python -m`, and stdin execution, unless `-I` or `-P` suppresses it.
+- Current directory for `python -c`, `python -m`, stdin execution, and interactive REPL mode, unless `-I` or `-P` suppresses it.
 - `PYTHONPATH`, unless `-E` or `-I` suppresses Python environment variables.
 - A virtual standard-library root such as `/usr/lib/carbide-python`.
 
@@ -210,7 +220,8 @@ Implement or accept with defined behavior:
 | `-O` | Set `__debug__` to `False`; skip `assert` execution if assertions are implemented. |
 | `-OO` | Same as `-O`; docstring stripping can be a no-op at first but must be documented. |
 | `-P` | Do not prepend current directory or script directory to `sys.path`. |
-| `-q` | Accept as no-op until interactive mode exists. |
+| `-i` | Enter the REPL after running a script, `-c` command, or `-m` module. If no program source is provided, enter the REPL directly. |
+| `-q` | Suppress the interactive startup banner, while still showing prompts. |
 | `-S` | Accept as no-op unless a future `site` module exists. |
 | `-s` | Accept as no-op unless a future user-site model exists. |
 | `-u` | Flush output eagerly where the shell stream abstraction supports it; otherwise no-op. |
@@ -246,17 +257,18 @@ Recognize these in the first slice:
 | `PYTHONDONTWRITEBYTECODE` | Same behavior as `-B`, effectively no-op. |
 | `PYTHONWARNINGS` | Same behavior as `-W` if warnings are implemented. |
 | `PYTHONSAFEPATH` | Same behavior as `-P`. |
-| `PYTHONINSPECT` | Unsupported until interactive mode exists. |
-| `PYTHONSTARTUP` | Unsupported until interactive mode exists. |
+| `PYTHONINSPECT` | Same behavior as `-i` after script, `-c`, or `-m` execution, unless suppressed by `-E` or `-I`. |
+| `PYTHONSTARTUP` | VFS path to a startup script executed before the first prompt in bare interactive mode, unless suppressed by `-E` or `-I`. |
 
 All other `PYTHON*` variables should be ignored unless the help page says otherwise. In `-E` and `-I` modes, all `PYTHON*` variables must be ignored for runtime configuration.
 
 ## Source loading and execution model
 
-The runtime should parse an entire module before execution, matching Python's non-interactive model closely enough for syntax errors to appear before partial side effects.
+For non-interactive source, the runtime should parse an entire module before execution, matching Python's script model closely enough for syntax errors to appear before partial side effects. Interactive input uses the REPL contract below instead.
 
 Supported source origins:
 
+- Interactive REPL input from a Carbide terminal.
 - Inline command string from `-c`.
 - VFS text file from `script.py`.
 - Stdin source from `-`.
@@ -277,6 +289,86 @@ Execution module identity:
 - Main code should have `__file__` when loaded from a VFS file.
 - Main code should have `__package__` as `None` or empty string unless package execution is implemented.
 - Imported modules should have stable module objects in `sys.modules`.
+
+## Interactive REPL contract
+
+Interactive mode is in scope. It should feel like a small but real Python prompt, not a diagnostic shell bolted onto script execution.
+
+### Entry paths
+
+Enter interactive mode when:
+
+- `python` is invoked with no program source and stdin is an interactive Carbide terminal.
+- `python -i` is invoked with no program source.
+- `python -i script.py`, `python -i -c "code"`, or `python -i -m module` completes program execution without `SystemExit`.
+- `PYTHONINSPECT` is set and not suppressed by `-E` or `-I`, after script, `-c`, or `-m` execution.
+
+Do not enter interactive mode when stdin is redirected script text and `-i` / `PYTHONINSPECT` is absent.
+
+### Prompts and display
+
+Use Python-style prompts:
+
+- `sys.ps1` defaults to `>>> `.
+- `sys.ps2` defaults to `... `.
+- The primary prompt is used for a new input group.
+- The secondary prompt is used while the parser needs more input.
+
+The REPL should evaluate complete interactive input groups using Python's single-input semantics:
+
+- A standalone expression displays its `repr()` through `sys.displayhook`.
+- Assignment and other statements do not echo a value.
+- Compound statements collect lines until complete.
+- A blank line terminates an indented compound statement when the input is otherwise complete.
+- Syntax errors clear the current input group and return to the primary prompt.
+
+`sys.displayhook` should be overrideable if the object model supports assignment to module attributes. The default display hook should write to `sys.stdout` and should avoid printing `None`.
+
+### Persistent state
+
+The REPL owns one `__main__` module for the session:
+
+- Variables defined at the prompt persist between input groups.
+- Imports persist through `sys.modules`.
+- Changes to the current directory, `sys.path`, and `os.environ` persist for later REPL input in the same Python process.
+- `python -i script.py` enters the prompt with the script's `__main__` globals still available, unless the script exited through `SystemExit`.
+
+This makes `-i` useful for inspecting script state, which is the main reason to support it.
+
+### Startup behavior
+
+Bare interactive mode should print a concise Carbide Python banner unless `-q` is present. The banner should identify the runtime as a Carbide subset and should not impersonate stock CPython.
+
+If `PYTHONSTARTUP` is set and not suppressed by `-E` or `-I`, bare interactive mode should execute that VFS file in the REPL's `__main__` namespace before the first prompt. The startup path must be normalized through the VFS. Host filesystem paths must fail with a sandbox diagnostic. Startup exceptions should print a traceback and continue to the prompt unless they raise `SystemExit`.
+
+`PYTHONSTARTUP` should not run for `python -i script.py`, `python -i -c`, or `python -i -m` unless we deliberately choose to diverge from CPython and document the divergence.
+
+### Editing, history, and completion
+
+The REPL should integrate with Carbide's terminal editing layer rather than implementing a separate browser text editor. The Python runtime should still provide the semantic pieces needed for a good editing experience:
+
+- A completion provider for names in locals, globals, builtins, modules, and object attributes.
+- A completion provider for importable allow-listed modules.
+- A way for the terminal host to request whether the current input is complete, incomplete, or invalid.
+- History entries at the complete input-group level, not one physical line at a time.
+- Multiline editing support that preserves indentation and secondary prompts.
+
+Tab completion should work when the terminal frontend supports completion requests. Up/down history should navigate complete submitted groups. If terminal-side editing capability is temporarily weaker than this contract, the REPL should still expose the semantic APIs so the UI can catch up without changing Python runtime behavior.
+
+`readline` and `rlcompleter` can be added as compatibility modules later. The first REPL does not need to expose full GNU readline behavior.
+
+### Cancellation and exit
+
+Interactive cancellation should be scoped to the current input or currently executing input group:
+
+- EOF exits the REPL with code `0`.
+- `exit()` and `quit()` exit the REPL with code `0`.
+- `sys.exit(n)` exits with code `n` when `n` is an integer, otherwise with Python-compatible fallback semantics.
+- Keyboard interrupt during input clears the current input group and returns to the primary prompt.
+- Keyboard interrupt during execution attempts to cancel execution and return to the primary prompt if runtime state remains safe.
+- If cancellation leaves runtime state unsafe, terminate the Python process with a clear diagnostic rather than resuming a corrupted REPL.
+
+The REPL must not swallow sandbox violations. Unsupported features and blocked host access should still print tracebacks or Carbide diagnostics and then return to the prompt when safe.
 
 ## Language syntax in scope
 
@@ -643,6 +735,9 @@ In scope:
 - `stdin`
 - `stdout`
 - `stderr`
+- `ps1`
+- `ps2`
+- `displayhook`
 - `exit`
 - `getdefaultencoding`
 - `getfilesystemencoding`
@@ -1119,6 +1214,8 @@ Recommended source shape:
 - `PythonParser.cs`: produce an AST.
 - `PythonAst.cs`: syntax model.
 - `PythonInterpreter.cs`: evaluate AST.
+- `PythonInteractiveSession.cs`: own REPL state, prompts, history-group boundaries, cancellation, and `__main__` persistence.
+- `PythonCompleter.cs`: provide REPL completion candidates for names, attributes, modules, and imports.
 - `PythonObjects.cs`: object model.
 - `PythonModules.*.cs`: built-in modules.
 
@@ -1152,7 +1249,7 @@ Exit criteria:
 - `command -v python` works from bash.
 - `python -V` and `python --help` work.
 
-### Slice 2: Minimal evaluator
+### Slice 2: Minimal evaluator and REPL
 
 Artifacts:
 
@@ -1161,12 +1258,18 @@ Artifacts:
 - Core builtins.
 - `sys` module.
 - `python -c` and `python script.py`.
+- Bare `python` interactive mode in terminal sessions.
+- `python -i` after script and `-c` execution.
+- Primary/secondary prompts, expression display, persistent `__main__`, and minimal completion provider.
 
 Exit criteria:
 
 - `python -c "print('hello')"` works.
 - `python -c "import sys; print(sys.argv[1])" value` works.
 - A script with functions, loops, lists, dictionaries, and exceptions runs.
+- Bare `python` shows a Carbide Python banner and prompt, evaluates `1 + 2`, persists `x = 3`, and exits on EOF.
+- `python -q -i -c "x = 41"` enters the REPL without a banner and evaluates `x + 1` as `42`.
+- Incomplete compound input uses the secondary prompt and executes after the terminating blank line.
 
 ### Slice 3: VFS and practical modules
 
@@ -1193,12 +1296,14 @@ Artifacts:
 - `/usr/bin/env python3` dispatch.
 - `.py` direct execution where shell semantics allow it.
 - `PYTHONPATH`, `-E`, `-I`, and `-P` tests.
+- `PYTHONSTARTUP` and `PYTHONINSPECT` tests for interactive mode.
 
 Exit criteria:
 
 - A shebang Python script runs from bash.
 - `python -m json.tool file.json` works.
 - Importing a VFS module through `PYTHONPATH` works when allowed and fails when isolated.
+- Bare interactive mode executes a VFS `PYTHONSTARTUP` script when allowed and ignores it under `-E` or `-I`.
 
 ### Slice 5: Dispatcher subprocess facade
 
@@ -1233,7 +1338,27 @@ Exit criteria:
 - `python -c "print('x')"`.
 - `python -c "import sys; print(sys.argv)" a b`.
 - `python - < /work/script.py`.
+- `python -q -i -c "x = 41"` enters interactive mode and suppresses the banner.
+- `python -i /work/script.py arg` preserves script globals and `sys.argv` in the REPL.
+- `PYTHONINSPECT=1 python /work/script.py` enters interactive mode unless `-E` or `-I` is present.
 - Unsupported `-X importtime` returns exit code `2`.
+
+### Interactive REPL tests
+
+- Bare `python` in an interactive terminal prints a Carbide Python banner and primary prompt.
+- `python -q` enters the REPL without the banner.
+- A standalone expression prints `repr(result)`.
+- A statement such as `x = 10` produces no echoed value.
+- Later input can evaluate `x + 5` as `15`.
+- Compound input uses `... ` prompts until a terminating blank line.
+- Syntax error returns to the primary prompt without losing previous globals.
+- Runtime exception prints a traceback and returns to the primary prompt.
+- `exit()`, `quit()`, EOF, and `sys.exit(7)` produce the expected exit behavior.
+- Keyboard interrupt during input clears the current input group.
+- Completion includes globals, builtins, imported modules, and object attributes when the terminal frontend requests completions.
+- History stores complete input groups, including multiline compound statements.
+- `PYTHONSTARTUP` executes a VFS script before the first prompt in bare interactive mode.
+- `PYTHONSTARTUP` is ignored when `-E` or `-I` is present.
 
 ### Syntax and runtime tests
 
@@ -1295,7 +1420,7 @@ Regex behavior will differ if .NET regex backs `re`. This is acceptable only if 
 
 `subprocess` is the highest-risk module. It is valuable for scripts, but it must never become host process execution. The facade should be implemented late enough that dispatcher boundaries and tests are already solid.
 
-Interactive mode is tempting. A partial REPL without editing, history, multiline parsing, and error recovery could be more confusing than useful. It should not block script execution.
+Interactive mode couples runtime semantics to terminal UX. The REPL needs Python-level state management, but editing, history navigation, completion display, multiline prompts, and cancellation all cross into the shell frontend. The implementation should keep a clean semantic boundary: Python decides whether input is complete and what completions exist; the terminal decides how to render and edit them.
 
 Modern Python code may import `typing`, `dataclasses`, or `pathlib` even when the runtime behavior is simple. If real scripts fail primarily on import availability, small compatibility modules may produce better value than deeper language features.
 
@@ -1306,7 +1431,7 @@ Some scripts use Python as a JSON processor. `json`, `sys`, `open`, and `pathlib
 Proceed with Python first as a bounded Carbide language runtime. The first meaningful target is:
 
 - Cross-shell stubs for `python`, `python3`, `python.exe`, and `python3.exe`.
-- `python -c`, `python script.py`, `python -`, and `python -m json.tool`.
+- Bare `python` interactive REPL mode, `python -i`, `python -c`, `python script.py`, `python -`, and `python -m json.tool`.
 - Core Python expressions and statements used by glue scripts.
 - VFS-backed `open`, `os`, `os.path`, and `pathlib`.
 - `sys`, `json`, `re`, `argparse`, `glob`, `fnmatch`, and `textwrap`.
