@@ -2,16 +2,16 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string] $CorpusRoot = 'C:\TestData\pwsh-github-corpus',
+    [string] $CorpusRoot = 'C:\TestData\pwsh\pwsh-github-corpus',
 
     [Parameter()]
-    [string] $SummaryPath = 'C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-summary.json',
+    [string] $SummaryPath = 'C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-summary.json',
 
     [Parameter()]
-    [string] $DetailsPath = 'C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-details.json',
+    [string] $DetailsPath = 'C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-details.json',
 
     [Parameter()]
-    [string] $CarbideResultsPath = 'C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-carbide-results.json'
+    [string] $CarbideResultsPath = 'C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-carbide-results.json'
 )
 
 Set-StrictMode -Version Latest

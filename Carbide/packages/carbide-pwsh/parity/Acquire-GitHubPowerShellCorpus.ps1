@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [string] $OutDir = 'C:\TestData\pwsh-github-corpus',
+    [string] $OutDir = 'C:\TestData\pwsh\pwsh-github-corpus',
 
     [Parameter()]
     [switch] $OnlyPowerShellFiles,

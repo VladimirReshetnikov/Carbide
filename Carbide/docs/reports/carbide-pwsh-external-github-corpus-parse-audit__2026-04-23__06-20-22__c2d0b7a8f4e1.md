@@ -2,21 +2,21 @@
 
 - Created (UTC): 2026-04-23T06:20:22Z
 - Repository HEAD: e5c9260ef8608c859997cf9b4acd715e0690a93f
-- Corpus root: `C:\TestData\pwsh-github-corpus`
-- Manifest: `C:\TestData\pwsh-github-corpus\manifest.json`
+- Corpus root: `C:\TestData\pwsh\pwsh-github-corpus`
+- Manifest: `C:\TestData\pwsh\pwsh-github-corpus\manifest.json`
 - Audit artifacts:
-  - `C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-summary.json`
-  - `C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-details.json`
-  - `C:\TestData\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-carbide-results.json`
-  - `C:\TestData\pwsh-parse-audits\README.md`
+  - `C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-summary.json`
+  - `C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-parse-details.json`
+  - `C:\TestData\pwsh\pwsh-parse-audits\external-github-corpus\tmp-pwsh-external-carbide-results.json`
+  - `C:\TestData\pwsh\pwsh-parse-audits\README.md`
 
 ## Goal
 
-Extend the earlier repository-local PowerShell parse audit to a much larger real-world GitHub corpus, compare `carbide-pwsh` against local `pwsh.exe 7.6`, fix all feasible parser discrepancies discovered by that corpus, and preserve the downloaded scripts under `C:\TestData`.
+Extend the earlier repository-local PowerShell parse audit to a much larger real-world GitHub corpus, compare `carbide-pwsh` against local `pwsh.exe 7.6`, fix all feasible parser discrepancies discovered by that corpus, and preserve the downloaded scripts under `C:\TestData\pwsh`.
 
 ## Corpus
 
-The corpus was downloaded under `C:\TestData\pwsh-github-corpus` and intentionally left in place after auditing.
+The corpus was downloaded under `C:\TestData\pwsh\pwsh-github-corpus` and intentionally left in place after auditing.
 
 Sources included these repositories:
 
