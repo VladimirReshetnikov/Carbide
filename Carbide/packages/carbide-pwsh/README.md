@@ -61,11 +61,17 @@ basic typing workflows you expect from day-to-day `pwsh` use:
 - `Esc` clears the current input line.
 - `Ctrl+C` abandons the current line, prints red `^C`, and returns to a fresh prompt.
 - `UpArrow` / `DownArrow` walk recent command history.
-- `Tab` completes the current command name from cmdlets, aliases, functions, registered
-  apps, and shared virtual executables; repeated `Tab` cycles forward and `Shift+Tab`
-  cycles backward.
+- `Tab` completes command names from cmdlets, aliases, functions, registered apps, and
+  shared virtual executables; it also completes cmdlet/function parameters, variables,
+  `$env:` names, and VFS paths, quoting paths with spaces when needed. Repeated `Tab`
+  cycles forward and `Shift+Tab` cycles backward.
 - `LeftArrow` / `RightArrow`, `Home` / `End`, `Ctrl+A` / `Ctrl+E`, `Backspace`,
   `Delete`, and `Ctrl+L` all work in the prompt.
+- `Ctrl+Left` / `Ctrl+Right` and `Alt+B` / `Alt+F` move by word; `Ctrl+Backspace`,
+  `Ctrl+W`, `Alt+Backspace`, and `Alt+D` delete by word.
+- `Ctrl+U` clears from the cursor to the beginning of the line, `Ctrl+K` clears from the
+  cursor to the end, `Ctrl+D` deletes the character under the cursor (or ends input on an
+  empty line), and `Insert` toggles overwrite mode.
 
 ## What you can write in Phase 3
 
@@ -246,7 +252,7 @@ PS /home/user> exit
 Class inheritance, static class members beyond trivial, property getters/setters with
 bodies, method overloading inside user classes, `using module`/`Import-Module`,
 `Add-Type` for inline C#, a full PSReadLine-style editor (persistent history, predictive
-and token-aware completion, syntax coloring, reverse search, multi-line-aware editing),
+completion, syntax coloring, reverse search, member completion, multi-line-aware editing),
 `format.ps1xml` custom views, interactive `Confirm`/`Inquire`, `Register-ObjectEvent`,
 remoting, async cancellation into running scripts on Ctrl+C, `Invoke-WebRequest` /
 `Invoke-RestMethod`. Phase 4+ territory.

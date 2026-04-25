@@ -1,4 +1,3 @@
-using CarbidePwsh.Cmdlets.Discovery;
 using System.Reflection;
 
 namespace CarbidePwsh.Host;
@@ -22,12 +21,14 @@ public sealed class PwshPromptEditor
     private const int MaxHistoryEntries = 512;
     private readonly ShellHost _host;
     private readonly IPwshPromptConsole _console;
+    private readonly PromptCompletionService _completionService;
     private readonly List<string> _history = [];
 
     public PwshPromptEditor(ShellHost host, IPwshPromptConsole? console = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _console = console ?? new SystemPwshPromptConsole();
+        _completionService = new PromptCompletionService(_host);
     }
 
     public IReadOnlyList<string> History => _history;
@@ -56,6 +57,14 @@ public sealed class PwshPromptEditor
         string historyDraft = "";
         int? historyIndex = null;
         CompletionSession? completion = null;
+        bool overwrite = false;
+
+        void MarkEdited()
+        {
+            historyIndex = null;
+            historyDraft = buffer;
+            completion = null;
+        }
 
         var originalTreatControlCAsInput = _console.TreatControlCAsInput;
         _console.TreatControlCAsInput = true;
@@ -110,6 +119,77 @@ public sealed class PwshPromptEditor
                     continue;
                 }
 
+                if (IsMovePreviousWord(key.Value))
+                {
+                    completion = null;
+                    MoveCursorTo(ref cursor, FindPreviousWordBoundary(buffer, cursor));
+                    continue;
+                }
+
+                if (IsMoveNextWord(key.Value))
+                {
+                    completion = null;
+                    MoveCursorTo(ref cursor, FindNextWordBoundary(buffer, cursor));
+                    continue;
+                }
+
+                if (IsDeletePreviousWord(key.Value))
+                {
+                    if (cursor == 0) continue;
+                    var start = FindPreviousWordBoundary(buffer, cursor);
+                    buffer = buffer.Remove(start, cursor - start);
+                    cursor = start;
+                    MarkEdited();
+                    RedrawLine(prompt, buffer, cursor);
+                    continue;
+                }
+
+                if (IsDeleteNextWord(key.Value))
+                {
+                    if (cursor >= buffer.Length) continue;
+                    var end = FindNextWordBoundary(buffer, cursor);
+                    buffer = buffer.Remove(cursor, end - cursor);
+                    MarkEdited();
+                    RedrawLine(prompt, buffer, cursor);
+                    continue;
+                }
+
+                if (IsCtrlU(key.Value))
+                {
+                    if (cursor == 0) continue;
+                    buffer = buffer.Remove(0, cursor);
+                    cursor = 0;
+                    MarkEdited();
+                    RedrawLine(prompt, buffer, cursor);
+                    continue;
+                }
+
+                if (IsCtrlK(key.Value))
+                {
+                    if (cursor >= buffer.Length) continue;
+                    buffer = buffer[..cursor];
+                    MarkEdited();
+                    RedrawLine(prompt, buffer, cursor);
+                    continue;
+                }
+
+                if (IsCtrlD(key.Value))
+                {
+                    completion = null;
+                    if (buffer.Length == 0)
+                    {
+                        _console.Write("\r\n");
+                        _console.Flush();
+                        return PromptReadResult.EndOfInput();
+                    }
+
+                    if (cursor >= buffer.Length) continue;
+                    buffer = buffer.Remove(cursor, 1);
+                    MarkEdited();
+                    RedrawLine(prompt, buffer, cursor);
+                    continue;
+                }
+
                 switch (key.Value.Key)
                 {
                     case ConsoleKey.Enter:
@@ -129,21 +209,17 @@ public sealed class PwshPromptEditor
                         continue;
 
                     case ConsoleKey.Backspace:
-                        completion = null;
                         if (cursor == 0) continue;
                         buffer = buffer.Remove(cursor - 1, 1);
                         cursor--;
-                        historyIndex = null;
-                        historyDraft = buffer;
+                        MarkEdited();
                         RedrawLine(prompt, buffer, cursor);
                         continue;
 
                     case ConsoleKey.Delete:
-                        completion = null;
                         if (cursor >= buffer.Length) continue;
                         buffer = buffer.Remove(cursor, 1);
-                        historyIndex = null;
-                        historyDraft = buffer;
+                        MarkEdited();
                         RedrawLine(prompt, buffer, cursor);
                         continue;
 
@@ -173,6 +249,11 @@ public sealed class PwshPromptEditor
                         if (cursor >= buffer.Length) continue;
                         MoveCursorRight(buffer.Length - cursor);
                         cursor = buffer.Length;
+                        continue;
+
+                    case ConsoleKey.Insert:
+                        completion = null;
+                        overwrite = !overwrite;
                         continue;
 
                     case ConsoleKey.UpArrow:
@@ -252,7 +333,9 @@ public sealed class PwshPromptEditor
                     continue;
                 }
 
-                buffer = buffer.Insert(cursor, ch.ToString());
+                buffer = overwrite
+                    ? buffer.Remove(cursor, 1).Insert(cursor, ch.ToString())
+                    : buffer.Insert(cursor, ch.ToString());
                 cursor++;
                 historyDraft = buffer;
                 RedrawLine(prompt, buffer, cursor);
@@ -281,77 +364,19 @@ public sealed class PwshPromptEditor
         }
 
         completion = null;
-        if (!TryGetCommandCompletionQuery(buffer, cursor, out var query))
-            return false;
-
-        var matches = _host.GetInteractiveCommandNames()
-            .Where(name => name.StartsWith(query.Prefix, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        if (matches.Length == 0)
+        var result = _completionService.Complete(buffer, cursor);
+        if (result is null || result.Matches.Count == 0)
             return false;
 
         completion = new CompletionSession(
-            query.Before,
-            query.After,
-            matches,
-            Index: reverse ? matches.Length - 1 : 0);
+            result.Before,
+            result.After,
+            result.Matches,
+            Index: reverse ? result.Matches.Count - 1 : 0);
         buffer = completion.ComposeBuffer();
         cursor = completion.Cursor;
         return true;
     }
-
-    private static bool TryGetCommandCompletionQuery(
-        string buffer,
-        int cursor,
-        out CommandCompletionQuery query)
-    {
-        query = default;
-        if (cursor < 0 || cursor > buffer.Length)
-            return false;
-
-        int tokenStart = cursor;
-        while (tokenStart > 0 && !IsCompletionDelimiter(buffer[tokenStart - 1]))
-            tokenStart--;
-
-        int tokenEnd = cursor;
-        while (tokenEnd < buffer.Length && !IsCompletionDelimiter(buffer[tokenEnd]))
-            tokenEnd++;
-
-        if (tokenStart == tokenEnd || cursor != tokenEnd)
-            return false;
-
-        int segmentStart = 0;
-        for (int i = tokenStart - 1; i >= 0; i--)
-        {
-            if (buffer[i] is '|' or ';' or '\n' or '\r')
-            {
-                segmentStart = i + 1;
-                break;
-            }
-        }
-
-        while (segmentStart < tokenStart && char.IsWhiteSpace(buffer[segmentStart]))
-            segmentStart++;
-
-        if (segmentStart != tokenStart)
-            return false;
-
-        var prefix = buffer[tokenStart..cursor];
-        if (prefix.Length == 0
-            || prefix[0] is '-' or '$' or '\'' or '"' or '.')
-            return false;
-
-        query = new CommandCompletionQuery(
-            buffer[..tokenStart],
-            prefix,
-            buffer[tokenEnd..]);
-        return true;
-    }
-
-    private static bool IsCompletionDelimiter(char ch)
-        => char.IsWhiteSpace(ch) || ch is '|' or ';' or '(' or ')' or '{' or '}' or '[' or ']' or ',';
 
     private void RedrawLine(string prompt, string buffer, int cursor, bool clearScreenFirst = false)
     {
@@ -383,9 +408,26 @@ public sealed class PwshPromptEditor
         _console.Flush();
     }
 
+    private void MoveCursorTo(ref int cursor, int target)
+    {
+        target = Math.Clamp(target, 0, cursor < 0 ? 0 : int.MaxValue);
+        if (target == cursor)
+            return;
+
+        if (target < cursor)
+            MoveCursorLeft(cursor - target);
+        else
+            MoveCursorRight(target - cursor);
+
+        cursor = target;
+    }
+
     private void RememberHistory(string line)
     {
         if (string.IsNullOrWhiteSpace(line))
+            return;
+
+        if (_history.Count > 0 && string.Equals(_history[^1], line, StringComparison.Ordinal))
             return;
 
         if (_history.Count == MaxHistoryEntries)
@@ -410,10 +452,78 @@ public sealed class PwshPromptEditor
         => key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.E
         || key.KeyChar == '\u0005';
 
+    private static bool IsCtrlD(ConsoleKeyInfo key)
+        => key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.D
+        || key.KeyChar == '\u0004';
+
+    private static bool IsCtrlK(ConsoleKeyInfo key)
+        => key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.K
+        || key.KeyChar == '\u000b';
+
+    private static bool IsCtrlU(ConsoleKeyInfo key)
+        => key.Modifiers.HasFlag(ConsoleModifiers.Control) && key.Key == ConsoleKey.U
+        || key.KeyChar == '\u0015';
+
+    private static bool IsMovePreviousWord(ConsoleKeyInfo key)
+        => key.Key == ConsoleKey.LeftArrow && key.Modifiers.HasFlag(ConsoleModifiers.Control)
+        || key.Key == ConsoleKey.B && key.Modifiers.HasFlag(ConsoleModifiers.Alt);
+
+    private static bool IsMoveNextWord(ConsoleKeyInfo key)
+        => key.Key == ConsoleKey.RightArrow && key.Modifiers.HasFlag(ConsoleModifiers.Control)
+        || key.Key == ConsoleKey.F && key.Modifiers.HasFlag(ConsoleModifiers.Alt);
+
+    private static bool IsDeletePreviousWord(ConsoleKeyInfo key)
+        => key.Key == ConsoleKey.Backspace && key.Modifiers.HasFlag(ConsoleModifiers.Control)
+        || key.Key == ConsoleKey.Backspace && key.Modifiers.HasFlag(ConsoleModifiers.Alt)
+        || key.Key == ConsoleKey.W && key.Modifiers.HasFlag(ConsoleModifiers.Control)
+        || key.KeyChar == '\u0017';
+
+    private static bool IsDeleteNextWord(ConsoleKeyInfo key)
+        => key.Key == ConsoleKey.D && key.Modifiers.HasFlag(ConsoleModifiers.Alt);
+
+    private static int FindPreviousWordBoundary(string text, int cursor)
+    {
+        var i = Math.Clamp(cursor, 0, text.Length);
+        while (i > 0 && char.IsWhiteSpace(text[i - 1]))
+            i--;
+
+        if (i == 0)
+            return 0;
+
+        var kind = GetWordKind(text[i - 1]);
+        while (i > 0 && !char.IsWhiteSpace(text[i - 1]) && GetWordKind(text[i - 1]) == kind)
+            i--;
+
+        return i;
+    }
+
+    private static int FindNextWordBoundary(string text, int cursor)
+    {
+        var i = Math.Clamp(cursor, 0, text.Length);
+        while (i < text.Length && char.IsWhiteSpace(text[i]))
+            i++;
+
+        if (i >= text.Length)
+            return text.Length;
+
+        var kind = GetWordKind(text[i]);
+        while (i < text.Length && !char.IsWhiteSpace(text[i]) && GetWordKind(text[i]) == kind)
+            i++;
+
+        return i;
+    }
+
+    private static WordKind GetWordKind(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_' ? WordKind.Word : WordKind.Symbol;
+
     private static bool IsReverseTab(ConsoleKeyInfo key)
         => key.Key == ConsoleKey.Tab && key.Modifiers.HasFlag(ConsoleModifiers.Shift);
 
-    private readonly record struct CommandCompletionQuery(string Before, string Prefix, string After);
+    private enum WordKind
+    {
+        Word,
+        Symbol,
+    }
 
     private sealed record CompletionSession(
         string Before,

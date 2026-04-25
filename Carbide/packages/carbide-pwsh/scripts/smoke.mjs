@@ -65,6 +65,12 @@ try {
         console.log(`smoke: found '${needle}' OK`);
     };
 
+    const beforeCompletion = await bufferLength();
+    await page.keyboard.type("Get-Command -Comm");
+    await page.keyboard.press("Tab");
+    await waitForFreshBufferText("Get-Command -CommandType", beforeCompletion);
+    await resetPwshLine();
+
     await sendLine("2 + 2");
     await expectInBuffer("4");
 

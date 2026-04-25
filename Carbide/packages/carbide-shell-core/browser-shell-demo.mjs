@@ -81,6 +81,7 @@ const PWSH_SHARED_SOURCES = [
     "src/Cmdlets/Shell/CrossShellCommands.cs",
     "src/Host/Banner.cs",
     "src/Host/OutputFormatter.cs",
+    "src/Host/PromptCompletionService.cs",
     "src/Host/PwshPromptEditor.cs",
     "src/Host/PwshKernel.cs",
     "src/Host/ShellHost.cs",

@@ -114,6 +114,175 @@ public class PromptEditorTests
     }
 
     [Fact]
+    public async Task WordEditingDeletesPreviousWord()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            [.. Text("alpha beta"), CtrlLeft(), CtrlBackspace(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("beta", result.Line);
+    }
+
+    [Fact]
+    public async Task CtrlKDeletesToEndOfLine()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            [.. Text("alpha beta"), CtrlLeft(), CtrlK(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("alpha ", result.Line);
+    }
+
+    [Fact]
+    public async Task CtrlUDeletesToStartOfLine()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            [.. Text("alpha beta"), CtrlLeft(), CtrlU(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("beta", result.Line);
+    }
+
+    [Fact]
+    public async Task InsertTogglesOverwriteMode()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            Char('a'), Char('b'), Char('c'),
+            CtrlA(),
+            Insert(),
+            Char('Z'),
+            Enter());
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("Zbc", result.Line);
+    }
+
+    [Fact]
+    public async Task CtrlDDeletesCharacterUnderCursor()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            Char('a'), Char('b'), Char('c'),
+            CtrlA(),
+            CtrlD(),
+            Enter());
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("bc", result.Line);
+    }
+
+    [Fact]
+    public async Task CtrlDOnEmptyLineEndsInput()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(CtrlD());
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.EndOfInput, result.Kind);
+    }
+
+    [Fact]
+    public async Task TabCompletesCmdletParameterNames()
+    {
+        var host = new ShellHost();
+        var console = new FakePromptConsole(
+            [.. Text("Get-Command -Comm"), Tab(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("Get-Command -CommandType", result.Line);
+    }
+
+    [Fact]
+    public async Task TabCompletesFunctionParameterNames()
+    {
+        var host = new ShellHost();
+        host.Submit("function Greet { param($Name, [int]$Count) $Name }");
+        var console = new FakePromptConsole(
+            [.. Text("Greet -Co"), Tab(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("Greet -Count", result.Line);
+    }
+
+    [Fact]
+    public async Task TabCompletesVariablesAndEnvironmentVariables()
+    {
+        var host = new ShellHost();
+        host.Submit("$customValue = 42");
+        host.Env.Set("PATH", "/bin");
+
+        var variableConsole = new FakePromptConsole(
+            [.. Text("$cu"), Tab(), Enter()]);
+        var variableEditor = new PwshPromptEditor(host, variableConsole);
+        var variable = await variableEditor.ReadLineAsync("PS /home/user> ");
+        Assert.Equal("$customValue", variable.Line);
+
+        var envConsole = new FakePromptConsole(
+            [.. Text("$env:PA"), Tab(), Enter()]);
+        var envEditor = new PwshPromptEditor(host, envConsole);
+        var env = await envEditor.ReadLineAsync("PS /home/user> ");
+        Assert.Equal("$env:PATH", env.Line);
+    }
+
+    [Fact]
+    public async Task TabCompletesVfsPaths()
+    {
+        var host = new ShellHost();
+        host.Vfs.CreateDirectory("/tmp");
+        host.Vfs.CreateTextFile("/tmp/sample.txt", "hello", overwrite: true);
+        var console = new FakePromptConsole(
+            [.. Text("Get-Content /tmp/sa"), Tab(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("Get-Content /tmp/sample.txt", result.Line);
+    }
+
+    [Fact]
+    public async Task TabQuotesVfsPathsWithSpaces()
+    {
+        var host = new ShellHost();
+        host.Vfs.CreateDirectory("/Program Files");
+        var console = new FakePromptConsole(
+            [.. Text("Set-Location /Pro"), Tab(), Enter()]);
+        var editor = new PwshPromptEditor(host, console);
+
+        var result = await editor.ReadLineAsync("PS /home/user> ");
+
+        Assert.Equal(PromptReadResultKind.Submitted, result.Kind);
+        Assert.Equal("Set-Location '/Program Files/'", result.Line);
+    }
+
+    [Fact]
     public void InteractiveCommandNamesIncludeRecognizedBuiltinPlaceholders()
     {
         var host = new ShellHost();
@@ -154,6 +323,9 @@ public class PromptEditorTests
         }
     }
 
+    private static IEnumerable<ConsoleKeyInfo> Text(string text)
+        => text.Select(Char);
+
     private static ConsoleKeyInfo Char(char ch)
     {
         var upper = char.ToUpperInvariant(ch);
@@ -172,7 +344,13 @@ public class PromptEditorTests
     private static ConsoleKeyInfo Down() => new('\0', ConsoleKey.DownArrow, false, false, false);
     private static ConsoleKeyInfo Tab() => new('\t', ConsoleKey.Tab, false, false, false);
     private static ConsoleKeyInfo ShiftTab() => new('\t', ConsoleKey.Tab, true, false, false);
+    private static ConsoleKeyInfo Insert() => new('\0', ConsoleKey.Insert, false, false, false);
     private static ConsoleKeyInfo CtrlA() => new('\u0001', ConsoleKey.A, false, false, true);
     private static ConsoleKeyInfo CtrlC() => new('\u0003', ConsoleKey.C, false, false, true);
+    private static ConsoleKeyInfo CtrlD() => new('\u0004', ConsoleKey.D, false, false, true);
     private static ConsoleKeyInfo CtrlE() => new('\u0005', ConsoleKey.E, false, false, true);
+    private static ConsoleKeyInfo CtrlK() => new('\u000b', ConsoleKey.K, false, false, true);
+    private static ConsoleKeyInfo CtrlU() => new('\u0015', ConsoleKey.U, false, false, true);
+    private static ConsoleKeyInfo CtrlLeft() => new('\0', ConsoleKey.LeftArrow, false, false, true);
+    private static ConsoleKeyInfo CtrlBackspace() => new('\b', ConsoleKey.Backspace, false, false, true);
 }
