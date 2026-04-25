@@ -75,6 +75,8 @@ internal static class VirtualExecutableCatalog
         yield return Posix("gnu-xargs", "xargs.exe");
         yield return Posix("gnu-yes", "yes.exe");
 
+        yield return Language("python", "python", "python.exe", "python3", "python3.exe");
+
         yield return Windows("windows-fc", "fc.exe");
         yield return Windows("windows-find", "find.exe");
         yield return Windows("windows-findstr", "findstr.exe");
@@ -102,6 +104,14 @@ internal static class VirtualExecutableCatalog
             commandId,
             VirtualExecutablePersonality.Windows,
             BuildPaths(WindowsRoots, basenames),
+            basenames,
+            HandlerKey);
+
+    private static VirtualExecutableDefinition Language(string commandId, params string[] basenames)
+        => new(
+            commandId,
+            VirtualExecutablePersonality.Language,
+            BuildPaths(PosixRoots, basenames),
             basenames,
             HandlerKey);
 

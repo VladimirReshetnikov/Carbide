@@ -79,6 +79,7 @@ public static class Pipeline
     private static IEnumerable<object?> RunCommand(CommandAst cmd, IEnumerable<object?>? input, CmdletContext ctx, CmdletRegistry registry)
     {
         var positional = new List<object?>();
+        var nativeArguments = new List<object?>();
         var named = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         var redirections = new List<CommandRedirectionAst>();
 
@@ -87,9 +88,12 @@ public static class Pipeline
             var el = cmd.Elements[i];
             if (el is CommandParameterAst param)
             {
+                nativeArguments.Add("-" + param.Name);
                 if (i + 1 < cmd.Elements.Count && cmd.Elements[i + 1] is CommandArgumentAst valueArg)
                 {
-                    named[param.Name] = ctx.Interpreter.Eval(valueArg.Expression);
+                    var value = ctx.Interpreter.Eval(valueArg.Expression);
+                    named[param.Name] = value;
+                    nativeArguments.Add(value);
                     i++;
                 }
                 else
@@ -99,11 +103,15 @@ public static class Pipeline
             }
             else if (el is CommandArgumentAst arg)
             {
-                positional.Add(ctx.Interpreter.Eval(arg.Expression));
+                var value = ctx.Interpreter.Eval(arg.Expression);
+                positional.Add(value);
+                nativeArguments.Add(value);
             }
             else if (el is CommandSplatAst splat)
             {
-                ApplySplat(ctx.Interpreter.Eval(splat.Expression), positional, named);
+                var value = ctx.Interpreter.Eval(splat.Expression);
+                ApplySplat(value, positional, named);
+                ApplyNativeSplat(value, nativeArguments);
             }
             else if (el is CommandRedirectionAst redirection)
             {
@@ -199,7 +207,7 @@ public static class Pipeline
                 cmd.Location);
         }
 
-        if (TryDispatchExternalCommand(resolvedName, positional, input, effectiveCtx, plan, out var externalResult))
+        if (TryDispatchExternalCommand(resolvedName, nativeArguments, input, effectiveCtx, plan, out var externalResult))
             return externalResult;
 
         if (BuiltinCommandCatalog.TryGetCmdlet(resolvedName, out var builtin))
@@ -354,6 +362,31 @@ public static class Pipeline
         }
 
         positional.Add(value);
+    }
+
+    private static void ApplyNativeSplat(object? value, List<object?> arguments)
+    {
+        if (value is null) return;
+
+        if (value is IDictionary dict)
+        {
+            foreach (DictionaryEntry entry in dict)
+            {
+                arguments.Add("-" + Runtime.Coercion.FormatAsString(entry.Key).TrimStart('-'));
+                if (entry.Value is not null && entry.Value is not true)
+                    arguments.Add(entry.Value);
+            }
+            return;
+        }
+
+        if (value is IEnumerable enumerable && value is not string)
+        {
+            foreach (var item in enumerable.Cast<object?>())
+                arguments.Add(item);
+            return;
+        }
+
+        arguments.Add(value);
     }
 
     private static T RunWithInterpreterWriters<T>(Interpreter interpreter, CmdletContext ctx, Func<T> action)

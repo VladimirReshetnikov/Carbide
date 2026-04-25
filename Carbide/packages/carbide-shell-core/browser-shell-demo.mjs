@@ -134,6 +134,7 @@ const MULTISHELL_SHARED_SOURCES = [
     "src/MultishellVirtualExecutableHandler.Core.cs",
     "src/MultishellVirtualExecutableHandler.Basic.cs",
     "src/MultishellVirtualExecutableHandler.Advanced.cs",
+    "src/MultishellVirtualExecutableHandler.Python.cs",
 ];
 
 const SHARPCOMPRESS_DLL_CANDIDATES = [

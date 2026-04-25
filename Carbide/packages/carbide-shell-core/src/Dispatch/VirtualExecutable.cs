@@ -14,6 +14,7 @@ public enum VirtualExecutablePersonality
     Shell,
     Gnu,
     Windows,
+    Language,
 }
 
 /// <summary>

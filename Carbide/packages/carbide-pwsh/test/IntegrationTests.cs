@@ -1,5 +1,6 @@
 using System.Text;
 using CarbidePwsh.Host;
+using CarbidePwsh.SharedMultishell;
 using Xunit;
 
 namespace CarbidePwsh.Tests;
@@ -65,5 +66,14 @@ public class IntegrationTests
         var host = new ShellHost();
         var r = host.Submit("1..5 | Where-Object { $_ -gt 2 }");
         Assert.Equal(new object?[] { 3, 4, 5 }, (object?[])r!);
+    }
+
+    [Fact]
+    public void NativeVirtualExecutablesReceiveSingleDashArguments()
+    {
+        var host = new MultishellSession().Pwsh;
+
+        Assert.Equal("Python 3-compatible Carbide subset", host.Submit("python -V"));
+        Assert.Equal("value", host.Submit("python -c \"import sys; print(sys.argv[1])\" value"));
     }
 }
