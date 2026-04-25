@@ -1,8 +1,8 @@
 # Carbide — proposals
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-25T03:41:21Z
-- Repository HEAD: 83607cff26e26661814ef7dcfb906fef4799b5b3
+- Updated (UTC): 2026-04-25T19:52:08Z
+- Repository HEAD: 8ad5657c49d6aca974b7cc30a30e2f02b82940f2
 
 This directory holds forward-looking design proposals that build on Carbide's current planning and research corpus.
 
@@ -16,3 +16,4 @@ This directory holds forward-looking design proposals that build on Carbide's cu
 - [`cscript.exe` as a VFS-backed Windows Script Host stub](carbide-cscript-vfs-stub-proposal__2026-04-25__01-27-24-221525__eedac3f4e353.md) - proposal for adding `cscript.exe` to the Windows virtual executable catalog with shell-implemented Windows Script Host semantics, bounded script-engine support, VFS-only automation objects, and explicit non-goals for real COM, registry, network, GUI, and host-process behavior.
 - [`python.exe` and `perl.exe` VFS stubs for polyglot scripting](carbide-polyglot-python-perl-vfs-stubs-proposal__2026-04-25__01-45-48-877104__08ffa527c45a.md) - proposal for adding Python and Perl language-host virtual executable stubs with bounded shell-implemented runtimes, VFS-only behavior, cross-shell discovery, shebang integration, and honest subset diagnostics for multi-language scripting.
 - [Python VFS stub feature scope](carbide-python-vfs-stub-feature-scope-proposal__2026-04-25__01-58-17-000000__f21ea7c57448.md) - detailed Python-first proposal defining the command-line and interactive REPL contract, syntax subset, runtime object model, builtins, standard-library modules, VFS behavior, subprocess facade, shebang integration, diagnostics, and test matrix for the initial `python.exe` virtual executable runtime.
+- [`dotnet.exe` as a Carbide-backed VFS SDK facade](carbide-dotnet-vfs-stub-proposal__2026-04-25__19-49-18__21aa38a65ec1.md) - proposal for adding a VFS-visible `dotnet` / `dotnet.exe` facade that delegates source/project builds and executable DLL runs to existing Carbide compiler infrastructure, including required async virtual-executable dispatch, host bridge, `runAssembly` extraction, VFS project pipeline, and scoped SDK command semantics.
