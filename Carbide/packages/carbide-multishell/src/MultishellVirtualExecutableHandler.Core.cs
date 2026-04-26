@@ -102,6 +102,7 @@ internal sealed partial class MultishellVirtualExecutableHandler : IVirtualExecu
         => invocation.Definition.CommandId switch
         {
             "dotnet" => ExecuteDotnetAsync(invocation, cancellationToken),
+            "perl" => ExecutePerlAsync(invocation, cancellationToken),
             _ => ValueTask.FromResult(Execute(invocation)),
         };
 
@@ -275,6 +276,42 @@ internal sealed partial class MultishellVirtualExecutableHandler : IVirtualExecu
                     ctx),
             ResolutionKind.Script when resolution.Kernel is not null && resolution.ScriptPath is not null
                 => invocation.Dispatcher.ExecuteScript(resolution.ScriptPath, resolution.Kernel, ctx),
+            ResolutionKind.App when resolution.AppPath is not null
+                => ExecuteApp(invocation, resolution.AppPath, args, ctx),
+            ResolutionKind.NamedShell when resolution.Kernel is not null
+                => LaunchShell(resolution.Kernel, args, ctx),
+            _ => 127,
+        };
+    }
+
+    private static async ValueTask<int> DispatchCommandAsync(
+        VirtualExecutableInvocation invocation,
+        string commandName,
+        IReadOnlyList<string> args,
+        string callerShellName,
+        TextReader? input = null,
+        TextWriter? output = null,
+        TextWriter? error = null,
+        CancellationToken cancellationToken = default)
+    {
+        var ctx = BuildContext(invocation, args, input, output, error);
+        var resolution = invocation.Dispatcher.Resolve(commandName, ctx, callerShellName);
+        return resolution.Kind switch
+        {
+            ResolutionKind.VirtualExecutable when resolution.VirtualExecutable is not null && resolution.VirtualExecutablePath is not null
+                => await invocation.Dispatcher.ExecuteVirtualExecutableAsync(
+                    resolution.VirtualExecutable,
+                    resolution.VirtualExecutablePath,
+                    commandName,
+                    args,
+                    ctx,
+                    cancellationToken).ConfigureAwait(false),
+            ResolutionKind.Script when resolution.Kernel is not null && resolution.ScriptPath is not null
+                => await invocation.Dispatcher.ExecuteScriptAsync(
+                    resolution.ScriptPath,
+                    resolution.Kernel,
+                    ctx,
+                    cancellationToken).ConfigureAwait(false),
             ResolutionKind.App when resolution.AppPath is not null
                 => ExecuteApp(invocation, resolution.AppPath, args, ctx),
             ResolutionKind.NamedShell when resolution.Kernel is not null

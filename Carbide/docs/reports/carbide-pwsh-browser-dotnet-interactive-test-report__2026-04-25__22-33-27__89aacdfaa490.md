@@ -1,6 +1,7 @@
 # carbide-pwsh browser dotnet interactive test report
 
 - Created (UTC): 2026-04-25T22:33:27Z
+- Updated (UTC): 2026-04-26T02:51:09Z
 - Repository HEAD: 020144bd373ad7d9aa29914e84c14963d18d87f4
 - Document type: implementation and validation report
 - Scope: `src/Carbide/packages/carbide-pwsh` browser endpoint and `dotnet` VFS facade
@@ -18,6 +19,14 @@ only delivered their first character to the C# prompt editor. I fixed that in th
 interactive terminal path by preserving unconsumed raw bytes between `ReadKeyAsync` calls.
 After republishing `@carbide/core`, both browser `dotnet` scenarios passed.
 
+A follow-up pass added nested-shell coverage for the single public `carbide-pwsh`
+endpoint. The new browser test starts from pwsh, enters `cmd`, `bash`, and Perl's
+`perl -de 0` debugger pseudo-REPL, and verifies that `dotnet` remains available and can
+run a previously built assembly from each nested shell. That pass exposed two additional
+runtime issues, both fixed: interactive native commands now write to the live terminal
+instead of hidden capture buffers, and Perl `system(...)` dispatch has an async path so it
+can call the async `dotnet` facade.
+
 ## Test Infrastructure Created
 
 The new infrastructure consists of:
@@ -28,8 +37,10 @@ The new infrastructure consists of:
   keyboard or paste input, reads terminal text, and records failure artifacts.
 - `packages/carbide-pwsh/test/browser/dotnet-interactive.test.mjs`, which contains the
   first browser-level `dotnet` scenarios.
+- `packages/carbide-pwsh/test/browser/dotnet-nested-shells.test.mjs`, which covers
+  `dotnet` execution from nested `cmd`, nested `bash`, and nested Perl debugger mode.
 - `packages/carbide-pwsh/package.json` scripts `test:browser` and
-  `test:browser:dotnet`.
+  `test:browser:dotnet`, plus the targeted `test:browser:dotnet-nested` script.
 
 The companion current-state documentation is:
 
@@ -72,6 +83,25 @@ This covers project-file dispatch, default `.cs` source discovery under the proj
 directory, browser-side Carbide compilation, program argument forwarding, nonzero
 application exit code propagation, and shell command discovery for the VFS stub.
 
+### Nested shell execution from pwsh
+
+The follow-up scenario starts at the public pwsh browser prompt and prepares one C# probe:
+
+- Creates `/nested/Nested.cs`.
+- Runs `dotnet build /nested/Nested.cs -o /nested/out`.
+- Verifies the transcript contains `built /nested/out/Nested.dll`.
+
+The same test file then opens three nested interactive contexts from pwsh:
+
+- `cmd`, then `dotnet /nested/out/Nested.dll cmd one`.
+- `bash`, then `dotnet /nested/out/Nested.dll bash two`.
+- `perl -de 0`, then `system("dotnet", "/nested/out/Nested.dll", "perl", "three")`.
+
+Each path verifies that the probe prints the expected argument payload and that control
+returns to the nested shell prompt, then exits back to pwsh. This covers the specific
+single-endpoint requirement that all shell flavors started from pwsh can see and run the
+same VFS executable catalog, including the async `dotnet` facade.
+
 ## Issue Found And Fixed
 
 ### Pasted xterm chunks dropped all but the first key
@@ -101,6 +131,36 @@ bytes to the front of the raw input buffer before `ReadKeyAsync` returns. Subseq
 This is a real human-facing improvement: pasting commands into the browser prompt now
 behaves like typing them character by character.
 
+### Interactive native output was captured instead of displayed
+
+The nested Perl browser scenario initially entered `perl -de 0` but the debugger prompt was
+not visible to the terminal. The outer pwsh pipeline had correctly attached `Console.In`
+for interactive native commands, but it still routed stdout and stderr into internal
+`StringWriter` buffers until the command completed. That is fine for non-interactive
+commands but wrong for nested shells and REPLs: the prompt is the protocol.
+
+The fix makes pwsh detect interactive native commands once, then bind stdin, stdout, and
+stderr to the live console. Non-interactive commands still use captured output so pipeline
+semantics are preserved.
+
+### Perl `system(...)` needed async executable dispatch
+
+The Perl implementation already had a synchronous `system(...)` path for simple child
+commands. `dotnet` is different: the facade uses async compilation/execution plumbing, so a
+sync Perl `system("dotnet", ...)` could not faithfully invoke it from the browser.
+
+The fix adds async Perl virtual-executable execution, async `system(...)`, and an async
+statement runner that special-cases `system(...)` while leaving the rest of the limited Perl
+implementation on the existing synchronous evaluator. Perl's `perl -de 0` pseudo-REPL now
+uses that async path for debugger-entered `system(...)` calls.
+
+### Browser startup cleanup now handles interrupted launches
+
+During validation, a host sleep/interruption can leave the test in a startup failure mode.
+The harness now closes the browser and static server if `launchPwshBrowser()` fails before
+returning a shell object. This does not make browser tests immune to host suspension, but
+it does keep failed attempts from leaving stray helper state behind.
+
 ## Issues Still Present Or Intentionally Out Of Scope
 
 - Each scenario launches a fresh browser and recompiles the shell. That maximizes
@@ -116,6 +176,10 @@ behaves like typing them character by character.
 - Node's built-in test runner does not stream per-command progress by default. On a hard
   hang, the artifact files are the best evidence, but they are written only after the test
   catches a failure rather than during the hang.
+- Browser tests still depend on the host staying awake and responsive while Chromium and
+  the browser-loaded WASM shell are running. Host sleep can interrupt a run; rerunning the
+  serial scripts is the right way to separate environmental interruption from product
+  failure.
 
 ## Validation Commands
 
@@ -142,3 +206,27 @@ fail 0
 
 The `npm run build:dotnet` command emitted the existing analyzer warning stream, but no
 build errors.
+
+Additional validation after adding nested-shell coverage:
+
+```bash
+dotnet test src/Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --filter "PerlAsyncSystemCanDispatchDotnetFacadeFromProgramText|PerlDebuggerPseudoReplAsyncSystemCanDispatchDotnetFacade" -v:minimal
+dotnet test src/Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --no-build -v:minimal
+dotnet test src/Carbide/packages/carbide-pwsh/test/CarbidePwsh.Tests.csproj -v:minimal
+
+cd src/Carbide/packages/carbide-pwsh
+npm run test:browser:dotnet-nested
+npm run test:browser:dotnet
+```
+
+Final result:
+
+```text
+CarbideMultishell.Tests: pass 77, fail 0
+CarbidePwsh.Tests: pass 332, fail 0
+npm run test:browser:dotnet-nested: pass 3, fail 0
+npm run test:browser:dotnet: pass 5, fail 0
+```
+
+The local .NET test runs still emit the repo's existing analyzer warning stream, but no
+build errors or test failures.

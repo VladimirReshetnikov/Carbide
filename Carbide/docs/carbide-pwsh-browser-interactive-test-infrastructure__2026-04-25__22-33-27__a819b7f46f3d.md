@@ -1,6 +1,7 @@
 # carbide-pwsh browser interactive test infrastructure
 
 - Created (UTC): 2026-04-25T22:33:27Z
+- Updated (UTC): 2026-04-26T02:51:09Z
 - Repository HEAD: 020144bd373ad7d9aa29914e84c14963d18d87f4
 - Document type: current-state operational documentation
 - Scope: `src/Carbide/packages/carbide-pwsh`
@@ -47,19 +48,36 @@ small black-box shell driver:
 - `saveArtifacts(name, extra)` writes a screenshot, transcript, and JSON diagnostics under
   `src/Carbide/test-results/carbide-pwsh-browser/`.
 
-`test/browser/dotnet-interactive.test.mjs` is the first consumer. It uses Node's built-in
-test runner instead of `@playwright/test` so the package does not need its own
-`node_modules`; the harness imports Playwright from `packages/core/node_modules`.
+If page startup fails before the shell is returned, `launchPwshBrowser()` closes the
+Chromium instance and static server before rethrowing. This keeps failed or interrupted
+startup attempts from leaking local helper processes.
+
+`test/browser/dotnet-interactive.test.mjs` is the first consumer. It covers direct
+browser `dotnet build`, direct DLL execution, and `dotnet run --project` from the public
+pwsh prompt.
+
+`test/browser/dotnet-nested-shells.test.mjs` extends that coverage to nested interactive
+shells started from pwsh. It builds one probe assembly in the VFS and then verifies that
+the same `dotnet` facade can execute it from nested `cmd`, nested `bash`, and Perl's
+`perl -de 0` debugger pseudo-REPL.
+
+The browser tests use Node's built-in test runner instead of `@playwright/test` so the
+package does not need its own `node_modules`; the harness imports Playwright from
+`packages/core/node_modules`.
 
 `package.json` exposes:
 
 ```bash
 npm run test:browser
 npm run test:browser:dotnet
+npm run test:browser:dotnet-nested
 ```
 
-`test:browser` runs every `test/browser/*.test.mjs` file. `test:browser:dotnet` runs only
-the current `dotnet` facade browser scenarios.
+`test:browser` runs every `test/browser/*.test.mjs` file. `test:browser:dotnet` runs the
+`dotnet-*` browser scenarios, including nested-shell coverage. `test:browser:dotnet-nested`
+runs only the nested-shell scenarios. These scripts run with `--test-concurrency=1` because
+each test owns a heavyweight browser + WASM shell session and concurrent launches can
+obscure the failure signal.
 
 ## What Makes A Test Human-Like
 
@@ -142,6 +160,9 @@ tracked fixtures.
 - A failing test should save artifacts before rethrowing.
 - A scenario that needs long source-code commands should exercise `entryMode: "paste"` so
   xterm paste and prompt-editor chunk handling stay covered.
+- Nested-shell tests should start the child shell from the public pwsh prompt and exit back
+  to pwsh before completing, rather than constructing nested shell state through internal
+  APIs.
 
 ## Current Limitations
 

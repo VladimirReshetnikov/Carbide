@@ -20,6 +20,11 @@ internal sealed partial class MultishellVirtualExecutableHandler
     private static int ExecutePerl(VirtualExecutableInvocation invocation)
         => new PerlCommand(invocation).Execute();
 
+    private static ValueTask<int> ExecutePerlAsync(
+        VirtualExecutableInvocation invocation,
+        CancellationToken cancellationToken)
+        => new PerlCommand(invocation).ExecuteAsync(cancellationToken);
+
     private sealed class PerlCommand
     {
         private readonly VirtualExecutableInvocation _invocation;
@@ -54,6 +59,48 @@ internal sealed partial class MultishellVirtualExecutableHandler
             try
             {
                 return runtime.Run();
+            }
+            catch (PerlExitException ex)
+            {
+                return ex.ExitCode;
+            }
+            catch (PerlException ex)
+            {
+                _invocation.Error.WriteLine($"{CommandDisplayName(_invocation)}: {ex.Message}");
+                return 1;
+            }
+            catch (VfsException ex)
+            {
+                _invocation.Error.WriteLine($"{CommandDisplayName(_invocation)}: {ex.Message}");
+                return 1;
+            }
+        }
+
+        public async ValueTask<int> ExecuteAsync(CancellationToken cancellationToken)
+        {
+            var options = PerlCommandLine.Parse(_invocation.Args);
+            if (options.Error is not null)
+            {
+                _invocation.Error.WriteLine($"{CommandDisplayName(_invocation)}: {options.Error}");
+                return 2;
+            }
+
+            if (options.ShowHelp)
+            {
+                WriteHelp();
+                return 0;
+            }
+
+            if (options.ShowVersion)
+            {
+                _invocation.Output.WriteLine(PerlDetailedVersion);
+                return 0;
+            }
+
+            var runtime = new PerlRuntime(_invocation, options);
+            try
+            {
+                return await runtime.RunAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (PerlExitException ex)
             {
@@ -377,9 +424,54 @@ internal sealed partial class MultishellVirtualExecutableHandler
             return _options.Debugger ? RunDebugger() : 0;
         }
 
+        public async ValueTask<int> RunAsync(CancellationToken cancellationToken)
+        {
+            foreach (var module in _options.Modules)
+                _context.ImportModule(module);
+
+            if (_options.SyntaxCheck)
+            {
+                _ = LoadProgramText();
+                _invocation.Output.WriteLine($"{(_options.ScriptPath ?? "-e")} syntax OK");
+                return 0;
+            }
+
+            if (_options.Debugger && _options.CodeSegments.Count > 0 && _options.CombinedCode.Trim() == "0")
+                return await RunDebuggerAsync(cancellationToken).ConfigureAwait(false);
+
+            if (_options.Loop)
+            {
+                if (_options.CodeSegments.Count == 0)
+                    throw new PerlException("implicit loop requires -e program text");
+                RunImplicitLoop(_options.CombinedCode);
+                return 0;
+            }
+
+            if (_options.CodeSegments.Count > 0)
+                return await ExecuteSourceAsync(_options.CombinedCode, "-e", cancellationToken).ConfigureAwait(false);
+
+            if (_options.ScriptPath is not null)
+            {
+                var source = LoadScript(_options.ScriptPath, out var abs);
+                _context.SetScalar("0", abs);
+                return await ExecuteSourceAsync(source, abs, cancellationToken).ConfigureAwait(false);
+            }
+
+            return _options.Debugger ? await RunDebuggerAsync(cancellationToken).ConfigureAwait(false) : 0;
+        }
+
         private int ExecuteSource(string source, string path)
         {
             PerlProgram.Execute(source, path, _context);
+            return 0;
+        }
+
+        private async ValueTask<int> ExecuteSourceAsync(
+            string source,
+            string path,
+            CancellationToken cancellationToken)
+        {
+            await PerlProgram.ExecuteAsync(source, path, _context, cancellationToken).ConfigureAwait(false);
             return 0;
         }
 
@@ -487,6 +579,52 @@ internal sealed partial class MultishellVirtualExecutableHandler
                 catch (PerlException ex)
                 {
                     _invocation.Error.WriteLine($"perl debugger: {ex.Message}");
+                }
+                commandNumber++;
+            }
+        }
+
+        private async ValueTask<int> RunDebuggerAsync(CancellationToken cancellationToken)
+        {
+            _invocation.Output.WriteLine($"{PerlDetailedVersion} debugger pseudo-REPL");
+            var commandNumber = 1;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                _invocation.Output.Write($"DB<{commandNumber}> ");
+                await _invocation.Output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                var line = await _invocation.Input.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line is null)
+                    return 0;
+                var trimmed = line.Trim();
+                if (trimmed is "q" or "quit" or "exit")
+                    return 0;
+                if (trimmed.Length == 0)
+                    continue;
+
+                try
+                {
+                    if (trimmed.StartsWith("p ", StringComparison.Ordinal))
+                    {
+                        var value = PerlExpression.Evaluate(trimmed[2..], _context);
+                        await _invocation.Output.WriteLineAsync(PerlContext.Stringify(value)).ConfigureAwait(false);
+                    }
+                    else if (PerlProgram.TryParseSystemCallStatement(trimmed, _context, out var systemArgs))
+                    {
+                        _ = await _context.SystemAsync(systemArgs, cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        PerlProgram.Execute(trimmed, "(debugger)", _context);
+                    }
+                }
+                catch (PerlExitException ex)
+                {
+                    return ex.ExitCode;
+                }
+                catch (PerlException ex)
+                {
+                    await _invocation.Error.WriteLineAsync($"perl debugger: {ex.Message}").ConfigureAwait(false);
                 }
                 commandNumber++;
             }
@@ -1005,6 +1143,23 @@ internal sealed partial class MultishellVirtualExecutableHandler
             return code;
         }
 
+        public async ValueTask<object?> SystemAsync(
+            IReadOnlyList<object?> args,
+            CancellationToken cancellationToken)
+        {
+            var argv = Flatten(args).Select(Stringify).ToArray();
+            if (argv.Length == 0)
+                return 0L;
+            var code = await DispatchCommandAsync(
+                _invocation,
+                argv[0],
+                argv.Skip(1).ToArray(),
+                "perl",
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            SetScalar("?", code);
+            return code;
+        }
+
         public bool GetOptions(string rawArguments)
         {
             var entries = SplitTopLevel(rawArguments, ',')
@@ -1165,6 +1320,57 @@ internal sealed partial class MultishellVirtualExecutableHandler
             source = RegisterSubs(source, context);
             foreach (var statement in SplitStatements(source))
                 ExecuteStatement(statement, context);
+        }
+
+        public static async ValueTask ExecuteAsync(
+            string source,
+            string path,
+            PerlContext context,
+            CancellationToken cancellationToken)
+        {
+            source = RemoveShebang(source);
+            source = RegisterSubs(source, context);
+            foreach (var statement in SplitStatements(source))
+                await ExecuteStatementAsync(statement, context, cancellationToken).ConfigureAwait(false);
+        }
+
+        public static bool TryParseSystemCallStatement(
+            string statement,
+            PerlContext context,
+            out IReadOnlyList<object?> args)
+        {
+            args = Array.Empty<object?>();
+            var trimmed = statement.Trim().TrimEnd(';').Trim();
+            string argsText;
+            if (trimmed.StartsWith("system(", StringComparison.Ordinal) && trimmed.EndsWith(")", StringComparison.Ordinal))
+            {
+                argsText = trimmed[7..^1];
+            }
+            else if (trimmed.StartsWith("system ", StringComparison.Ordinal))
+            {
+                argsText = trimmed[7..];
+            }
+            else
+            {
+                return false;
+            }
+
+            args = PerlExpression.ParseArguments(argsText, context);
+            return true;
+        }
+
+        private static async ValueTask ExecuteStatementAsync(
+            string statement,
+            PerlContext context,
+            CancellationToken cancellationToken)
+        {
+            if (TryParseSystemCallStatement(statement, context, out var systemArgs))
+            {
+                _ = await context.SystemAsync(systemArgs, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            ExecuteStatement(statement, context);
         }
 
         private static void ExecuteStatement(string statement, PerlContext context)

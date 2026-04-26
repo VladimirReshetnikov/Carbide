@@ -7,8 +7,9 @@
   "scripts": {
     "serve": "node scripts/serve.mjs",
     "smoke": "node scripts/smoke.mjs",
-    "test:browser": "node --test --test-force-exit test/browser/*.test.mjs",
-    "test:browser:dotnet": "node --test --test-force-exit test/browser/dotnet-interactive.test.mjs"
+    "test:browser": "node --test --test-force-exit --test-concurrency=1 test/browser/*.test.mjs",
+    "test:browser:dotnet": "node --test --test-force-exit --test-concurrency=1 test/browser/dotnet-*.test.mjs",
+    "test:browser:dotnet-nested": "node --test --test-force-exit --test-concurrency=1 test/browser/dotnet-nested-shells.test.mjs"
   },
   "keywords": [
     "carbide",

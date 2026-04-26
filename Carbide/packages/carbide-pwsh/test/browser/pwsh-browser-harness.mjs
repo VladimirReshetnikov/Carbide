@@ -58,10 +58,16 @@ export async function launchPwshBrowser(options = {}) {
         url: serverInfo.url,
     });
 
-    await page.goto(serverInfo.url);
-    await shell.waitForReady();
-    await page.locator("#term").click();
-    return shell;
+    try {
+        await page.goto(serverInfo.url);
+        await shell.waitForReady();
+        await page.locator("#term").click();
+        return shell;
+    } catch (error) {
+        await browser.close().catch(() => {});
+        await new Promise((resolve) => serverInfo.server.close(resolve));
+        throw error;
+    }
 }
 
 export class PwshBrowserShell {

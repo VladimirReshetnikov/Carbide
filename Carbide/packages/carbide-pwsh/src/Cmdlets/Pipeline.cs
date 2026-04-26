@@ -469,11 +469,14 @@ public static class Pipeline
             return false;
 
         var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
+        var interactiveNative = input == null && UsesInteractiveNativeInput(commandName, stringArgs);
         var stdin = input == null
-            ? UsesInteractiveNativeInput(commandName, stringArgs) ? Console.In : TextReader.Null
+            ? interactiveNative ? Console.In : TextReader.Null
             : new StringReader(StringifyPipelineInput(input));
-        var stdout = new StringWriter();
-        var stderr = plan.MergeErrorToOutput ? stdout : new StringWriter();
+        var capturedStdout = interactiveNative ? null : new StringWriter();
+        var capturedStderr = interactiveNative || plan.MergeErrorToOutput ? null : new StringWriter();
+        TextWriter stdout = capturedStdout ?? Console.Out;
+        TextWriter stderr = interactiveNative ? Console.Error : capturedStderr ?? stdout;
         var shellCtx = new ShellExecutionContext
         {
             Args = stringArgs,
@@ -511,15 +514,18 @@ public static class Pipeline
                 return false;
         }
 
-        var stderrText = stderr.ToString();
-        if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
-            ctx.Error.Write(stderrText);
+        if (!interactiveNative)
+        {
+            var stderrText = capturedStderr?.ToString() ?? "";
+            if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
+                ctx.Error.Write(stderrText);
+        }
 
         ctx.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         ctx.Scope.Set("global", "?", code == 0);
-        result = plan.SuppressSuccessOutput
+        result = capturedStdout is null || plan.SuppressSuccessOutput
             ? Array.Empty<object?>()
-            : ReadOutputLines(stdout.ToString());
+            : ReadOutputLines(capturedStdout.ToString());
         return true;
     }
 
@@ -537,11 +543,14 @@ public static class Pipeline
             return new ExternalDispatchResult(false, Array.Empty<object?>());
 
         var stringArgs = args.Select(Runtime.Coercion.FormatAsString).ToArray();
+        var interactiveNative = input == null && UsesInteractiveNativeInput(commandName, stringArgs);
         var stdin = input == null
-            ? UsesInteractiveNativeInput(commandName, stringArgs) ? Console.In : TextReader.Null
+            ? interactiveNative ? Console.In : TextReader.Null
             : new StringReader(StringifyPipelineInput(input));
-        var stdout = new StringWriter();
-        var stderr = plan.MergeErrorToOutput ? stdout : new StringWriter();
+        var capturedStdout = interactiveNative ? null : new StringWriter();
+        var capturedStderr = interactiveNative || plan.MergeErrorToOutput ? null : new StringWriter();
+        TextWriter stdout = capturedStdout ?? Console.Out;
+        TextWriter stderr = interactiveNative ? Console.Error : capturedStderr ?? stdout;
         var shellCtx = new ShellExecutionContext
         {
             Args = stringArgs,
@@ -584,15 +593,18 @@ public static class Pipeline
                 return new ExternalDispatchResult(false, Array.Empty<object?>());
         }
 
-        var stderrText = stderr.ToString();
-        if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
-            ctx.Error.Write(stderrText);
+        if (!interactiveNative)
+        {
+            var stderrText = capturedStderr?.ToString() ?? "";
+            if (!plan.SuppressErrorOutput && !plan.MergeErrorToOutput && stderrText.Length > 0)
+                ctx.Error.Write(stderrText);
+        }
 
         ctx.Interpreter.Scope.Set("global", "LASTEXITCODE", code);
         ctx.Scope.Set("global", "?", code == 0);
-        var result = plan.SuppressSuccessOutput
+        var result = capturedStdout is null || plan.SuppressSuccessOutput
             ? Array.Empty<object?>()
-            : ReadOutputLines(stdout.ToString());
+            : ReadOutputLines(capturedStdout.ToString());
         return new ExternalDispatchResult(true, result);
     }
 

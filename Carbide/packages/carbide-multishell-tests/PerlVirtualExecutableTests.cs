@@ -206,6 +206,42 @@ public class PerlVirtualExecutableTests
     }
 
     [Fact]
+    public async Task PerlDebuggerPseudoReplAsyncSystemCanDispatchDotnetFacade()
+    {
+        var session = new MultishellSession();
+
+        var (code, stdout, stderr) = await RunVirtualAsync(
+            session,
+            "perl",
+            ["-de", "0"],
+            "pwsh",
+            input: "system(\"dotnet\", \"--version\")\np $?\nq\n");
+
+        Assert.Equal(0, code);
+        Assert.Contains("CarbidePerl", stdout, StringComparison.Ordinal);
+        Assert.Contains("Carbide dotnet facade 0.1", stdout, StringComparison.Ordinal);
+        Assert.Contains("DB<2> 0", stdout, StringComparison.Ordinal);
+        Assert.Equal("", stderr);
+    }
+
+    [Fact]
+    public async Task PerlAsyncSystemCanDispatchDotnetFacadeFromProgramText()
+    {
+        var session = new MultishellSession();
+
+        var (code, stdout, stderr) = await RunVirtualAsync(
+            session,
+            "perl",
+            ["-e", "system(\"dotnet\", \"--version\"); print \"code=\" . $? . qq(\\n);"],
+            "pwsh");
+
+        Assert.Equal(0, code);
+        Assert.Contains("Carbide dotnet facade 0.1", stdout, StringComparison.Ordinal);
+        Assert.Contains("code=0", Normalize(stdout), StringComparison.Ordinal);
+        Assert.Equal("", stderr);
+    }
+
+    [Fact]
     public void PerlUnsupportedSwitchFailsClearly()
     {
         var session = new MultishellSession();
@@ -243,6 +279,29 @@ public class PerlVirtualExecutableTests
             commandName,
             args,
             ctx);
+        return (code, stdout.ToString(), stderr.ToString());
+    }
+
+    private static async Task<(int Code, string Stdout, string Stderr)> RunVirtualAsync(
+        MultishellSession session,
+        string commandName,
+        IReadOnlyList<string> args,
+        string callerShell,
+        string input = "")
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var ctx = BuildContext(session, new StringReader(input), stdout, stderr);
+        ctx = ctx.With(args: args);
+
+        var resolution = session.Dispatcher.Resolve(commandName, ctx, callerShell);
+        Assert.Equal(ResolutionKind.VirtualExecutable, resolution.Kind);
+        var code = await session.Dispatcher.ExecuteVirtualExecutableAsync(
+            resolution.VirtualExecutable!,
+            resolution.VirtualExecutablePath!,
+            commandName,
+            args,
+            ctx).ConfigureAwait(true);
         return (code, stdout.ToString(), stderr.ToString());
     }
 

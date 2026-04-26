@@ -239,6 +239,7 @@ npm run build:ts
 
 cd ../carbide-pwsh
 npm run test:browser:dotnet
+npm run test:browser:dotnet-nested
 ```
 
 The operational contract lives in
