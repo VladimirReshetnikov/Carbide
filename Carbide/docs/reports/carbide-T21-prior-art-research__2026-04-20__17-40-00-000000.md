@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-20T17:40:00Z
 - Repository HEAD: 0933154cf
 
-Status: **literature review companion to the T2.1 investigation report**. This document summarises what the public internet — primary sources (dotnet/runtime source, runtime team comments on GitHub, official Microsoft docs) and secondary sources (blog posts, Stack Overflow, other frameworks' solutions) — says about the `System.PlatformNotSupportedException: Cannot wait on monitors on this runtime.` condition that Carbide's single-threaded browser-wasm runs hit whenever a C# `await` actually suspends. Audience: Vladimir, and future Carbide contributors evaluating Options A-E in the T2.1 investigation report.
+Status: **literature review companion to the T2.1 investigation report**. This document summarises what the public internet — primary sources (dotnet/runtime source, runtime team comments on GitHub, official Microsoft docs) and secondary sources (blog posts, Stack Overflow, other frameworks' solutions) — says about the `System.PlatformNotSupportedException: Cannot wait on monitors on this runtime.` condition that Carbide's single-threaded browser-wasm runs hit whenever a C# `await` actually suspends. Audience: Carbide Contributors, and future Carbide contributors evaluating Options A-E in the T2.1 investigation report.
 
 Companion document: [`carbide-T21-investigation-report__2026-04-20__17-11-37-000000.md`](carbide-T21-investigation-report__2026-04-20__17-11-37-000000.md). Read that first; this report assumes its framing.
 
@@ -1100,9 +1100,9 @@ This is workable but restrictive. User code in Option A cannot use any third-par
 **More attractive** after this research for hosted-Carbide. Specifically:
 
 - Multi-threaded mode installs `JSSynchronizationContext` automatically. That's the one Microsoft-blessed, Blazor-team-tested, all-BCL-async-primitives-validated sync context.
-- The COOP/COEP requirement is well-understood and has a canonical Microsoft path (the `ServeMultithreadingHeaders` option). For Carbide hosted on Vladimir's own deploys, it's purely "add two HTTP headers."
+- The COOP/COEP requirement is well-understood and has a canonical Microsoft path (the `ServeMultithreadingHeaders` option). For Carbide hosted on Carbide Contributors' own deploys, it's purely "add two HTTP headers."
 - Tracked issue for Blazor-itself-on-multithreaded ([dotnet/aspnetcore#54365](https://github.com/dotnet/aspnetcore/issues/54365)) is still open as of April 2026 — Blazor itself hasn't fully shipped on multithreaded runtime. But Carbide doesn't need Blazor; it needs the underlying runtime, which IS GA for the multi-threaded mode (with `<WasmEnableThreads>true`).
-- Binary size hit is ~5-10 MB extra assets. For Carbide's "CDN library for embedders" use case this is significant; for "hosted app on Vladimir's deploys" this is fine.
+- Binary size hit is ~5-10 MB extra assets. For Carbide's "CDN library for embedders" use case this is significant; for "hosted app on Carbide Contributors' deploys" this is fine.
 
 **Less attractive** for drop-in-CDN-library Carbide. Because of the COOP/COEP requirement it genuinely doesn't work as a plain `<script type="module">` import from a third-party page that hasn't configured its headers.
 
@@ -1538,7 +1538,7 @@ If you're reading this from the future looking for the answer to "did the Carbid
 
 - [dotnet/runtime#61308](https://github.com/dotnet/runtime/issues/61308) — if this ever gets a "fixed in X" note, that's the answer.
 - Carbide's own git history after 2026-04-20 — the fix, if found, should be documented there.
-- Any new dotnet/runtime issues tagged `arch-wasm` + `area-System.Threading` opened by Vladimir Reshetnikov after 2026-04-20.
+- Any new dotnet/runtime issues tagged `arch-wasm` + `area-System.Threading` opened by a Carbide Contributor after 2026-04-20.
 - JSPI adoption announcements in .NET 11+ release notes — if `WasmEnableJSPI` or similar property becomes available, that may obsolete this whole problem class.
 
 ## Key URLs (priority reading order)

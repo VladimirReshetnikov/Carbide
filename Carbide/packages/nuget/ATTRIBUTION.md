@@ -1,7 +1,7 @@
 # Attribution
 
 `@carbide/nuget` is an original implementation written against the public NuGet v3 HTTP
-API documentation and the M6 architecture plan in `src/Carbide/docs/`. No third-party
+API documentation and the M6 architecture plan in [`../../docs/`](../../docs/). No third-party
 source code has been copied into this package.
 
 ## Protocol reference
@@ -19,7 +19,7 @@ description.
 
 ## Design derivation
 
-Per-file derivation from `src/Carbide/docs/planning/milestones/carbide-M6-detailed-plan__*.md`:
+Per-file derivation from [`../../docs/planning/milestones/carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md`](../../docs/planning/milestones/carbide-M6-detailed-plan__2026-04-18__22-19-10-231651.md):
 
 | File                         | Plan section                                       |
 |------------------------------|----------------------------------------------------|

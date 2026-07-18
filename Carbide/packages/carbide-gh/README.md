@@ -12,6 +12,10 @@ stack:
   ASCII sparkline
 - persistent session state (`CurrentRepo`, PAT, verbose flag) across commands
 
+## License and third-party content
+
+The demo's Carbide-authored code is licensed under [Apache-2.0](LICENSE). The vendored `Spectre.Console.dll` remains MIT-licensed; its copyright and permission notice are reproduced in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Running the demo
 
 Prerequisites: the `@carbide/core` package must already be built — the demo fetches its

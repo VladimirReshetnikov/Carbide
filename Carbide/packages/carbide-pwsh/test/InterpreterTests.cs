@@ -55,8 +55,8 @@ public class InterpreterTests
     public void StringInterpolation()
     {
         var interp = new Interpreter();
-        EvalShared(interp, "$x = 'Vladimir'");
-        Assert.Equal("hello, Vladimir", EvalShared(interp, "\"hello, $x\""));
+        EvalShared(interp, "$x = 'Ada'");
+        Assert.Equal("hello, Ada", EvalShared(interp, "\"hello, $x\""));
     }
 
     [Fact]

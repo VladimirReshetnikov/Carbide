@@ -1,3 +1,7 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+// Substantially modified by Carbide Contributors; see ../README.md for provenance.
+//
 // T3 — Carbide's forked `Console` class. Public surface matches the stock BCL's Console
 // so user code + pre-compiled libraries link against the same metadata. Behavior diverges
 // in ConsolePal.Browser (this fork's custom implementation) where most members used to

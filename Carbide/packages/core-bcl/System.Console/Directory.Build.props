@@ -8,6 +8,7 @@
   <PropertyGroup>
     <NetVersion>net10.0</NetVersion>
     <SuppressNETCoreSdkPreviewMessage>true</SuppressNETCoreSdkPreviewMessage>
+    <IsPackable>false</IsPackable>
 
     <IsTrimmable>false</IsTrimmable>
     <PublishTrimmed>false</PublishTrimmed>

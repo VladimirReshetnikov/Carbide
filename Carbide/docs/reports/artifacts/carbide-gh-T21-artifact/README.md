@@ -8,6 +8,10 @@
 > This frozen copy is preserved so the investigation report's "what failed and why" narrative
 > still resolves against the exact code it was written against.
 
+## License and third-party content
+
+The artifact's Carbide-authored code is covered by the repository's [Apache-2.0 license](../../../../../LICENSE). Its vendored `Spectre.Console.dll` remains MIT-licensed; [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) reproduces the upstream notice. Adding this legal notice does not alter the frozen implementation.
+
 This directory preserves, exactly as it stood at the end of the T2.1 investigation, the mini `gh`-style REPL we attempted to build on top of Carbide T3. It reached the point where compilation succeeds, the Spectre.Console-powered banner renders in xterm, and the REPL loop enters its first `await Console.In.ReadLineAsync()` — then trips the Mono-WASM single-threaded `PlatformNotSupportedException: Cannot wait on monitors` every single time. See the report for why.
 
 The code is preserved because:

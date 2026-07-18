@@ -4,6 +4,13 @@
   "private": true,
   "description": "Legacy browser route for the shared pwsh/cmd/bash Carbide session; now redirects to carbide-pwsh while the generic runner remains internal.",
   "type": "module",
+  "license": "Apache-2.0",
+  "files": [
+    "index.html",
+    "scripts/*.mjs",
+    "src/*.csproj",
+    "src/*.cs"
+  ],
   "scripts": {
     "serve": "node scripts/serve.mjs",
     "smoke": "node scripts/smoke.mjs"

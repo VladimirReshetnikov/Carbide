@@ -143,7 +143,7 @@ enum Color { Red = 1; Green = 2; Blue = 4 }
 ```powershell
 # Script file in the VFS:
 Set-Content /tmp/greet.ps1 -Value '"hello $($args[0])"'
-./tmp/greet.ps1 Vladimir                  # 'hello Vladimir'
+./tmp/greet.ps1 Ada                       # 'hello Ada'
 
 # Dot-source (runs in caller scope):
 Set-Content /tmp/init.ps1 -Value '$shared = 42'
@@ -152,7 +152,7 @@ $shared                                   # 42
 
 # Carbide-compiled .NET app:
 Register-CarbideApp -Name greet -Path /apps/hello.dll
-greet Vladimir                            # runs EntryPoint("Vladimir"); $LASTEXITCODE updates
+greet Ada                                 # runs EntryPoint("Ada"); $LASTEXITCODE updates
 ```
 
 ### Scope qualifiers
@@ -275,3 +275,7 @@ completion, syntax coloring, reverse search, member completion, multi-line-aware
 `format.ps1xml` custom views, interactive `Confirm`/`Inquire`, `Register-ObjectEvent`,
 remoting, async cancellation into running scripts on Ctrl+C, `Invoke-WebRequest` /
 `Invoke-RestMethod`. Phase 4+ territory.
+
+## License
+
+`@carbide/carbide-pwsh` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors.

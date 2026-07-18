@@ -41,7 +41,7 @@
         );
         project.addSource(
           "Program.cs",
-          `using MyApp; Console.WriteLine(Greeter.Greet("Vladimir"));`,
+          `using MyApp; Console.WriteLine(Greeter.Greet("Ada"));`,
         );
 
         const first = await project.run();
@@ -68,9 +68,9 @@
         resultEl.textContent = JSON.stringify(result);
         const ok =
           result.first.success &&
-          result.first.stdOut === "hello, Vladimir\n" &&
+          result.first.stdOut === "hello, Ada\n" &&
           result.second.success &&
-          result.second.stdOut === "hi, Vladimir\n" &&
+          result.second.stdOut === "hi, Ada\n" &&
           result.removeBroke;
         resultEl.dataset.status = ok ? "ok" : "fail";
       })

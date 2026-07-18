@@ -1,5 +1,8 @@
-// T2 — verbatim port of `lib/dotnet/runtime/src/libraries/System.Console/src/System/IO/KeyParser.cs`.
-// Upstream: https://github.com/dotnet/runtime (MIT).
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+//
+// T2 — adapted port of .NET 10.0.0's `System.Console/src/System/IO/KeyParser.cs`.
+// Upstream: https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Console/src/System/IO/KeyParser.cs (MIT).
 //
 // Surgery:
 //   - The `TerminalFormatStrings` dependency is replaced with the minimal Carbide-owned

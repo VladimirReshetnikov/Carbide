@@ -90,3 +90,7 @@ export interface LaunchHandle {
 - **Single load per iframe.** In-place `Application` swap is a v2 follow-up (proposal §12 Q.3); reload re-boots the iframe.
 - **No stdout forwarding.** User `Console.WriteLine` output does not reach the launcher. Deferred to protocol v2 (proposal §12 Q.4).
 - **Inference of `appClass`.** Currently required. v1.1 will fall back to `BuildResult.primaryAssemblyName + ".App"` (proposal §12 Q.2).
+
+## License
+
+`@carbide-ui/launcher` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors.

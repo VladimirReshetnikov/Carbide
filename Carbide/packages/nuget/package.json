@@ -12,7 +12,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "ATTRIBUTION.md"
   ],
   "scripts": {
     "build:ts": "tsc -p tsconfig.json",

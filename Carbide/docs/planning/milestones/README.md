@@ -1,5 +1,7 @@
 # Carbide — milestone plans
 
+Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../../LICENSE), with copyright held collectively by Carbide Contributors.
+
 - Created (UTC): 2026-04-19T01:36:09Z
 - Updated (UTC): 2026-04-20T14:45:00Z
 - Repository HEAD: 43db73bda

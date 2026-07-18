@@ -356,7 +356,7 @@ The public types mention `net8.0` and `net10.0`, but the repository currently sh
 
 ### Prerequisites
 
-- .NET 10 SDK
+- .NET 10 SDK 10.0.201 (pinned by the repository-root `global.json`)
 - `wasm-tools` workload:
 
 ```bash
@@ -484,7 +484,7 @@ project.addSource(
 );
 project.addSource(
     "Program.cs",
-    `using Demo; Console.WriteLine(Greeter.Greet("Vladimir"));`,
+    `using Demo; Console.WriteLine(Greeter.Greet("Ada"));`,
 );
 
 const first = await project.run();

@@ -10,7 +10,7 @@ Proposal §16 commits to a curated set of sample programs the `@carbide-ui/*` fa
 | Minimum-interactive | click handling + mutable state | [`counter/`](counter/) |
 | XAML-as-literal | `AvaloniaRuntimeXamlLoader.Load(string)` | [`hello-runtime-xaml-string/`](hello-runtime-xaml-string/) |
 | XAML-as-document | `project.addSource("*.axaml", xaml)` + companion | (covered structurally by [UI-M4's unit tests](../../Carbide/packages/core/test/node/axaml-companion.test.mjs); a first-class sample lands when UI-M4's MVVM §16.4 fixture is scaffolded) |
-| Multi-preview | N iframes driven from one `CarbideSession` | [`../packages/launcher/test/browser/multi-preview.html`](../packages/launcher/test/browser/) (Playwright fixture) |
+| Multi-preview | N iframes driven from one `CarbideSession` | [`../packages/launcher/test/browser/multi-preview.html`](../packages/launcher/test/browser/multi-preview.html) (Playwright fixture) |
 
 ## How samples are consumed
 
@@ -40,3 +40,7 @@ await launchInIframe(build, iframe, { appClass: "HelloCodeOnly.App" });
 ```
 
 See each sample's own README for the exact `appClass` to pass.
+
+## License
+
+All samples in this directory are Carbide-authored and licensed under the repository's [Apache License 2.0](../../LICENSE).

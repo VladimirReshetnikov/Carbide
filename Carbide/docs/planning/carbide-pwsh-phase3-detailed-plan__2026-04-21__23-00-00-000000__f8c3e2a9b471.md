@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-21T23:00:00Z
 - Repository HEAD: ad9a5ea93897117cd90e2e6e36142bc90927cea2
 - Status: detailed implementation plan for **Phase 3** of the [carbide-pwsh-subset-shell proposal](../proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md). Extends the original Phase 3 scope (control flow + try/catch + scripts + app invocation) with stretch features from the proposal's Phase 4 bucket: regex/format/join/split/containment operators, scope stack, classes, enums, and a broader cmdlet catalog.
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 
 ## 1. Purpose
 
@@ -102,7 +102,7 @@ Every row below must pass as an xUnit integration test AND as a Playwright smoke
 
 | Setup | Input | Expected |
 |---|---|---|
-| Carbide-compiled `./hello.dll` that `Console.WriteLine($"hi {args[0]}")` | `./hello.dll Vladimir` | prints `hi Vladimir`; `$LASTEXITCODE` = 0 |
+| Carbide-compiled `./hello.dll` that `Console.WriteLine($"hi {args[0]}")` | `./hello.dll Ada` | prints `hi Ada`; `$LASTEXITCODE` = 0 |
 | Register by name | `Register-CarbideApp -Name greet -Path ./hello.dll; greet 'V'` | prints `hi V` |
 | Non-zero exit | app returns 7 | `$LASTEXITCODE` = 7 |
 

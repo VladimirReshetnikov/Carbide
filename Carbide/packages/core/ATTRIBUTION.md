@@ -1,10 +1,10 @@
 # Attribution
 
-Files in this package adapted from upstream sources. Carbide retains the original licenses and surfaces changes here so the derivation is traceable.
+This record identifies source adapted from third-party and predecessor projects. Carbide-owned work, including code originating in the predecessor Tools repository, is Apache-2.0; identified third-party material retains its applicable upstream terms.
 
 ## From WasmSharp (Apache-2.0)
 
-Upstream: https://github.com/JakeYallop/WasmSharp.
+Upstream: https://github.com/JakeYallop/WasmSharp at commit [`2f8c93bfa39f2068ad932a748ba23f740075327c`](https://github.com/JakeYallop/WasmSharp/tree/2f8c93bfa39f2068ad932a748ba23f740075327c). Carbide's initial C# core sources were selected from that exact upstream snapshot; the table below records the imported files and later adaptations.
 
 | Carbide file | WasmSharp origin |
 |---|---|
@@ -29,15 +29,22 @@ Upstream: https://github.com/JakeYallop/WasmSharp.
 | `src/CompilationInterop.cs` | `packages/core/src/CompilationInterop.cs` — rewritten to the M1 JSExport surface (InitAsync, CreateSession, DisposeSession, CreateProject, AddSource, GetDiagnosticsAsync, RunAsync) with a source-generated `JsonSerializerContext`. M2: extended with `UpdateSource` and `RemoveSource` JSExports; JSON schema unchanged. M3: extended with `AddReference` / `RemoveReference` / `AttachReference` JSExports (base64 byte transport). M4: added `BuildAsync` JSExport returning a `BuildResultDto` with base64 `peBase64` / `pdbBase64` fields. M5: `ProjectOptionsDto` grows `DefineConstants`; `BuildDocumentOptions` maps it through `CSharpParseOptions.WithPreprocessorSymbols`; schema version bumped to 2 (both 1 and 2 accepted so old clients keep working). |
 | `src/Services/BuildResult.cs` | New in M4 (no WasmSharp analogue). Structured outcome of `ProjectCompiler.BuildAsync`: PE bytes, portable-PDB bytes, diagnostics, duration. Mirrors `RunResult`'s shape so consumers can branch uniformly. |
 
-## From cs-agent-tools
+## From the predecessor Tools repository
 
-Upstream: `src/cs-agent-tools/cs-validate/src/wasmsharp/asset-server.ts` in this repository, and `src/cs-agent-tools/src/cs_kit/msbuild_lite.py`.
+Before Carbide was extracted into this standalone repository, these sources lived at `src/cs-agent-tools/cs-validate/src/wasmsharp/asset-server.ts` and `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` in the predecessor Tools repository. The paths below record that pre-extraction provenance and are not paths in the current checkout.
 
 | Carbide file | Upstream | Notes |
 |---|---|---|
 | `src/ts/host/node/asset-server.ts` | `cs-validate/.../asset-server.ts` | Security posture (path-traversal guard, null-byte rejection, MIME by extension) preserved. Logger hook added; otherwise behaviour matches. |
 | `packages/msbuild-lite/` | `cs_kit/msbuild_lite.py` | Python-to-TypeScript semantic port of the bounded `.csproj` parser. Same supported subset (TFM/Nullable/LangVersion/ImplicitUsings/DefineConstants/AssemblyName/RootNamespace, `PackageReference`/`ProjectReference` capture, `Compile` globs, simple `Condition` forms, `MSBLITE000`–`MSBLITE014` warning codes). Parity is enforced via fixtures under `packages/msbuild-lite/test/parity/`. |
 
-## WebAssemblyConsoleLogger origin
+## From .NET runtime and ASP.NET Core (MIT)
 
-`WebAssemblyConsoleLogger` is originally from [`dotnet/aspnetcore`](https://github.com/dotnet/aspnetcore) (MIT) and WasmSharp's copy carries the MIT attribution. Carbide preserves that attribution in the file header.
+These files retain the .NET Foundation's MIT terms and attribution headers. The full notice is reproduced in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+| Carbide file | Upstream | Notes |
+|---|---|---|
+| `src/Terminal/KeyParser.cs` | [`dotnet/runtime` `System.Console/src/System/IO/KeyParser.cs` at .NET 10.0.0](https://github.com/dotnet/runtime/blob/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Console/src/System/IO/KeyParser.cs) | Adapted port with namespace, visibility, and terminfo-shim substitutions documented in the file header. |
+| `src/ts/runtime/dotnet-types.ts` | `dotnet/runtime` generated `dotnet.d.ts` | Hand-maintained subset of the public Mono-WASM host definitions, reduced to the fields Carbide consumes and extended with Emscripten output overlays. |
+| `src/Hosting/WebAssemblyConsoleLogger.cs` | [`dotnet/aspnetcore` `WebAssemblyConsoleLogger.cs`](https://github.com/dotnet/aspnetcore/blob/da6c314d76628c1f130f76ed3e55f1d39057e091/src/Components/WebAssembly/WebAssembly/src/Services/WebAssemblyConsoleLogger.cs) | Adapted first by WasmSharp and then by Carbide; the MIT attribution is preserved in the file header. |
+| `../core-bcl/System.Console/` | [`dotnet/runtime` `System.Console` at .NET 10.0.0](https://github.com/dotnet/runtime/tree/60629d14374c56f1cb51819049ad1fa529307f8d/src/libraries/System.Console) | Browser-specific fork with copied, adapted, and newly implemented files. The file-level MIT scope is reproduced in this package's [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md); the sibling source tree also carries its own detailed provenance record. |

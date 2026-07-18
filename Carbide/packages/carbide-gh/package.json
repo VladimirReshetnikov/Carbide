@@ -4,6 +4,7 @@
   "private": true,
   "description": "A Spectre.Console-powered GitHub REPL, compiled and run in the browser by Carbide.",
   "type": "module",
+  "license": "Apache-2.0",
   "scripts": {
     "serve": "node scripts/serve.mjs",
     "smoke": "node scripts/smoke.mjs",

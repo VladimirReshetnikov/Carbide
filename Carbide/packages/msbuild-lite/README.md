@@ -74,3 +74,7 @@ console.log(model.warnings);                                   // [{ code, messa
 - Paths in the model's `sourceFiles` and `projectReferences` are absolute. The `@carbide/cli` wrapper translates them to relative document paths before feeding them to Carbide.
 - Condition evaluation is intentionally shallow — nested parentheses and property functions are treated as "can't evaluate". This matches `cs_kit.msbuild_lite` so both parsers behave identically.
 - `@carbide/msbuild-lite` is intentionally a parser, not an evaluator/executor. It captures package and project references so higher layers can decide what to do with them; it does not execute MSBuild logic and does not fetch packages itself.
+
+## License and provenance
+
+`@carbide/msbuild-lite` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors. It is a TypeScript semantic port of the bounded `msbuild_lite.py` parser that lived in the predecessor Tools repository; that Carbide-owned provenance does not impose a separate license.

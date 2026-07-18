@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-25T01:58:17Z
 - Repository HEAD: f709468966129b173d12ef792cd5027cdb4ecf62
 - Status: Draft
-- Audience: Vladimir; Carbide shell maintainers; agents implementing the Python virtual executable runtime
+- Audience: Carbide Contributors; Carbide shell maintainers; agents implementing the Python virtual executable runtime
 - Scope: Define the feature scope for the first Python implementation behind Carbide's `python`, `python3`, and `python.exe` virtual executable stubs.
 - Related code:
   - `src/Carbide/packages/carbide-multishell/src/VirtualExecutableCatalog.cs`

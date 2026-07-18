@@ -27,4 +27,4 @@ Carbide's WASM runtime ships trimmed BCL binaries for size. Trimming strips memb
 
 ## Licence and redistribution
 
-`Microsoft.NETCore.App.Ref` is redistributed under the Microsoft .NET Library licence. The relevant notice is reproduced in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md). Carbide itself is Apache-2.0; the terms of the reference-pack contents are governed by Microsoft's licence as reproduced.
+`Microsoft.NETCore.App.Ref` is redistributed under the .NET Runtime's MIT license. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) indexes the exact license and complete upstream notice files shipped with the package. `@carbide/refs-net10.0` itself is Apache-2.0; the reference-assembly contents remain under the upstream MIT terms.

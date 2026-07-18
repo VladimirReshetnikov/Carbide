@@ -6,7 +6,7 @@
 
 Status: feasibility report. Cross-reads PowerShell 7's source tree in `lib/pwsh` (upstream `PowerShell/PowerShell` snapshot) against Carbide's current state (M9 + M11 + U1–U3 shipped). Output targets a **decision** about whether a limited but useful PowerShell-on-Carbide story is worth pursuing, and if so, what the minimum viable scope looks like and what Carbide-side changes would unblock it.
 
-Audience: repository owner Vladimir; future Carbide contributors. Written to be actionable without further background research.
+Audience: Carbide Contributors; future Carbide contributors. Written to be actionable without further background research.
 
 > **Revised after independent review** (2026-04-19T21:00Z). An independent feasibility report — [`powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md`](../powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — landed after this one and disagreed on several important points. I've folded the corrections into the text inline (marked with ⚠) and added §14 "Revisions after independent review" with the substantive deltas. The high-level verdict survives the review; the effort estimate, host-architecture assumption, and several factual counts did not. Read §14 first if you've already read v1.
 

@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-21T21:45:00Z
 - Repository HEAD: ad9a5ea93897117cd90e2e6e36142bc90927cea2
 - Status: detailed implementation plan for **Phase 1** of the [carbide-pwsh-subset-shell proposal](../proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md)
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 
 ## 1. Purpose
 
@@ -12,7 +12,7 @@ Phase 1 delivers the smallest shell that actually evaluates PowerShell-flavored 
 1. Open the `carbide-pwsh` page in a browser, boot Carbide, and land on a prompt.
 2. Type `2 + 2` and see `4`.
 3. Assign and read variables: `$x = 5; $x * 2` → `10`.
-4. Interpolate strings: `$name = 'Vladimir'; "hello, $name"` → `hello, Vladimir`.
+4. Interpolate strings: `$name = 'Ada'; "hello, $name"` → `hello, Ada`.
 5. Build arrays and hashtables: `@(1,2,3)`, `@{ a = 1; b = 2 }`.
 6. Call .NET static members in pwsh syntax: `[System.Math]::Sqrt(2)`.
 7. Mutate the terminal cosmetically: `[System.Console]::BackgroundColor = 'DarkBlue'; [System.Console]::Clear()`.
@@ -34,7 +34,7 @@ Each of the following input → output pairs is covered by a test. They run as x
 | `10 / 4` | `2.5` |
 | `10 % 3` | `1` |
 | `$x = 5` then `$x + 2` | `7` |
-| `$x = 'Vladimir'; "hello, $x"` | `hello, Vladimir` |
+| `$x = 'Ada'; "hello, $x"` | `hello, Ada` |
 | `"one + two = $(1 + 2)"` | `one + two = 3` |
 | `'no $interpolation here'` | `no $interpolation here` |
 | `@(1, 2, 3).Length` | `3` |
@@ -482,9 +482,9 @@ node scripts/smoke.mjs
 ```
 PS > 2 + 2
 4
-PS > $name = 'Vladimir'
+PS > $name = 'Ada'
 PS > "hello, $name"
-hello, Vladimir
+hello, Ada
 PS > [System.Math]::Sqrt(2)
 1.4142135623730951
 PS > @(1, 2, 3, 4, 5).Length

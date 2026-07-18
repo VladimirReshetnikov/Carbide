@@ -200,3 +200,7 @@ By default the CLI is silent on stderr unless something goes wrong. Turn up the 
 ## Performance note
 
 Each `carbide` invocation boots the embedded .NET WASM runtime once. Cold start is measured in seconds on first use; subsequent invocations from a warm Node process start faster but each CLI run is a fresh subprocess. Long-lived consumers should prefer the `@carbide/core` API directly over spawning `carbide` in a loop.
+
+## License
+
+`@carbide/cli` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors.

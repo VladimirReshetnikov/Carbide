@@ -22,7 +22,7 @@ test("two-file hello: Program.cs uses a type declared in Helper.cs", async (t) =
         "Program.cs",
         `
         using MyApp;
-        Console.WriteLine(Greeter.Greet("Vladimir"));
+        Console.WriteLine(Greeter.Greet("Ada"));
         `.trim(),
     );
 
@@ -35,7 +35,7 @@ test("two-file hello: Program.cs uses a type declared in Helper.cs", async (t) =
 
     const result = await project.run();
     assert.equal(result.success, true, JSON.stringify(result));
-    assert.equal(result.stdOut, "hello, Vladimir\n");
+    assert.equal(result.stdOut, "hello, Ada\n");
 });
 
 test("error inside Helper.cs carries path='Helper.cs' through diagnostics", async (t) => {
@@ -49,7 +49,7 @@ test("error inside Helper.cs carries path='Helper.cs' through diagnostics", asyn
         "Program.cs",
         `
         using MyApp;
-        Console.WriteLine(Greeter.Greet("Vladimir"));
+        Console.WriteLine(Greeter.Greet("Ada"));
         `.trim(),
     );
     project.addSource(

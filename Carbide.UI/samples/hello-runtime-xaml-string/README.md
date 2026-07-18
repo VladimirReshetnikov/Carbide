@@ -25,3 +25,7 @@
 ```ts
 const handle = await launchInIframe(build, iframe, { appClass: "HelloRuntimeXaml.App" });
 ```
+
+## License
+
+This sample is licensed under the repository's [Apache License 2.0](../../../LICENSE).

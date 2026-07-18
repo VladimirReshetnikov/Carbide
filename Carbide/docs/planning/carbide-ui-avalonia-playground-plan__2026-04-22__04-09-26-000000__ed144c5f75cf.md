@@ -5,7 +5,7 @@
 
 Status: **implementation plan for the `@carbide-ui/avalonia-playground` demo app.** A static-hosted single-page application that pairs a Monaco editor with a live Avalonia preview iframe, demonstrating the `@carbide-ui/*` family end-to-end. Builds on everything shipped in the [approach-B plan](carbide-ui-avalonia-approach-b-plan__2026-04-21__23-40-46-000000__d3b1a638db2c.md) (UI-M0..UI-M6 + core-P1..P3).
 
-Audience: repository owner Vladimir, and future contributors picking up phases.
+Audience: Carbide Contributors, and future contributors picking up phases.
 
 Scope: the *how* of a cross-frame, edit-compile-run playground that runs entirely in a browser tab — no server, no .NET SDK. The "what" and "why" are settled: it's the marquee demo that makes the approach-B architecture concrete and shareable, directly paralleling [AvaloniaUI/XamlPlayground](https://github.com/AvaloniaUI/XamlPlayground) but with Carbide's distinctive "no-SDK-anywhere" property.
 

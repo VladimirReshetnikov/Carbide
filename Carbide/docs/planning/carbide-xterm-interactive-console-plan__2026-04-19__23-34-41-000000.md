@@ -11,7 +11,7 @@ Status: parent implementation plan for the xterm.js-backed interactive browser t
 
 Read the feasibility report first. This plan assumes the reader knows the `Console.SetOut`/`Console.SetError` work but `Console.SetIn` throws on browser (Carbide already reflection-patches it); that `ConsolePal.Browser.cs` throws PNS for most interactive APIs; that `Console.WriteLine` bytes already transit through a `TextWriter` we own; and that xterm.js is a pure byte-pipe plus ANSI parser on the JS side.
 
-Audience: repository owner Vladimir, and future contributors picking up phases.
+Audience: Carbide Contributors, and future contributors picking up phases.
 
 Scope: extend `src/Carbide` so browser-hosted C# console programs can drive an embedded xterm.js terminal with behavior that approximates `conhost.exe` on modern Windows (VT-enabled) — including live stdout/stderr streaming, ANSI passthrough, line-mode stdin, key-mode stdin, `Console.ForegroundColor` et al., `Console.WindowWidth`, `Console.SetCursorPosition`, `Console.Title`, `Console.Clear`, and Ctrl+C semantics. **Pre-compiled NuGet libraries that call these APIs directly (Spectre.Console, ReadLine.NET, Serilog.Sinks.Console, Sharprompt, ConsoleTables, …) must work unmodified** — that's T3's deliverable and sets the overall scope of the feature.
 
@@ -624,4 +624,4 @@ interface HostAdapter {
 
 ---
 
-Vladimir — the staging is: land T1 for the immediate demo and the free stdout-bypass fix; build T2's `CarbideConsole.*` on top so we have a working `ReadLineAsync`/`ReadKeyAsync`/color/cursor/resize surface against code Carbide compiles from source; then ship T3 — the forked `System.Console.dll` — which is the point of the whole feature and is what gives Spectre.Console et al. their coverage. T4 is the compat-test net underneath T3. Every piece of the plan has a precedent in the existing Carbide phasing (host adapters, reflection-patched `Console.*`, JSExport/JSImport surface evolution, schema bumps with transition windows) — nothing here asks Carbide to grow a new category of capability.
+Carbide Contributors — the staging is: land T1 for the immediate demo and the free stdout-bypass fix; build T2's `CarbideConsole.*` on top so we have a working `ReadLineAsync`/`ReadKeyAsync`/color/cursor/resize surface against code Carbide compiles from source; then ship T3 — the forked `System.Console.dll` — which is the point of the whole feature and is what gives Spectre.Console et al. their coverage. T4 is the compat-test net underneath T3. Every piece of the plan has a precedent in the existing Carbide phasing (host adapters, reflection-patched `Console.*`, JSExport/JSImport surface evolution, schema bumps with transition windows) — nothing here asks Carbide to grow a new category of capability.

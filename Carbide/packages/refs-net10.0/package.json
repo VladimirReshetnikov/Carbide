@@ -12,6 +12,7 @@
     "ref-manifest.json",
     "ref/net10.0/*.dll",
     "THIRD_PARTY_NOTICES.md",
+    "third-party/**/*",
     "scripts/build.mjs"
   ],
   "scripts": {

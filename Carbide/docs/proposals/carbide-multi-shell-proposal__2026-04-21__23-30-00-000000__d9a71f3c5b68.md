@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-21T23:30:00Z
 - Repository HEAD: fd524f9d7350cc98cac94a770f2715a7d6bce67f
 - Status: Proposal (draft, pre-implementation)
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 - Scope: design-level proposal for two new shells (`carbide-cmd`, `carbide-bash`) that mirror `carbide-pwsh`'s architecture, share its VFS and I/O layer, and can be invoked from each other in both directions
 
 ## 1. Motivation

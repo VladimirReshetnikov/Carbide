@@ -5,7 +5,7 @@
 
 Status: **investigation, not a fix**. This report documents what T2.1 actually is, which theories were tested, which were ruled out, and which options remain open for future work. It replaces the earlier `carbide-T21-detailed-plan__2026-04-20__16-30-00-000000.md` whose root-cause section was wrong (now deleted).
 
-Audience: repository owner Vladimir; future contributors picking this up.
+Audience: Carbide Contributors; future contributors picking this up.
 
 Accompanying artifact: [`artifacts/carbide-gh-T21-artifact/`](artifacts/carbide-gh-T21-artifact/README.md) — the mini Spectre.Console + GitHub REPL we attempted to build on top of Carbide T3 as a consumer-shaped stress test of async suspension. It boots, renders its banner, and trips on the first `await Console.In.ReadLineAsync()`. Preserved as a reference, not a working demo.
 
@@ -194,7 +194,7 @@ Document that Carbide's interactive run supports user code that **never suspends
 
 ## 7. Recommendation
 
-Pursue **Option B** if Carbide is intended for hosted use (Vladimir's own deploys, controlled CDN) where COOP/COEP is manageable. The once-and-done cost of building + shipping a multi-threaded runtime buys the full async surface across every workload — T2.1, real `HttpClient`, Spectre's `Status`/`Progress` animations, Ctrl+C cancellation mid-operation, etc. It's the path the Mono-WASM team themselves built for.
+Pursue **Option B** if Carbide is intended for hosted use (Carbide Contributors' own deploys, controlled CDN) where COOP/COEP is manageable. The once-and-done cost of building + shipping a multi-threaded runtime buys the full async surface across every workload — T2.1, real `HttpClient`, Spectre's `Status`/`Progress` animations, Ctrl+C cancellation mid-operation, etc. It's the path the Mono-WASM team themselves built for.
 
 Pursue **Option A** if Carbide is intended as a plain ESM library embeddable in arbitrary third-party pages (`<script type="module" src="https://.../carbide.js">`). The restriction is severe but the ergonomics on the host side are unchanged from M1/M2.
 
@@ -226,7 +226,7 @@ These changes were made during T2.1 investigation and should be kept or reverted
 
 - Attach a Chromium debugger to the browser running Carbide. Break on `throw` inside the generated state machine. Walk the frames upward from the PNS throw site to find the exact BCL frame. My best guess: it's inside `ThreadPool.UnsafeQueueUserWorkItemInternal` or `ManualResetEventSlim.Wait` during `AsyncStateMachineBox`'s first-suspension allocation, but I did not confirm this in-runtime.
 - Compare Carbide's single-threaded boot to a minimal repro project that uses `dotnet new wasmbrowser` + a trivial `await Task.Delay(50)`. If the minimal project **also** trips, confirm upstream Mono-WASM's single-threaded mode legitimately does not support real suspension, and file a runtime-level bug referencing this report.
-- Revisit `FEATURE_WASM_MANAGED_THREADS` + the COOP/COEP constraint with Carbide's actual embedding targets. If all real consumers are under Vladimir's control, Option B becomes dramatically more attractive.
+- Revisit `FEATURE_WASM_MANAGED_THREADS` + the COOP/COEP constraint with Carbide's actual embedding targets. If all real consumers are under Carbide Contributors' control, Option B becomes dramatically more attractive.
 
 ## 10. Appendix — empirical follow-up after the prior-art research report
 

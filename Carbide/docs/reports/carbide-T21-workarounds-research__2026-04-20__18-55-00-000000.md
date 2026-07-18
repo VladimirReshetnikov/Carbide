@@ -9,7 +9,7 @@ Status: **supplementary research**, focused on areas the prior-art report explic
 - [`carbide-T21-prior-art-research__2026-04-20__17-40-00-000000.md`](carbide-T21-prior-art-research__2026-04-20__17-40-00-000000.md) — primary-source literature review: monitor.c, JSSynchronizationContext, BCL scheduling, Blazor's single-threaded pump, issue archaeology.
 - [`carbide-T21-empirical-pinpoint__2026-04-20__18-51-01-000000.md`](carbide-T21-empirical-pinpoint__2026-04-20__18-51-01-000000.md) — the paired-probe experimental result showing the trap fires iff the awaited Task is genuinely incomplete at the `await` site, specifically in JSExport-re-entered user code.
 
-This report focuses on the six specific questions Vladimir posed and is intentionally tight about not re-treading ground already covered above.
+This report focuses on the six specific questions Carbide Contributors posed and is intentionally tight about not re-treading ground already covered above.
 
 ---
 
@@ -364,7 +364,7 @@ Adjacent public reports that are not quite the same:
 
 **The closest match, architecturally,** is the fsharp/#19110 pattern (§1.4 above) — a Blazor component method that does `do! Task.Delay 1000` in a loop, fails only on .NET 10, works on .NET 9. That trip happens *through* a Blazor dispatcher, so it demonstrates that even dispatcher-routed code can trip the trap when the state-machine shape is unfavorable (F#'s `task { }` builder vs C#'s emitted state machines). This reinforces that the trap is in the runtime/BCL layer and can surface through various paths, but no one has reported the JSExport-re-entry path publicly.
 
-**Implication for Carbide:** Vladimir should consider filing a minimal-repro issue against `dotnet/runtime` with the JSExport-re-entry pattern as the minimal bug. The runtime team has a demonstrated engagement pattern on .NET 10 regressions (fsharp/#19110 got F#-team attention in a day). A well-constructed `dotnet new wasmbrowser`-based repro that cleanly shows "Main.runMain does the same await — works; [JSExport] re-entered user code does the same await — fails" would be directly actionable by them.
+**Implication for Carbide:** Carbide Contributors should consider filing a minimal-repro issue against `dotnet/runtime` with the JSExport-re-entry pattern as the minimal bug. The runtime team has a demonstrated engagement pattern on .NET 10 regressions (fsharp/#19110 got F#-team attention in a day). A well-constructed `dotnet new wasmbrowser`-based repro that cleanly shows "Main.runMain does the same await — works; [JSExport] re-entered user code does the same await — fails" would be directly actionable by them.
 
 ### 3.6 `coi-serviceworker` adoption as a side-channel for MT mode
 
@@ -372,7 +372,7 @@ If Option B (multi-threaded runtime) becomes the chosen path, [gzuidhof/coi-serv
 
 > It must be in a separate file, you can't bundle it along with your app. It can't be loaded from a CDN: it must be served from your own origin. Your page will still need to be either served from HTTPS, or served from localhost.
 
-The implication for Carbide's "drop-in ESM library" ambition is bad: a consuming site would need to opt into adding `coi-serviceworker.js` to their origin, and the first visit reloads. This is a meaningful integration burden. For Vladimir's own deploys, it's trivial; for arbitrary third-party embedders, it's a blocker.
+The implication for Carbide's "drop-in ESM library" ambition is bad: a consuming site would need to opt into adding `coi-serviceworker.js` to their origin, and the first visit reloads. This is a meaningful integration burden. For Carbide Contributors' own deploys, it's trivial; for arbitrary third-party embedders, it's a blocker.
 
 Additional sibling: [Godot's port of coi-serviceworker](https://github.com/nisovin/godot-coi-serviceworker) confirms this pattern is used by WASM-heavy projects (Godot is a game engine with a WASM target) as the go-to solution for static hosts.
 
@@ -600,7 +600,7 @@ Key constraints from the README:
 - Requires the service worker to be registered on the site's origin. This means Carbide distributed as a CDN library `<script src="https://cdn.jsdelivr.net/.../carbide.js">` would need the embedding site to also serve `coi-serviceworker.js` from its own origin. That's a meaningful integration burden on the embedder.
 - Adds a one-time page reload on first visit (service worker registration → reload → now COOP/COEP is set).
 
-So `coi-serviceworker` makes the "hosted on your own deploys" variant of Option B universally feasible, including on static hosts, but it doesn't help the "drop-in JS library loaded from arbitrary pages" model Vladimir has considered for Carbide.
+So `coi-serviceworker` makes the "hosted on your own deploys" variant of Option B universally feasible, including on static hosts, but it doesn't help the "drop-in JS library loaded from arbitrary pages" model Carbide Contributors have considered for Carbide.
 
 ### 6.4 Public migration case studies — cost in LOC
 
@@ -653,7 +653,7 @@ If the F# team adopts an alternate `TaskBuilder` for WASM, it would be a direct 
 
 ### 7.5 `dotnet/runtime#92713` — async JSExport killing node process
 
-[dotnet/runtime#92713](https://github.com/dotnet/runtime/issues/92713) (2023) — "Invoking async [JSExport] and [JSImport] kills the process on node, but works in browser" — is notable for being a *different* failure mode that happens to share the JSExport-re-entry vicinity. The trigger was "any kind of concurrency" from node; the fix was merged as PR #92871 in .NET 8.0.0. The PR reference is not directly applicable to Carbide's case (Carbide's target is browser, not node, so the node-specific path is irrelevant), but it's a data point: the JSExport-async-entry path has been iteratively fixed before. That makes Vladimir's potential repro (§3.5) a plausible candidate for a similar fix-by-PR if it gets runtime-team attention.
+[dotnet/runtime#92713](https://github.com/dotnet/runtime/issues/92713) (2023) — "Invoking async [JSExport] and [JSImport] kills the process on node, but works in browser" — is notable for being a *different* failure mode that happens to share the JSExport-re-entry vicinity. The trigger was "any kind of concurrency" from node; the fix was merged as PR #92871 in .NET 8.0.0. The PR reference is not directly applicable to Carbide's case (Carbide's target is browser, not node, so the node-specific path is irrelevant), but it's a data point: the JSExport-async-entry path has been iteratively fixed before. That makes Carbide Contributors' potential repro (§3.5) a plausible candidate for a similar fix-by-PR if it gets runtime-team attention.
 
 ### 7.6 Roslyn-specific detail: Microsoft.CodeAnalysis on .NET 11 WASM
 
@@ -673,7 +673,7 @@ And:
 
 > one approach that's possible is to use feature detection for JSPI and fall back to the slower Asyncify approach if JSPI isn't available.
 
-If CoreCLR-on-WASM with JSPI support materializes in .NET 12, the `Monitor.Wait(INFINITE)` trap could be completely eliminated at the runtime level (via stack-switching). But that's 18+ months out and not a deliverable Vladimir can plan around.
+If CoreCLR-on-WASM with JSPI support materializes in .NET 12, the `Monitor.Wait(INFINITE)` trap could be completely eliminated at the runtime level (via stack-switching). But that's 18+ months out and not a deliverable Carbide Contributors can plan around.
 
 ### 7.8 Task-like return types and per-method AsyncMethodBuilder
 
@@ -710,7 +710,7 @@ Hypothesis backing this option:
 
 **Why this might be wrong:** I cannot rule out that the actual invariant Blazor establishes is something deeper than "a `Dispatcher` exists" — it might be that the renderer's render loop is the active consumer that keeps the pump running, and without actual rendering happening, even a Blazor host wouldn't help. The test above would rule this out quickly.
 
-**Concrete next step:** Vladimir, this is the experiment worth running first. Cost is ~1-2 hours of scaffolding plus T2.1 repro. If it works, it's a strictly better answer than Options A-E from the investigation report for embedding-preserving cases.
+**Concrete next step:** Carbide Contributors, this is the experiment worth running first. Cost is ~1-2 hours of scaffolding plus T2.1 repro. If it works, it's a strictly better answer than Options A-E from the investigation report for embedding-preserving cases.
 
 ### 8.2 Low-cost, high-restriction: explicit `Task.Yield()` before every user-code suspension
 
@@ -739,7 +739,7 @@ Not a T2.1 fix. Listed here only to rule out as an option.
 
 **Cost: runtime fork or switch to MT build, COOP/COEP server headers.** **Restriction: requires COOP/COEP on embedder; ~5-10 MB additional payload; AOT still experimental.**
 
-Covered in prior-art §10, investigation §6 Option B. Enables `JSSynchronizationContext` and the full BCL async surface works. For hosted-Carbide deployments (Vladimir's own sites), this is the proven path — it's what Microsoft's own testing infrastructure uses. For drop-in CDN usage, blocked by COOP/COEP requirement.
+Covered in prior-art §10, investigation §6 Option B. Enables `JSSynchronizationContext` and the full BCL async surface works. For hosted-Carbide deployments (Carbide Contributors' own sites), this is the proven path — it's what Microsoft's own testing infrastructure uses. For drop-in CDN usage, blocked by COOP/COEP requirement.
 
 ### 8.5 High-cost, low-restriction: Option D (custom coroutine runtime via source generator)
 
@@ -759,7 +759,7 @@ Same posture as investigation report. Further devalued by this research because:
 
 Not recommended unless all cheaper options fail.
 
-### 8.7 Proposed ordering for Vladimir
+### 8.7 Proposed ordering for Carbide Contributors
 
 1. **Option F-revised (§8.1): Blazor-host experiment first.** 1-2 hour investment; either solves T2.1 entirely (by getting the dispatcher scope) or sharpens the problem statement to "even the dispatcher doesn't help, so the trap is deeper."
 2. If F-revised works: ship it with a Carbide-Blazor-lite shim (no full Blazor dependency).

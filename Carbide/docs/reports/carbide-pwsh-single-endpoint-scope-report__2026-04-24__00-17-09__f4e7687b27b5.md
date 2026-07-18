@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-24T00:17:09Z
 - Repository HEAD: 88b1db86277bb9620d8e12d59a0814ece3a42a45
 - Status: Informational implementation-scope evaluation
-- Audience: Vladimir; future Carbide contributors working on Carbide browser shells, the shared shell runtime, and the public demo/package surface
+- Audience: Carbide Contributors; future Carbide contributors working on Carbide browser shells, the shared shell runtime, and the public demo/package surface
 - Scope: evaluate the narrower design where `carbide-pwsh` is the only public browser endpoint, `cmd` and `bash` are entered from inside that endpoint, browser-side dependency loading for the full virtual executable catalog is explicitly allowed, and `carbide-multishell` ceases to be a separate public route
 - Related code:
   - `src/Carbide/packages/carbide-pwsh/src/Program.cs`

@@ -58,6 +58,6 @@ python -m http.server 8000
 
 `test-shell.html` is excluded from the published npm tarball (not listed in `package.json` → `files`). It exists for maintainer smoke only.
 
-## Licence
+## License and third-party content
 
-Bundle contents redistribute Avalonia (MIT), Skia/HarfBuzz (MIT), and the .NET runtime (MIT) per their upstream licences. Third-party notices for the Avalonia DLLs are documented in [`@carbide-ui/refs-avalonia`'s `THIRD_PARTY_NOTICES.md`](../refs-avalonia/THIRD_PARTY_NOTICES.md); the same licence terms apply here.
+The package's Carbide-authored build and runner files are licensed under [Apache-2.0](LICENSE). The generated runtime bundle contains Avalonia, Skia/HarfBuzz native assets, .NET/Mono WebAssembly, and transitive components under their respective upstream terms. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) identifies the exact versions and ships the complete upstream license and notice files.

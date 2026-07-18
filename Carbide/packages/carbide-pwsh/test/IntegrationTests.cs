@@ -8,7 +8,7 @@ namespace CarbidePwsh.Tests;
 public class IntegrationTests
 {
     [Fact]
-    public void ExitGateScriptProducesHelloVladimir()
+    public void ExitGateScriptProducesHelloAda()
     {
         var host = new ShellHost();
 
@@ -18,9 +18,9 @@ public class IntegrationTests
         try
         {
             host.Submit("Set-Location /tmp");
-            host.Submit("@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json");
+            host.Submit("@{ name = 'Ada'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json");
             var last = host.Submit("Get-Content profile.json | ConvertFrom-Json | ForEach-Object { \"Hello, $($_.name)!\" }");
-            Assert.Equal("Hello, Vladimir!", last);
+            Assert.Equal("Hello, Ada!", last);
         }
         finally
         {

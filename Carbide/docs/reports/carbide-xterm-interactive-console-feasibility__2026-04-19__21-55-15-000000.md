@@ -6,7 +6,7 @@
 - Status: Feasibility report (design evaluation, not an implementation plan).
 
 > **Revised after independent review** (2026-04-19T22:15Z). A second feasibility report — [`carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md`](carbide-browser-xterm-console-feasibility__2026-04-19__22-01-41__06bf6d9b78c7.md) — landed shortly after this one and pushed back on four things: (a) the third-party-DLL coverage ceiling of a `CarbideConsole.*Async` API, (b) the strength of the "own a forked browser `System.Console`" path, (c) the execution-isolation / `Assembly.Load` lifecycle hazard for long-lived interactive sessions, and (d) `xterm-pty` as closer prior art than what I originally cited. The feasibility verdict is unchanged; the scope implications of "most of `System.Console`" are larger than my tier-2 framing implied. Inline ⚠ markers flag the specific corrections and §19 consolidates them. Read §19 first if you're returning to this report.
-- Audience: Vladimir; future Carbide contributors considering a browser-terminal story.
+- Audience: Carbide Contributors; future Carbide contributors considering a browser-terminal story.
 - Scope: evaluate what it would take to extend `src/Carbide` so user C# console programs executed in the browser can drive an embedded [xterm.js](https://xtermjs.org/) instance with behavior that approximates running the same program under `conhost.exe` on Windows desktop. Includes `System.Console` surface, ANSI / VT sequences, stdin (line and key mode), window size, color, cursor, and Ctrl+C.
 - Related code:
   - [`packages/core/src/Services/ProjectCompiler.cs`](../../packages/core/src/Services/ProjectCompiler.cs) — where stdout/stderr/stdin are wired today.
@@ -647,7 +647,7 @@ None of them try to back `System.Console.ReadKey` specifically; the conhost-pari
 
 **Pursue tier 1.** Tier 1 is a small-surface extension — indicatively one new TS entry (`runInteractive`), one new `TextWriter`, one `[JSImport]` pair, one new browser test fixture — and yields a real browser-interactive Carbide demo: user writes `Console.WriteLine("\x1b[1;33mhello\x1b[0m");` in the editor, sees it yellow-bold in xterm.js. That alone enables a class of tooling demos (ASCII art, banner generators, log replayers, spectre/console previews) that the current buffered-run model cannot show. No spec bumps to users, no new sync/async story, no PNS patches.
 
-**Decide tier 2 vs tier 3 scope with Vladimir before starting.** The decision hinges on one question: does Carbide need to support pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` directly?
+**Decide tier 2 vs tier 3 scope with Carbide Contributors before starting.** The decision hinges on one question: does Carbide need to support pre-compiled NuGet libraries that call `Console.ReadKey` / `Console.ForegroundColor` directly?
 
 - **If no** (the user is mostly writing original source that Carbide compiles): tier 2's `CarbideConsole.*Async` is the cheapest path to a useful interactive shell. The Carbide.Terminal ref-pack exposes the API; user code migrates from `Console.ReadLine()` → `await CarbideConsole.ReadLineAsync()` and similar.
 - **If yes** (Spectre.Console, ReadLine.NET, and any other prompt/TUI library is in scope): the honest tier is the **forked `System.Console.dll`** described in §10.3. That's a runtime workstream — a new sibling csproj for `browser-wasm` with on the order of 2–4k LOC ported or adapted from the Unix `ConsolePal` + `KeyParser` + `StdInReader` + `TerminalFormatStrings` tree. Tier 2's `CarbideConsole.*` is still a useful intermediate — it de-risks the JS bridge and the streaming writer — but it's a stepping stone, not the destination.
@@ -752,7 +752,7 @@ with `_terminalSink` set by `runInteractive` and cleared on teardown. Outside `r
 | Biggest non-obvious benefit? | Fixing the existing U1-era "raw bytes leaked to stdout" quirk via the `print`/`printErr` overlay is effectively free at tier 1. |
 | Recommended next step if greenlit? | Spike tier 1: a 40-line C# `StreamingStdOutWriter`, a 60-line TypeScript `TerminalSession`, a Playwright fixture that runs `Console.WriteLine` + ANSI color. One merge. Demo. Decide tier 2 scope from there. |
 
-Vladimir — this one is a clean extension. Carbide's existing seams (the host adapter, the `Console.SetOut` path, the reflection-based `s_in` install, the JSExport surface) already anticipate everything we'd need. The single piece of genuinely-new engineering is the `StreamingStdOutWriter` + `BrowserTerminalReader` pair and the JSImport bridge behind them. Tier 1 is a small, self-contained surface; tier 2 is the interesting design conversation; tier 3 is a "when we have a real user" decision.
+Carbide Contributors — this one is a clean extension. Carbide's existing seams (the host adapter, the `Console.SetOut` path, the reflection-based `s_in` install, the JSExport surface) already anticipate everything we'd need. The single piece of genuinely-new engineering is the `StreamingStdOutWriter` + `BrowserTerminalReader` pair and the JSImport bridge behind them. Tier 1 is a small, self-contained surface; tier 2 is the interesting design conversation; tier 3 is a "when we have a real user" decision.
 
 ## 19. Revisions after independent review
 
@@ -769,7 +769,7 @@ Both reports agree:
 - A new `runInteractive` API, separate from `project.run()`, is the right shape.
 - The phased ordering is: stream output first, solve the input execution model second, only then broaden compatibility.
 
-My original tier 2 framed `CarbideConsole.*Async` as "the useful interactive shell." The independent review correctly flagged that "useful" in the sense Vladimir asked for ("most of `System.Console` API work similar to conhost") requires tier 3 — the forked runtime — not tier 2. Tier 2 as originally written is *user-source-only* and leaves a real compat hole.
+My original tier 2 framed `CarbideConsole.*Async` as "the useful interactive shell." The independent review correctly flagged that "useful" in the sense Carbide Contributors asked for ("most of `System.Console` API work similar to conhost") requires tier 3 — the forked runtime — not tier 2. Tier 2 as originally written is *user-source-only* and leaves a real compat hole.
 
 ### 19.2 Third-party DLLs: the scope ceiling I under-weighted
 

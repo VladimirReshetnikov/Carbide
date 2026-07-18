@@ -346,7 +346,7 @@ npm run build:ts
 npm test
 ```
 
-## Origin
 
-Carbide starts as a structural fork of WasmSharp. See [`ATTRIBUTION.md`](./ATTRIBUTION.md) for
-the list of files adapted from upstream sources.
+## License and attribution
+
+Carbide-authored work in `@carbide/core` is licensed under [Apache-2.0](LICENSE). Carbide began as a structural fork of WasmSharp; [`ATTRIBUTION.md`](ATTRIBUTION.md) records the imported and adapted source files and subsequent changes. Selected .NET-derived source and the packaged runtime/Roslyn payload retain their upstream terms, reproduced and indexed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

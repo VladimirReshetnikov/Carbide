@@ -5,3 +5,7 @@ Status: **deferred / consolidated at UI-M3.** The iframe-embeddable runner shell
 Point your iframe at `@carbide-ui/avalonia-runtime-bundle/index.html`; the [`@carbide-ui/launcher`](../launcher/README.md) does this by default.
 
 This package name is reserved so a future revision can reintroduce it — e.g. if the bundle gets forked per deployment profile (CDN vs. iframe embed) and one path needs a distinct HTML shell. For UI-M3 it has no files beyond this README and its stub `index.html`.
+
+## License
+
+`@carbide-ui/avalonia-runner` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors.

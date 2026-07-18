@@ -1,5 +1,7 @@
 # Carbide — upstream drift tracking
 
+Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
+
 Created (UTC): 2026-04-18T00:50:48Z
 Repository HEAD: 998993db6ec3772559b081548ea6817356e4a373
 

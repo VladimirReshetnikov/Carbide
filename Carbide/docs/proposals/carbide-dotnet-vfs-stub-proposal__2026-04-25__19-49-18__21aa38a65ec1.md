@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-25T19:49:18Z
 - Repository HEAD: 8ad5657c49d6aca974b7cc30a30e2f02b82940f2
 - Status: Draft
-- Audience: Vladimir; Carbide shell maintainers; future agents extending browser-side C# compilation
+- Audience: Carbide Contributors; Carbide shell maintainers; future agents extending browser-side C# compilation
 - Scope: Add a VFS-visible `dotnet.exe` executable stub that compiles and runs C# code by delegating to existing Carbide compiler/runtime infrastructure, including investigation of in-process execution for compiled executable assemblies.
 - Related code:
   - `src/Carbide/packages/core/src/Services/ProjectCompiler.cs`

@@ -5,8 +5,8 @@ The contents of the `ref/net10.0/` directory in this package are extracted from 
 ## Microsoft.NETCore.App.Ref
 
 - Source: https://www.nuget.org/packages/Microsoft.NETCore.App.Ref
-- Pinned version: see `ref-manifest.json` `packageVersion`.
-- Licence: MIT (see https://github.com/dotnet/runtime/blob/main/LICENSE.TXT for the upstream source).
+- Pinned version: 10.0.0 (also recorded in `ref-manifest.json` `packageVersion`).
+- Licence: MIT; the exact package [`LICENSE.TXT`](third-party/dotnet/LICENSE.TXT) and complete [`THIRD-PARTY-NOTICES.TXT`](third-party/dotnet/THIRD-PARTY-NOTICES.TXT) are included.
 
 The MIT licence for `.NET Runtime` applies to these reference assemblies:
 

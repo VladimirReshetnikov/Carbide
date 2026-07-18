@@ -1,5 +1,7 @@
 # Carbide — research reports
 
+Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
+
 - Created (UTC): 2026-04-19T00:47:03Z
 - Updated (UTC): 2026-04-20T01:25:40Z
 - Repository HEAD: f704d10238980f1fcfbda8577ba51a844919e068

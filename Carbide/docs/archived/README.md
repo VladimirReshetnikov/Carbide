@@ -1,5 +1,7 @@
 # Carbide — archived docs
 
+Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
+
 Created (UTC): 2026-04-19T01:21:25Z
 Repository HEAD: 012181497823c05b99065a621894aece0b41a00a
 

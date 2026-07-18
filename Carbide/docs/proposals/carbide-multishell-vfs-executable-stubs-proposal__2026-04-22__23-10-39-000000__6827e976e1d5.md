@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-22T23:10:39Z
 - Repository HEAD: b2dfbc1c772a37400b616ffe645ab508a54958df
 - Status: Implemented
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 - Scope: VFS stub population, command-resolution rules, and runtime feature commitments for non-shell executables commonly used from pwsh, cmd, and bash scripts inside `packages/carbide-multishell`
 - Related code:
   - `src/Carbide/packages/carbide-multishell/src/MultishellSession.cs`

@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-23T21:12:38Z
 - Repository HEAD: e5c1e2b48eea1534033dbf6bcd549b2059db91e7
 - Status: Informational implementation-scope evaluation
-- Audience: Vladimir; future Carbide contributors working on browser shells, `carbide-shell-core`, and the Carbide package/demo surface
+- Audience: Carbide Contributors; future Carbide contributors working on browser shells, `carbide-shell-core`, and the Carbide package/demo surface
 - Scope: evaluate the work required to remove `carbide-multishell` as a separate browser endpoint while making `carbide-pwsh`, `carbide-cmd`, and `carbide-bash` all boot the same fully capable shared-shell session; enumerate the main technical risks and hidden scope
 - Related code:
   - `src/Carbide/packages/carbide-pwsh/src/Program.cs`

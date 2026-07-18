@@ -115,3 +115,7 @@ When the project declares no `<PackageReference>`s, resolution is skipped entire
   resolver with a mocked `FlatContainer`).
 - `CARBIDE_NUGET_LIVE=1 npm run test:live` — live smoke against api.nuget.org: resolve
   Newtonsoft.Json 13.0.3 and prove lock replay is byte-identical.
+
+## License and provenance
+
+`@carbide/nuget` is licensed under [Apache-2.0](LICENSE), with copyright held collectively by Carbide Contributors. [`ATTRIBUTION.md`](ATTRIBUTION.md) records its clean implementation provenance and protocol references.

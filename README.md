@@ -4,6 +4,14 @@ This repository is the standalone home of Carbide, a C# compile-and-run framewor
 
 This document is also the canonical repository guidance for maintainers and coding agents. `AGENTS.md` and `CLAUDE.md` point here.
 
+## License and provenance
+
+Carbide-authored source code, documentation, tests, and samples are licensed under the [Apache License 2.0](LICENSE), with copyright held collectively by Carbide Contributors. No sample or first-party subtree uses different license terms. Selected third-party-derived files and redistributed artifacts retain their upstream terms at file or artifact scope, as described below.
+
+Carbide began as a structural fork of [JakeYallop/WasmSharp at commit `2f8c93b`](https://github.com/JakeYallop/WasmSharp/tree/2f8c93bfa39f2068ad932a748ba23f740075327c), which is also Apache-2.0. The [core attribution record](Carbide/packages/core/ATTRIBUTION.md) documents the imported and adapted source files and the changes made after the fork. This provenance is part of Carbide's maintained documentation, not merely historical background.
+
+Identified third-party source and redistributed artifacts retain their respective upstream terms. Their exact scope and notices are recorded in adjacent `ATTRIBUTION.md` or `THIRD_PARTY_NOTICES.md` files. Those terms apply only to the identified material and do not change the Apache-2.0 license of surrounding Carbide work.
+
 ## Top-level structure
 
 ```text
@@ -12,7 +20,7 @@ This document is also the canonical repository guidance for maintainers and codi
 ├── Carbide.UI/    # Avalonia browser runtime, launcher, reference pack, and samples
 ├── AGENTS.md      # symbolic link to README.md
 ├── CLAUDE.md      # symbolic link to README.md
-├── LICENSE        # MIT-0 repository license
+├── LICENSE        # Apache-2.0 repository license
 └── README.md      # repository overview and canonical guidance
 ```
 
@@ -24,7 +32,13 @@ This document is also the canonical repository guidance for maintainers and codi
 
 ## Build and validation
 
-The repository requires the .NET 10 SDK, Node.js 20 or newer, and the `wasm-tools` workload. Browser tests additionally require Playwright Chromium.
+The repository requires the .NET 10 SDK version pinned in [`global.json`](global.json), Node.js 20 or newer, and the `wasm-tools` workload. Browser tests additionally require Playwright Chromium. The SDK pin also fixes the Mono WebAssembly runtime at 10.0.6 so the bundled upstream notices remain version-accurate.
+
+Run the repository-level license and provenance consistency check from the repository root:
+
+```powershell
+node scripts/check-licenses.mjs
+```
 
 Core validation proceeds in dependency order:
 
@@ -87,13 +101,6 @@ Pre-extraction documents that record a `Repository HEAD` value retain their orig
 - Keep framework work in `Carbide/` and Avalonia integration work in `Carbide.UI/`; preserve the frontend/core boundary and sibling layout.
 - Read the relevant workspace README and documentation before changing package contracts or build orchestration.
 - Use the real .NET and Node toolchains for validation. Keep generated packages, build output, downloaded reference packs, and test artifacts untracked under the workspace-local ignore rules.
+- Keep package-local `LICENSE` copies byte-for-byte aligned with the root license, and ship attribution and third-party notices with any package that redistributes upstream material. Validate both rules with `node scripts/check-licenses.mjs`.
 - Treat active READMEs and architecture documents as current-state descriptions. Historical material belongs under an `archived/` tree or must be explicitly identified as historical.
 - Commit validated, self-contained changes directly to `main`, include a descriptive message and `Co-Authored-By` trailer, and push to `origin/main` unless a task explicitly says otherwise.
-
-## License
-
-Unless a subtree says otherwise, repository content is licensed under the [MIT No Attribution License](LICENSE). Adapted upstream material retains the attribution and licensing notices identified in its local `ATTRIBUTION.md` or `THIRD_PARTY_NOTICES.md` files.
-
-## Origin
-
-Carbide starts as a structural fork of [WasmSharp](https://github.com/JakeYallop/WasmSharp). See [`ATTRIBUTION.md`](packages/core/ATTRIBUTION.md) for the list of files adapted from upstream sources.

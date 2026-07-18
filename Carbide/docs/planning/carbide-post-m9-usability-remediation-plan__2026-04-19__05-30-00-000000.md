@@ -5,7 +5,7 @@
 
 Status: parent plan proposing three phased work items to clear the P0/P1/P2 backlog surfaced in [Carbide-Usability-Report](../reports/Carbide-Usability-Report.md). Complements (does not replace) the architecture doc's M10–M13 Band C stretch milestones in [carbide-architecture-and-implementation-plan §9](carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md#9-implementation-plan).
 
-Audience: repository owner Vladimir, and future contributors picking up the phases.
+Audience: Carbide Contributors, and future contributors picking up the phases.
 
 Scope: usability sharpening — the CLI surface, the program I/O wire, diagnostics, and error classification. The phases are scoped so each can land as a single PR; each phase is "done" when its own acceptance tests are green.
 

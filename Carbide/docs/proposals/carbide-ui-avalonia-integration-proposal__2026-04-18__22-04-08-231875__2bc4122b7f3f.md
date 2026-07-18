@@ -427,7 +427,7 @@ No browser runs. Output is deployable. Optional `--zip` flag produces a `.zip` f
 
 ### 7.6 Source tree layout (proposed)
 
-If Vladimir accepts this proposal, the work lives in a new directory:
+If Carbide Contributors accept this proposal, the work lives in a new directory:
 
 ```
 src/Carbide.UI/
@@ -671,7 +671,7 @@ Document COOP/COEP requirements. Provide a pre-built HTTP server (`@carbide-ui/s
 
 Called out explicitly so decisions are visible and re-openable.
 
-**Ratification record.** Q.2, Q.3, Q.4, Q.6, Q.7 ratified 2026-04-21 (owner Vladimir, delegated): accept stated **Position** in each case. Re-opening requires editing the question here with a dated revision line.
+**Ratification record.** Q.2, Q.3, Q.4, Q.6, Q.7 ratified 2026-04-21 (Carbide Contributors, delegated): accept stated **Position** in each case. Re-opening requires editing the question here with a dated revision line.
 
 - **Q.1 npm namespace.** `@carbide-ui/*` is the working name. If `@carbide` is taken (vision §12 R9), the companion family will follow whatever renamed scope Carbide chooses. No hyphen/no-scope considered; keep them distinct. **Resolved 2026-04-21:** `@carbide-ui/*` is the final scope (see §13 item 4 below).
 - **Q.2 App-class discovery.** `LaunchOptions.appClass` is required in v1. Alternatives: attribute (`[assembly: CarbideAvaloniaApp(typeof(MyApp))]`) scanned reflectively, or inference from `AssemblyName + ".App"`. **Position:** required in v1; infer as a v1.1 addition once the common convention is known. **Ratified 2026-04-21.**
@@ -692,7 +692,7 @@ This proposal is ready to drive implementation, but four calls belong to the own
 
 Items 2–4 are short decisions. Item 1 is the material one.
 
-**Decisions recorded 2026-04-21** (owner Vladimir; items 2 and 4 delegated to Claude):
+**Decisions recorded 2026-04-21** (Carbide Contributors; items 2 and 4 delegated to Claude):
 
 1. **Approved.** The "Companion projects" paragraph was added to `carbide-vision.md` §13 in the same change window.
 2. **Avalonia 12.x, latest stable patch at UI-M1 build time.** 13.0 is speculative as of the decision date; 12.x is the stated public stable per the proposal text. The specific patch is pinned in `@carbide-ui/refs-avalonia`'s `scripts/build.mjs` when UI-M1 opens; bumping the patch is a routine PR, bumping the minor (12.x → 12.y) requires the drift-report workflow of §10.5 of the plan.
@@ -824,7 +824,7 @@ public class MainViewModel : ObservableObject
 {
     private string _greeting = "Hello";
     public string Greeting { get => _greeting; set => SetProperty(ref _greeting, value); }
-    public void Greet() => Greeting = "Hello, Vladimir";
+    public void Greet() => Greeting = "Hello, Ada";
 }
 ```
 

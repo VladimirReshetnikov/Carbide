@@ -16,10 +16,10 @@ test("multi-document add/update/remove round-trips in headless Chromium", async 
     const result = JSON.parse(payload);
 
     expect(result.first.success).toBe(true);
-    expect(result.first.stdOut).toBe("hello, Vladimir\n");
+    expect(result.first.stdOut).toBe("hello, Ada\n");
 
     expect(result.second.success).toBe(true);
-    expect(result.second.stdOut).toBe("hi, Vladimir\n");
+    expect(result.second.stdOut).toBe("hi, Ada\n");
 
     // After removing Helper.cs, Program.cs's using of Greeter must fail to compile.
     expect(result.removeBroke).toBe(true);

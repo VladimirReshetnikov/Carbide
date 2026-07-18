@@ -1,3 +1,3 @@
 using MyApp;
 
-Console.WriteLine(Greeter.Greet("Vladimir"));
+Console.WriteLine(Greeter.Greet("Ada"));

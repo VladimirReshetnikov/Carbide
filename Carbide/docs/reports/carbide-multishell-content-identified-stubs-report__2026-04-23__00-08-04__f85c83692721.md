@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-23T00:08:04Z
 - Repository HEAD: 0a28ddb977c5286b608ad319f721a34b956c4703
 - Status: Informational design-variant evaluation
-- Audience: Vladimir; future Carbide contributors working on `carbide-shell-core` and `carbide-multishell`
+- Audience: Carbide Contributors; future Carbide contributors working on `carbide-shell-core` and `carbide-multishell`
 - Scope: Evaluate a variant where virtual executable identity is determined by stub-file content rather than by the installation path alone; compare raw-GUID, pseudo-PE, and hybrid approaches; summarize relevant external prior art
 - Related code:
   - `src/Carbide/packages/carbide-shell-core/src/Apps/StubInstaller.cs`

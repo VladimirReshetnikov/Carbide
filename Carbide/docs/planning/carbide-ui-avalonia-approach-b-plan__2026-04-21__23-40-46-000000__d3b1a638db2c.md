@@ -5,7 +5,7 @@
 
 Status: **implementation plan for Approach B** of the `@carbide-ui/*` companion family. Executes the recommendation of [`carbide-ui-avalonia-integration-proposal`](../proposals/carbide-ui-avalonia-integration-proposal__2026-04-18__22-04-08-231875__2bc4122b7f3f.md) §4.2 and §5. Phases UI-M0 through UI-M4 and UI-M6 are committed; UI-M5 (Approach C — offline CLI) is a concurrent sibling deliverable scoped in its own plan; UI-M7 and UI-M8 remain deferred per proposal §11.
 
-Audience: repository owner Vladimir, and future contributors picking up phases.
+Audience: Carbide Contributors, and future contributors picking up phases.
 
 Scope: the *how* of shipping Approach B. Takes the proposal's package layout (§7), protocol (§8), XAML strategy (§9), and required Carbide-core changes (§10) as settled, and turns them into per-phase work orders with acceptance gates, per-file change tables, invariants, and risk entries. Re-opening any architectural call routes through the proposal's §12 Open Questions, not this plan.
 

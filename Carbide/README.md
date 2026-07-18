@@ -14,6 +14,12 @@ Carbide is a C# compile-and-run framework for environments that do not have the 
 
 Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode, source generators/analyzers, and broader MSBuild parity. The authoritative current-state guide is [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md).
 
+## License and provenance
+
+Carbide-authored code, documentation, tests, demos, and fixtures in this workspace are licensed under the repository's [Apache License 2.0](../LICENSE), with copyright held collectively by Carbide Contributors. No sample or first-party subtree uses different license terms; selected [.NET-derived source files](packages/core/THIRD_PARTY_NOTICES.md) retain file-scoped MIT terms documented by adjacent notices.
+
+Carbide began as a structural fork of [JakeYallop/WasmSharp at commit `2f8c93b`](https://github.com/JakeYallop/WasmSharp/tree/2f8c93bfa39f2068ad932a748ba23f740075327c), also under Apache-2.0. [`packages/core/ATTRIBUTION.md`](packages/core/ATTRIBUTION.md) records the imported and adapted source files and their subsequent changes. Selected .NET runtime source and redistributed reference assemblies remain under their upstream MIT terms, as identified by adjacent attribution and third-party-notice files.
+
 ## Layout
 
 - [`docs/`](docs/README.md) — vision, planning docs, proposals, project-local reports, research, drift notes, and the current-state guide.
@@ -29,7 +35,7 @@ Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode,
 
 ## Build And Test From Source
 
-Prerequisites: .NET 10 SDK with the `wasm-tools` workload (`dotnet workload install wasm-tools`), Node.js ≥ 20, a Playwright browser download for the browser smoke test (`npx playwright install chromium`).
+Prerequisites: the .NET 10 SDK pinned in [`../global.json`](../global.json) with the `wasm-tools` workload (`dotnet workload install wasm-tools`), Node.js ≥ 20, and a Playwright browser download for the browser smoke test (`npx playwright install chromium`).
 
 ```bash
 # One-time: extract the ref-pack so Carbide's compile-time metadata surface is stable.
@@ -79,10 +85,10 @@ project.addSource(
     "Greeter.cs",
     `namespace MyApp; public static class Greeter { public static string Greet(string name) => $"hello, {name}"; }`,
 );
-project.addSource("Program.cs", 'using MyApp; Console.WriteLine(Greeter.Greet("Vladimir"));');
+project.addSource("Program.cs", 'using MyApp; Console.WriteLine(Greeter.Greet("Ada"));');
 
 const result = await project.run();
-console.log(result.stdOut); // "hello, Vladimir\n"
+console.log(result.stdOut); // "hello, Ada\n"
 
 await session.shutdown();
 ```
@@ -143,7 +149,3 @@ See:
 - [`packages/nuget/README.md`](packages/nuget/README.md) for NuGet resolution policy, cache, and lock behavior
 - [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md) for the full project manual, tutorial, limitations, and troubleshooting
 - [Carbide Usability Report](docs/reports/Carbide-Usability-Report.md) for additional hands-on scenarios, sharp edges, and improvement proposals
-
-## Origin
-
-Carbide starts as a structural fork of [WasmSharp](https://github.com/JakeYallop/WasmSharp). See [`ATTRIBUTION.md`](packages/core/ATTRIBUTION.md) for the list of files adapted from upstream sources.

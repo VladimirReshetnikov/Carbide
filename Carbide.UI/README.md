@@ -4,6 +4,10 @@ Companion project family for Carbide — Avalonia GUI integration via the cross-
 
 Status: **UI-M0 through UI-M6 shipped.** Proof-of-concept Avalonia apps compile in a browser-hosted `@carbide/core` session, launch into iframes via `@carbide-ui/launcher`, and render on an Avalonia.Browser runtime. Verified end-to-end in Chromium; cross-browser coverage (Firefox, WebKit) is noted as a follow-up.
 
+## License and third-party content
+
+Carbide.UI code, tests, and samples are licensed under the repository's [Apache License 2.0](../LICENSE), with copyright held collectively by Carbide Contributors. Generated reference and runtime bundles also redistribute Avalonia, Skia/HarfBuzz, .NET, and transitive content under their respective upstream terms; the applicable notices are shipped with those packages and do not change the license of Carbide.UI's own work.
+
 See the [implementation plan](../Carbide/docs/planning/carbide-ui-avalonia-approach-b-plan__2026-04-21__23-40-46-000000__d3b1a638db2c.md) for the full phase list, acceptance criteria, and architectural decisions.
 
 ## Getting started

@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-21T22:30:00Z
 - Repository HEAD: ad9a5ea93897117cd90e2e6e36142bc90927cea2
 - Status: detailed implementation plan for **Phase 2** of the [carbide-pwsh-subset-shell proposal](../proposals/carbide-pwsh-subset-shell-proposal__2026-04-21__21-30-00-000000__e9c4b27a8f13.md)
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 
 ## 1. Purpose
 
@@ -24,9 +24,9 @@ The smoke-test script the proposal committed to:
 
 ```powershell
 Set-Location /tmp
-@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json
+@{ name = 'Ada'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json
 Get-Content profile.json | ConvertFrom-Json | ForEach-Object { "Hello, $($_.name)!" }
-# expected final line: Hello, Vladimir!
+# expected final line: Hello, Ada!
 ```
 
 Plus the Phase 1 exit gate must still pass (no regressions on expression evaluation). Plus these additional interactive checks:

@@ -17,7 +17,7 @@ namespace Carbide.Terminal;
 /// <summary>
 /// User-facing static shim that exposes a useful subset of <see cref="System.Console"/> to
 /// Carbide-compiled source running in an interactive terminal. The pre-T3 scope: APIs here
-/// cover code Vladimir compiles from source. Pre-compiled NuGet libraries that call
+/// cover code Carbide compiles from source. Pre-compiled NuGet libraries that call
 /// <c>Console.ReadKey</c> / <c>Console.ForegroundColor</c> directly still throw
 /// <see cref="PlatformNotSupportedException"/>; T3's forked <c>System.Console.dll</c> closes
 /// that gap.

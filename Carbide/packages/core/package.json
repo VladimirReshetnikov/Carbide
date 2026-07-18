@@ -21,7 +21,10 @@
   },
   "files": [
     "dist",
-    "src/bin/Release/net10.0/publish/wwwroot/_framework"
+    "src/bin/Release/net10.0/publish/wwwroot/_framework",
+    "ATTRIBUTION.md",
+    "THIRD_PARTY_NOTICES.md",
+    "third-party/**/*"
   ],
   "scripts": {
     "build:dotnet": "dotnet publish -c Release src/Carbide.Core.csproj",

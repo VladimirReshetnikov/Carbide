@@ -9,7 +9,9 @@
     "main.js",
     "runner-bridge.js",
     "bundle-manifest.json",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "third-party/**/*"
   ],
   "scripts": {
     "build": "node build.mjs"

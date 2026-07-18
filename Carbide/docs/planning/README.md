@@ -1,5 +1,7 @@
 # Carbide — planning docs
 
+Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
+
 - Created (UTC): 2026-04-19T01:36:09Z
 - Updated (UTC): 2026-04-23T01:18:24Z
 - Repository HEAD: c1e734191d4326d3f6501084f30cd30226374804

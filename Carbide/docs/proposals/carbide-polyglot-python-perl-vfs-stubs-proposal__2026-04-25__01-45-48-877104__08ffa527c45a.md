@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-25T01:45:48Z
 - Repository HEAD: 9259b98cb7d6e14a3546cc90bae3a987b13825f7
 - Status: Draft
-- Audience: Vladimir; Carbide shell maintainers; agents implementing shell-hosted language compatibility
+- Audience: Carbide Contributors; Carbide shell maintainers; agents implementing shell-hosted language compatibility
 - Scope: Add virtual executable stubs for `python.exe` and `perl.exe`, plus bounded shell-implemented language runtimes that cover the common glue-script and polyglot-script uses of Python and Perl.
 - Related code:
   - `src/Carbide/packages/carbide-multishell/src/VirtualExecutableCatalog.cs`

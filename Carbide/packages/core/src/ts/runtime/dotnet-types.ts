@@ -1,3 +1,7 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses the upstream definitions to you under the MIT license.
+// Substantially reduced and adapted by Carbide Contributors.
+
 /**
  * Minimal shape of the `dotnet` export produced by `dotnet publish` in .NET 10 Mono-WASM.
  *

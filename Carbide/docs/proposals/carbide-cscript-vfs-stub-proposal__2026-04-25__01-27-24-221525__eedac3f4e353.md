@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-25T01:27:24Z
 - Repository HEAD: ed607a3896a4f287c06867e37b5c0bde06471870
 - Status: Draft
-- Audience: Vladimir; Carbide shell maintainers; future agents adding Windows automation compatibility
+- Audience: Carbide Contributors; Carbide shell maintainers; future agents adding Windows automation compatibility
 - Scope: Adding `cscript.exe` to the Carbide virtual executable catalog, defining its shell-implemented runtime contract, and bounding the Windows Script Host behavior that should run inside the shared VFS/session model
 - Related code:
   - `src/Carbide/packages/carbide-multishell/src/VirtualExecutableCatalog.cs`

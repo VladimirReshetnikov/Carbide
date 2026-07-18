@@ -6,6 +6,10 @@ Repository HEAD: 020144bd373ad7d9aa29914e84c14963d18d87f4
 
 This directory holds the design material for **Carbide** — a working codename for a browser-and-Node C# build-and-run framework that targets environments without the .NET SDK. The name is tentative and can be changed without affecting the technical content.
 
+## License
+
+Carbide documentation is licensed under the repository's [Apache License 2.0](../../LICENSE), with copyright held collectively by Carbide Contributors. Historical provenance links and quotations do not transfer ownership of third-party material.
+
 ## Documents
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.

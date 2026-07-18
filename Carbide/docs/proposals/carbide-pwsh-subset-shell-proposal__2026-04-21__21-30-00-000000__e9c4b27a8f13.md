@@ -3,7 +3,7 @@
 - Created (UTC): 2026-04-21T21:30:00Z
 - Repository HEAD: ad9a5ea93897117cd90e2e6e36142bc90927cea2
 - Status: Proposal (draft, pre-implementation)
-- Audience: Vladimir; future Carbide contributors
+- Audience: Carbide Contributors; future Carbide contributors
 - Scope: design-level proposal for a clean-room PowerShell-flavored interactive shell that runs inside Carbide's Mono-WASM runtime with xterm.js as the terminal surface, backed by a virtualized filesystem
 
 ## 1. Motivation
@@ -21,7 +21,7 @@ Since those reports were written, three things changed Carbide's runtime:
 2. **T3 landed** (commit 43db73bda, referenced by the Current-State Guide): a forked `System.Console.dll` whose `ForegroundColor`, `BackgroundColor`, `SetCursorPosition`, `Title`, `Clear`, `WindowWidth/Height`, `TreatControlCAsInput`, `CancelKeyPress`, and `Beep` work against xterm.js through Carbide's streaming stdout writer. Pre-compiled NuGet libraries that touch the cosmetic `Console` surface no longer throw.
 3. **carbide-gh demo shipped** (ad9a5ea93, 5fb7afe7d): a Spectre.Console-powered interactive REPL, compiled from four C# files + a vendored `Spectre.Console.dll`, runs against `https://api.github.com` through the Mono-WASM fetch bridge and renders rich widgets into xterm. This demonstrates end-to-end that a C# console app compiled by Carbide can behave like a real interactive shell.
 
-This proposal pivots off that landscape with Vladimir's explicit direction:
+This proposal pivots off that landscape with Carbide Contributors' explicit direction:
 
 > We need to implement some small but practical subset of pwsh to have a xterm.js-hosted shell with a sandboxed or virtualized filesystem. It need not be a direct port of `lib/pwsh` sources, we can implement it in any way convenient to us. It should support expression evaluation, calling .NET API in pwsh syntax (`[System.Console]::BackgroundColor = 'DarkBlue'`), running .NET console apps that use only limited API supported in Carbide, and such.
 
@@ -304,7 +304,7 @@ Reflection-based, with a small allow-list policy.
   - **Deny-list hard blocks**: types known to throw `PlatformNotSupportedException` across the board (`System.Threading.Thread` as a *constructor*, `System.Diagnostics.Process.Start`, `System.Net.Sockets.*`), with a deny reason surfaced as the shell-level error message.
   - **Anything else** is allowed with a one-time interactive warning ("this type is not on the Carbide-known-safe list; calls may throw"), escalatable via `$PwshPolicy::StrictTypes = $true` to make unknown types hard errors.
 
-This is tighter than PowerShell's wide-open reflection stance but appropriate for a sandboxed shell, and easy to loosen if Vladimir wants.
+This is tighter than PowerShell's wide-open reflection stance but appropriate for a sandboxed shell, and easy to loosen if Carbide Contributors want.
 
 Indicative size: ~400–700 LOC including the allow-list table and reflection cache.
 
@@ -417,7 +417,7 @@ public interface IVfsStore
 }
 ```
 
-Snapshot format: a JSON tree with `type: "dir" | "file"`, `name`, `children` / `content`. Binary file content is base64-encoded. For Node, the store can optionally shadow to a real OS directory — bi-directional sync `~/.carbide/pwsh/workspace/<session-id>/` ↔ the VFS — if Vladimir wants persistent editing in a real editor; this is a Phase 4 nice-to-have.
+Snapshot format: a JSON tree with `type: "dir" | "file"`, `name`, `children` / `content`. Binary file content is base64-encoded. For Node, the store can optionally shadow to a real OS directory — bi-directional sync `~/.carbide/pwsh/workspace/<session-id>/` ↔ the VFS — if Carbide Contributors want persistent editing in a real editor; this is a Phase 4 nice-to-have.
 
 Note for browser: if Origin Private File System (OPFS) is available, we prefer it over IndexedDB for better fidelity and a native "Show in Finder / Files" export. OPFS has strong browser support by 2026 and a simpler API for tree-shaped storage.
 
@@ -449,7 +449,7 @@ All accept pipeline input for paths where PowerShell does.
 
 The shell *never* touches the real filesystem on behalf of user script code. The only real-disk I/O is the snapshot-persistence path (and even that is optional and opt-in). This is the sandbox promise: an untrusted script run in the shell cannot read `/etc/passwd` or enumerate `C:\Users\…`, because `Get-ChildItem /etc` simply sees the empty-or-populated VFS and nothing else.
 
-Host policy escapes: if Vladimir wants a specific directory exposed (e.g. "map `/work` to my real `C:\source\repos\Tools\`"), the host provides an explicit `vfs.mount(realPath, virtualPath, readonly)` API at session-construction time. Not shipped by default; has to be explicit per session.
+Host policy escapes: if Carbide Contributors want a specific directory exposed (e.g. "map `/work` to my real `C:\source\repos\Tools\`"), the host provides an explicit `vfs.mount(realPath, virtualPath, readonly)` API at session-construction time. Not shipped by default; has to be explicit per session.
 
 ## 7. .NET interop
 
@@ -573,7 +573,7 @@ Register-CarbideApp -Name 'wc' -Path './tools/wc.dll'
 'hello world' | wc -l
 
 # Or invoke directly from the VFS without registration.
-./tools/greet.dll Vladimir
+./tools/greet.dll Ada
 ```
 
 ### 8.4 Relationship to the JS-interop bridge proposal
@@ -615,9 +615,9 @@ Work estimates are expressed as new-surface counts (LOC, files, cmdlets, fixture
 
 ```powershell
 Set-Location /tmp
-@{ name = 'Vladimir'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json
+@{ name = 'Ada'; langs = @('C#', 'PowerShell', 'TypeScript') } | ConvertTo-Json | Set-Content profile.json
 Get-Content profile.json | ConvertFrom-Json | ForEach-Object { "Hello, $($_.name)!" }
-# expected output: Hello, Vladimir!
+# expected output: Hello, Ada!
 ```
 
 ### Phase 3 — Carbide-app invocation + scripts + error handling
@@ -673,7 +673,7 @@ The two feasibility reports:
 1. [`docs/research/pwsh/carbide-pwsh-subset-feasibility__2026-04-19__10-30-00-000000__a7c3d4e9f1b2.md`](../research/pwsh/carbide-pwsh-subset-feasibility__2026-04-19__10-30-00-000000__a7c3d4e9f1b2.md) — concluded "feasible" for a `lib/pwsh` fork, with a revised effort estimate of ~8–15k LOC after independent review.
 2. [`docs/research/powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md`](../research/powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — independent review; flagged "medium-to-large subproject, not a spike" framing and the two-feasibility-questions split (runtime-hosting vs source-build).
 
-This proposal takes a different path than either report recommended, because Vladimir's "need not be a direct port" direction retires most of what made those reports cautious. Specifically, the clean-room approach drops every one of the following concerns:
+This proposal takes a different path than either report recommended, because Carbide Contributors' "need not be a direct port" direction retires most of what made those reports cautious. Specifically, the clean-room approach drops every one of the following concerns:
 
 - `Expression.Compile()` audit across 23 sites in 13 files → gone (no IL emission anywhere in the clean-room interpreter).
 - `CoreAdapter.DynamicMethod` + `EventManager.AssemblyBuilder` patches → gone (we don't use them).
@@ -722,7 +722,7 @@ Each of those is testable; each corresponds to a phase exit gate.
 PS /> 2 + 2
 4
 PS /> "hello, $env:USER"
-hello, vladimir
+hello, contributor
 PS /> [System.Math]::PI * 2
 6.283185307179586
 PS /> [System.Console]::ForegroundColor = 'Green'; "world"; [System.Console]::ResetColor()
@@ -751,8 +751,8 @@ PS /work> $data | ConvertTo-Json -Depth 3
   "items": [ 1, 2, 3 ],
   "name": "demo"
 }
-PS /work> ./hello.dll Vladimir
-hello, Vladimir!
+PS /work> ./hello.dll Ada
+hello, Ada!
 PS /work> exit
 ```
 
