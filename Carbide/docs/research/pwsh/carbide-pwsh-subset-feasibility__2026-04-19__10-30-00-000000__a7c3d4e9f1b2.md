@@ -472,10 +472,10 @@ grep -rn "DllImport\|LibraryImport" --include="*.cs" engine/lang          # 0
 
 ### 13.2 Key source files referenced
 
-- [`lib/pwsh/src/System.Management.Automation/engine/parser/Compiler.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/parser/Compiler.cs) — the `CompileInterpretChoice` knob.
-- [`lib/pwsh/src/System.Management.Automation/engine/interpreter/LightCompiler.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/interpreter/LightCompiler.cs) — the forked-from-DLR interpreter.
-- [`lib/pwsh/src/System.Management.Automation/engine/runtime/Binding/Binders.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/runtime/Binding/Binders.cs) — DLR binders with direct Expression.Compile() calls.
-- [`lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj`](../../../../../lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj) — the csproj to fork.
+- [`lib/pwsh/src/System.Management.Automation/engine/parser/Compiler.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/parser/Compiler.cs) — the `CompileInterpretChoice` knob.
+- [`lib/pwsh/src/System.Management.Automation/engine/interpreter/LightCompiler.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/interpreter/LightCompiler.cs) — the forked-from-DLR interpreter.
+- [`lib/pwsh/src/System.Management.Automation/engine/runtime/Binding/Binders.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/runtime/Binding/Binders.cs) — DLR binders with direct Expression.Compile() calls.
+- [`lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj) — the csproj to fork.
 
 ### 13.3 Links
 

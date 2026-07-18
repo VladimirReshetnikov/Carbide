@@ -2,7 +2,7 @@
 // Downloads the pinned Avalonia nupkgs, verifies them, extracts the reference DLLs
 // needed to compile Avalonia-referencing C# code, and writes refpack.json.
 //
-// Design mirrors src/Carbide/packages/refs-net10.0/scripts/build.mjs, extended to
+// Design mirrors Carbide/packages/refs-net10.0/scripts/build.mjs, extended to
 // handle multiple source packages. Avalonia does not ship a separate `ref/` tree for
 // most of its packages (only a tiny `ref/net10.0/Avalonia.dll` stub in the meta
 // package), so this script pulls from `lib/net10.0/` and `lib/net10.0-browser1.0/`

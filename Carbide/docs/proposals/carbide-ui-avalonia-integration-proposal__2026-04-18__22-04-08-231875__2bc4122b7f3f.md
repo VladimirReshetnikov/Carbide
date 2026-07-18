@@ -594,7 +594,7 @@ Ship `@carbide-ui/refs-avalonia`. Mirror `@carbide/refs-net10.0`'s build script 
 **Acceptance.** From a fresh environment:
 
 ```bash
-cd src/Carbide.UI/packages/refs-avalonia
+cd Carbide.UI/packages/refs-avalonia
 node scripts/build.mjs
 # produces refpack/ with ~15 DLLs
 ```
@@ -718,7 +718,7 @@ UI-M0 opens as of 2026-04-21 on the strength of these decisions.
 
 ## 15. Alignment with adjacent work
 
-- **`cs-agent-tools`** ([`src/cs-agent-tools/`](../../../cs-agent-tools/)). The agent-facing Python surface can gain `cs-kit build-avalonia` and `cs-kit preview-avalonia` commands that wrap the CLI and (eventually) the launcher. No changes proposed in this document; `cs-agent-tools` is a downstream consumer.
+- **`cs-agent-tools`** ([`src/cs-agent-tools/`](https://github.com/VladimirReshetnikov/Tools/tree/main/src/cs-agent-tools/)). The agent-facing Python surface can gain `cs-kit build-avalonia` and `cs-kit preview-avalonia` commands that wrap the CLI and (eventually) the launcher. No changes proposed in this document; `cs-agent-tools` is a downstream consumer.
 - **Carbide M5 (`msbuild-lite`)**. `carbide build --target avalonia-browser --project MyApp.csproj` uses M5's `.csproj` parser directly. UI-M5 depends on M5 for the project-file path; users without a `.csproj` can still use `--source`.
 - **Carbide M6 (`@carbide/nuget`)**. If implemented before UI-M3, the launcher can feed NuGet-resolved additional references alongside the Avalonia ref-pack. Non-blocking.
 - **Carbide M12 (source generators)**. Enables UI-M7 (compile-time `.axaml`). Non-blocking for UI-M1 through UI-M6.

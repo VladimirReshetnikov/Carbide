@@ -187,7 +187,7 @@ The following commands were run after implementing the harness and fixing paste 
 handling:
 
 ```bash
-cd src/Carbide/packages/core
+cd Carbide/packages/core
 npm run build:dotnet
 
 cd ../carbide-pwsh
@@ -210,11 +210,11 @@ build errors.
 Additional validation after adding nested-shell coverage:
 
 ```bash
-dotnet test src/Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --filter "PerlAsyncSystemCanDispatchDotnetFacadeFromProgramText|PerlDebuggerPseudoReplAsyncSystemCanDispatchDotnetFacade" -v:minimal
-dotnet test src/Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --no-build -v:minimal
-dotnet test src/Carbide/packages/carbide-pwsh/test/CarbidePwsh.Tests.csproj -v:minimal
+dotnet test Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --filter "PerlAsyncSystemCanDispatchDotnetFacadeFromProgramText|PerlDebuggerPseudoReplAsyncSystemCanDispatchDotnetFacade" -v:minimal
+dotnet test Carbide/packages/carbide-multishell-tests/CarbideMultishell.Tests.csproj --no-build -v:minimal
+dotnet test Carbide/packages/carbide-pwsh/test/CarbidePwsh.Tests.csproj -v:minimal
 
-cd src/Carbide/packages/carbide-pwsh
+cd Carbide/packages/carbide-pwsh
 npm run test:browser:dotnet-nested
 npm run test:browser:dotnet
 ```

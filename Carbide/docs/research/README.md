@@ -4,7 +4,7 @@
 - Updated (UTC): 2026-04-20T01:25:40Z
 - Repository HEAD: f704d10238980f1fcfbda8577ba51a844919e068
 
-This directory holds Carbide-specific research, feasibility reports, and independent verification reports that directly inform the project-local design documents in [`src/Carbide/docs/`](../README.md).
+This directory holds Carbide-specific research, feasibility reports, and independent verification reports that directly inform the project-local design documents in [`Carbide/docs/`](../README.md).
 
 ## Topics
 
@@ -15,7 +15,7 @@ This directory holds Carbide-specific research, feasibility reports, and indepen
 
 ### Avalonia UI integration
 
-- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis of a browser-hosted Avalonia GUI story next to Carbide.
+- [Feasibility: integrating `Carbide/` and Avalonia UI for compiling and running GUI C# apps in a browser](avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis of a browser-hosted Avalonia GUI story next to Carbide.
 - [Verification: `carbide-avalonia-browser-gui-integration`](avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and correction pass over the feasibility report.
 
 ### PowerShell on Carbide
@@ -25,4 +25,4 @@ This directory holds Carbide-specific research, feasibility reports, and indepen
 
 ### PE parsing and rewriting libraries on Carbide
 
-- [Feasibility: running major PE parsing and rewriting libraries on `src/Carbide`](pe-libraries/carbide-pe-parsing-rewriting-libraries-feasibility__2026-04-20__01-07-50-000000__272fdc1dd683.md) — evidence-backed evaluation of Mono.Cecil, AsmResolver, dnlib, and the lower-level SRM fallback on Carbide, with separate verdicts for direct DLL references, current `PackageReference` ingestion, and source-tree buildability.
+- [Feasibility: running major PE parsing and rewriting libraries on `Carbide/`](pe-libraries/carbide-pe-parsing-rewriting-libraries-feasibility__2026-04-20__01-07-50-000000__272fdc1dd683.md) — evidence-backed evaluation of Mono.Cecil, AsmResolver, dnlib, and the lower-level SRM fallback on Carbide, with separate verdicts for direct DLL references, current `PackageReference` ingestion, and source-tree buildability.

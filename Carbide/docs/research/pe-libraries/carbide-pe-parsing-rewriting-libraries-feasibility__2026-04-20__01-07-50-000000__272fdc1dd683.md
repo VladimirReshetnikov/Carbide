@@ -7,7 +7,7 @@ Status: feasibility / architecture report. Evaluates whether major managed PE an
 
 Audience: repository owner and future implementers.
 
-Scope: evidence from [`src/Carbide/`](../../README.md), local library snapshots under [`lib/cecil`](../../../../../lib/cecil/README.md), [`lib/asmresolver`](../../../../../lib/asmresolver/README.md), and [`lib/dnlib`](../../../../../lib/dnlib/README.md), selected comparison notes under [`docs/lib/`](../../../../../docs/lib/), official NuGet package metadata, and direct Carbide runtime probes executed locally in this checkout.
+Scope: evidence from [`src/Carbide/`](../../README.md), local library snapshots under [`lib/cecil`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/cecil/README.md), [`lib/asmresolver`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/README.md), and [`lib/dnlib`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/dnlib/README.md), selected comparison notes under [`docs/lib/`](https://github.com/VladimirReshetnikov/Tools/tree/main/docs/lib/), official NuGet package metadata, and direct Carbide runtime probes executed locally in this checkout.
 
 ## 1. Request
 
@@ -72,7 +72,7 @@ For the core scenario in this report, the hard part is not "can Mono-WASM host a
 
 Upstream WebAssembly runtime constraints matter, but mostly at the edges:
 
-- [`lib/dotnet/runtime/src/mono/wasm/features.md`](../../../../../lib/dotnet/runtime/src/mono/wasm/features.md) documents optional multithreading, main-thread restrictions, and the broader Mono-WASM hosting model.
+- [`lib/dotnet/runtime/src/mono/wasm/features.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/dotnet/runtime/src/mono/wasm/features.md) documents optional multithreading, main-thread restrictions, and the broader Mono-WASM hosting model.
 - `System.Console` on browser-hosted .NET throws `PlatformNotSupportedException` for multiple interactive console APIs in the browser implementation; this matters for host-heavy libraries, not for pure PE readers.
 
 For PE libraries, the runtime constraints only become first-order problems when a library assumes:
@@ -151,13 +151,13 @@ I ran focused end-to-end Carbide probes using the built CLI at [`packages/cli/di
 
 Cecil is the cleanest immediate fit:
 
-- [`Mono.Cecil.csproj`](../../../../../lib/cecil/Mono.Cecil.csproj) is structurally simple.
+- [`Mono.Cecil.csproj`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/cecil/Mono.Cecil.csproj) is structurally simple.
 - The official `0.11.6` package has **no NuGet dependencies** for either `.NETFramework 4.0` or `.NETStandard 2.0`:
   - [NuGet version index](https://api.nuget.org/v3-flatcontainer/mono.cecil/index.json)
   - [NuGet nuspec for `0.11.6`](https://api.nuget.org/v3-flatcontainer/mono.cecil/0.11.6/mono.cecil.nuspec)
 - Cecil's core API is stream-oriented:
-  - [`AssemblyDefinition.ReadAssembly(Stream)`](../../../../../lib/cecil/Mono.Cecil/AssemblyDefinition.cs)
-  - [`ModuleDefinition.ReadModule(Stream)`](../../../../../lib/cecil/Mono.Cecil/ModuleDefinition.cs)
+  - [`AssemblyDefinition.ReadAssembly(Stream)`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/cecil/Mono.Cecil/AssemblyDefinition.cs)
+  - [`ModuleDefinition.ReadModule(Stream)`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/cecil/Mono.Cecil/ModuleDefinition.cs)
   - `Write(Stream, WriterParameters)`
 
 Architecturally, that is exactly what Carbide wants: raw bytes in, managed object graph in memory, raw bytes out.
@@ -186,7 +186,7 @@ Those are real caveats, but they are not on the critical path for:
 
 The current source tree is **close**, but not Carbide-buildable as-is:
 
-- [`lib/cecil/Directory.Build.props`](../../../../../lib/cecil/Directory.Build.props) uses `EnableDefaultItems=false`.
+- [`lib/cecil/Directory.Build.props`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/cecil/Directory.Build.props) uses `EnableDefaultItems=false`.
 - Carbide currently understands `EnableDefaultCompileItems`, not `EnableDefaultItems`.
 - As a result, `carbide validate --project lib/cecil/Mono.Cecil.csproj` pulled in the `Test/`, `rocks/`, and `symbols/` trees and produced collisions unrelated to Cecil's core library code.
 - A normal SDK `dotnet build` of `Mono.Cecil.csproj` got much further and then failed on a missing signing key file (`cecil.snk`), which confirms the current project shape is not wildly incompatible; it is just not drop-in ready for Carbide.
@@ -203,12 +203,12 @@ It already works through Carbide's package path, its core API matches Carbide's 
 
 AsmResolver is the strongest long-term candidate if the goal is not just ".NET assembly editing" but broader PE + metadata control:
 
-- [`AsmResolver.DotNet`](../../../../../lib/asmresolver/src/AsmResolver.DotNet/AsmResolver.DotNet.csproj) sits on top of lower PE layers rather than hiding them.
+- [`AsmResolver.DotNet`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.DotNet/AsmResolver.DotNet.csproj) sits on top of lower PE layers rather than hiding them.
 - The library exposes direct byte[] / stream entry points:
-  - [`AssemblyDefinition.FromBytes`](../../../../../lib/asmresolver/src/AsmResolver.DotNet/AssemblyDefinition.cs)
-  - [`ModuleDefinition.FromBytes`](../../../../../lib/asmresolver/src/AsmResolver.DotNet/ModuleDefinition.cs)
-  - [`PEImage.FromBytes`](../../../../../lib/asmresolver/src/AsmResolver.PE/PEImage.cs)
-  - [`PEFile.FromBytes`](../../../../../lib/asmresolver/src/AsmResolver.PE.File/PEFile.cs)
+  - [`AssemblyDefinition.FromBytes`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.DotNet/AssemblyDefinition.cs)
+  - [`ModuleDefinition.FromBytes`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.DotNet/ModuleDefinition.cs)
+  - [`PEImage.FromBytes`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.PE/PEImage.cs)
+  - [`PEFile.FromBytes`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.PE.File/PEFile.cs)
 - It also supports direct `Write(Stream)` on the module path.
 
 That is an excellent fit for Carbide's runtime model.
@@ -275,10 +275,10 @@ So `6.0.0-rc.1` is not "AsmResolver fails on Carbide"; it is "this current packa
 
 AsmResolver's source tree is not Carbide-buildable as-is today:
 
-- [`src/Directory.Build.props`](../../../../../lib/asmresolver/src/Directory.Build.props) multi-targets a wide framework matrix.
-- [`AsmResolver.DotNet.csproj`](../../../../../lib/asmresolver/src/AsmResolver.DotNet/AsmResolver.DotNet.csproj) references the source-generator project as an analyzer.
+- [`src/Directory.Build.props`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/Directory.Build.props) multi-targets a wide framework matrix.
+- [`AsmResolver.DotNet.csproj`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.DotNet/AsmResolver.DotNet.csproj) references the source-generator project as an analyzer.
 - A normal SDK `dotnet build` of `AsmResolver.DotNet.csproj` succeeded for `net8.0`.
-- The same build failed for `netstandard2.0` in the local snapshot because [`ModuleDefinition.cs`](../../../../../lib/asmresolver/src/AsmResolver.DotNet/ModuleDefinition.cs) now calls `ArgumentNullException.ThrowIfNull`, which is not available on that older target the way the current source is written.
+- The same build failed for `netstandard2.0` in the local snapshot because [`ModuleDefinition.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/asmresolver/src/AsmResolver.DotNet/ModuleDefinition.cs) now calls `ArgumentNullException.ThrowIfNull`, which is not available on that older target the way the current source is written.
 
 That combination implies:
 
@@ -300,8 +300,8 @@ That combination implies:
 
 dnlib's core module APIs are also well aligned with Carbide's runtime model:
 
-- [`ModuleDefMD.Load(byte[])`](../../../../../lib/dnlib/src/DotNet/ModuleDefMD.cs)
-- [`ModuleDefMD.Load(Stream)`](../../../../../lib/dnlib/src/DotNet/ModuleDefMD.cs)
+- [`ModuleDefMD.Load(byte[])`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/dnlib/src/DotNet/ModuleDefMD.cs)
+- [`ModuleDefMD.Load(Stream)`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/dnlib/src/DotNet/ModuleDefMD.cs)
 - `Write(Stream)`
 
 The official package metadata is also modest:
@@ -345,7 +345,7 @@ The right reading of the successful probe is:
 
 dnlib's source tree is substantially less Carbide-friendly than Cecil's:
 
-- [`dnlib.csproj`](../../../../../lib/dnlib/src/dnlib.csproj) imports external props conditionally,
+- [`dnlib.csproj`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/dnlib/src/dnlib.csproj) imports external props conditionally,
 - carries package references such as `Microsoft.SourceLink.GitHub`,
 - includes strong-name settings,
 - and conditionally brings in `System.Reflection.Emit` packages for `netstandard2.0`.
@@ -367,8 +367,8 @@ Use it when dnlib-specific behavior matters. Otherwise Cecil is simpler and AsmR
 
 If the goal is "avoid package-line churn entirely," the built-in runtime metadata stack is always available as a fallback substrate:
 
-- [`system-reflection-metadata-ecma335-emit-architecture.md`](../../../../../docs/lib/dotnet/runtime/system-reflection-metadata-ecma335-emit-architecture.md)
-- [`managed-metadata-toolkits-architecture.md`](../../../../../docs/lib/managed-metadata-toolkits-architecture.md)
+- [`system-reflection-metadata-ecma335-emit-architecture.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/lib/dotnet/runtime/system-reflection-metadata-ecma335-emit-architecture.md)
+- [`managed-metadata-toolkits-architecture.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/lib/managed-metadata-toolkits-architecture.md)
 
 This path has two strong advantages:
 

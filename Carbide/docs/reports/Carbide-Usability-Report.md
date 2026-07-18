@@ -271,7 +271,7 @@ All gated by `CARBIDE_NUGET_LIVE=1`:
 
 ```bash
 # Core corpus (requires dotnet publish assets for the WASM runtime).
-cd src/Carbide/packages/core
+cd Carbide/packages/core
 npm install
 npm run build
 npm test

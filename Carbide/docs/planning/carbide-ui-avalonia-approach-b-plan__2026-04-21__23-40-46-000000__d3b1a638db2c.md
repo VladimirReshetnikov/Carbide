@@ -181,7 +181,7 @@ Compressed tarball 1.64 MB against the 2 MB compressed budget; 4.93 MB against t
 - From a fresh environment:
 
   ```bash
-  cd src/Carbide.UI/packages/refs-avalonia
+  cd Carbide.UI/packages/refs-avalonia
   node scripts/build.mjs
   ```
 

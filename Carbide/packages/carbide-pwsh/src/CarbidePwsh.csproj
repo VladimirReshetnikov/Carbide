@@ -16,7 +16,7 @@
 
   <!-- Phase 1 uses reflection against curated BCL types; trimming strips members we
        dispatch at runtime. Override the repository-wide trimming defaults from
-       src/Carbide/Directory.Build.props. Trim-safety is a Phase-4 concern. -->
+       Carbide/Directory.Build.props. Trim-safety is a Phase-4 concern. -->
   <PropertyGroup>
     <IsTrimmable>false</IsTrimmable>
     <PublishTrimmed>false</PublishTrimmed>

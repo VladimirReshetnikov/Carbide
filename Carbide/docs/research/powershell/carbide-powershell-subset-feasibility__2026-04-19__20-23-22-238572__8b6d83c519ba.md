@@ -73,7 +73,7 @@ That distinction matters because the best first milestone is:
 
 The shared PowerShell build props already conflict with Carbide's build model:
 
-- [`lib/pwsh/PowerShell.Common.props`](../../../../../lib/pwsh/PowerShell.Common.props) imports `Analyzers.props`.
+- [`lib/pwsh/PowerShell.Common.props`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/PowerShell.Common.props) imports `Analyzers.props`.
 - The same file defines a `GetPSCoreVersionFromGit` target and runs `git describe` via `<Exec ...>`.
 
 That alone is enough to fail under Carbide's current documented rules:
@@ -83,7 +83,7 @@ That alone is enough to fail under Carbide's current documented rules:
 
 `System.Management.Automation` itself also carries Carbide-incompatible build assumptions:
 
-- [`lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj`](../../../../../lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj) imports `..\..\PowerShell.Common.props`.
+- [`lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/System.Management.Automation.csproj) imports `..\..\PowerShell.Common.props`.
 - The same project references `SourceGenerators\PSVersionInfoGenerator\PSVersionInfoGenerator.csproj` as an analyzer (`OutputItemType="Analyzer"`).
 
 Carbide's package policy collides with that project graph in multiple ways:
@@ -109,7 +109,7 @@ Some of those are merely "large and awkward"; some are much more fundamental. Th
 
 There is also a target-framework mismatch:
 
-- [`lib/pwsh/PowerShell.Common.props`](../../../../../lib/pwsh/PowerShell.Common.props) targets `net9.0`.
+- [`lib/pwsh/PowerShell.Common.props`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/PowerShell.Common.props) targets `net9.0`.
 - Carbide's supported compile-time story is centered on `net10.0` and [`@carbide/refs-net10.0`](../../../packages/refs-net10.0/README.md), as documented in the [current-state guide](../../Carbide-Current-State-Guide.md).
 
 ### 4.2 Carbide's runtime model conflicts with key `pwsh` assumptions
@@ -122,9 +122,9 @@ Carbide today is a `browser-wasm` runtime packaged for both browser and Node hos
 
 PowerShell's engine and host layers assume a richer threading model:
 
-- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/Connection.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/hostifaces/Connection.cs) defines `PSThreadOptions.Default`, `UseNewThread`, `ReuseThread`, and `UseCurrentThread`, with `UseCurrentThread` explicitly documented as invalid for asynchronous calls.
-- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/LocalPipeline.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/hostifaces/LocalPipeline.cs) creates new `Thread` instances for `UseNewThread`, maintains a reusable worker thread for `ReuseThread`, and uses `AutoResetEvent`.
-- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/PowerShell.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/hostifaces/PowerShell.cs) exposes a large `BeginInvoke` / `InvokeAsync` surface and validates thread settings against those modes.
+- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/Connection.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/hostifaces/Connection.cs) defines `PSThreadOptions.Default`, `UseNewThread`, `ReuseThread`, and `UseCurrentThread`, with `UseCurrentThread` explicitly documented as invalid for asynchronous calls.
+- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/LocalPipeline.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/hostifaces/LocalPipeline.cs) creates new `Thread` instances for `UseNewThread`, maintains a reusable worker thread for `ReuseThread`, and uses `AutoResetEvent`.
+- [`lib/pwsh/src/System.Management.Automation/engine/hostifaces/PowerShell.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/hostifaces/PowerShell.cs) exposes a large `BeginInvoke` / `InvokeAsync` surface and validates thread settings against those modes.
 
 This does **not** mean "nothing PowerShell-like can run." It means the subset boundary must be explicit:
 
@@ -153,10 +153,10 @@ This is exactly why the existing [`JS↔C# interop bridge proposal`](../../propo
 
 Even after trimming away obvious platform-heavy features, there is a deeper technical risk: parts of `System.Management.Automation` assume dynamic code generation:
 
-- [`engine/lang/scriptblock.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/lang/scriptblock.cs) calls `Expression.Lambda(...).Compile()`.
-- [`engine/ScriptCommandProcessor.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/ScriptCommandProcessor.cs) calls `_scriptBlock.Compile(...)`.
-- [`engine/CoreAdapter.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/CoreAdapter.cs) uses `DynamicMethod` and multiple `Expression.Lambda(...).Compile()` paths.
-- [`engine/EventManager.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/EventManager.cs) creates a dynamic assembly with `AssemblyBuilder.DefineDynamicAssembly(...)`.
+- [`engine/lang/scriptblock.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/lang/scriptblock.cs) calls `Expression.Lambda(...).Compile()`.
+- [`engine/ScriptCommandProcessor.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/ScriptCommandProcessor.cs) calls `_scriptBlock.Compile(...)`.
+- [`engine/CoreAdapter.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/CoreAdapter.cs) uses `DynamicMethod` and multiple `Expression.Lambda(...).Compile()` paths.
+- [`engine/EventManager.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/EventManager.cs) creates a dynamic assembly with `AssemblyBuilder.DefineDynamicAssembly(...)`.
 
 I do **not** treat those lines as proof that the subset is impossible. I do treat them as proof that a Carbide-friendly subset is **not** going to happen by removing a few top-level features and hoping the rest of the engine falls into line.
 
@@ -196,7 +196,7 @@ It is **not** worth targeting, in v1, scripts whose value depends on:
 The most credible engine boundary is:
 
 - **Parser, tokenizer, AST, and basic script evaluation**
-  - These are clearly valuable on their own and already separated in [`docs/lib/pwsh/parser-and-execution-pipeline-architecture.md`](../../../../../docs/lib/pwsh/parser-and-execution-pipeline-architecture.md).
+  - These are clearly valuable on their own and already separated in [`docs/lib/pwsh/parser-and-execution-pipeline-architecture.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/lib/pwsh/parser-and-execution-pipeline-architecture.md).
 - **Interpreter-first or interpreter-heavy execution**
   - The parser/execution docs show both runtime and interpreter strata. A Carbide subset should bias toward the non-emit path, even if slower.
 - **A custom minimal session state**
@@ -215,8 +215,8 @@ The most credible engine boundary is:
 
 PowerShell's own provider docs reinforce that provider behavior is part of the semantic contract, not just a path parser:
 
-- [`docs/lib/pwsh/provider-and-namespace-architecture.md`](../../../../../docs/lib/pwsh/provider-and-namespace-architecture.md) describes providers as capability-bearing virtual stores, with `FileSystemProvider` including content and ACL behavior.
-- [`docs/lib/pwsh/interactive-host-integration-guide.md`](../../../../../docs/lib/pwsh/interactive-host-integration-guide.md) explicitly warns that hosts need a clear policy for file-system-only behavior versus full provider semantics.
+- [`docs/lib/pwsh/provider-and-namespace-architecture.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/lib/pwsh/provider-and-namespace-architecture.md) describes providers as capability-bearing virtual stores, with `FileSystemProvider` including content and ACL behavior.
+- [`docs/lib/pwsh/interactive-host-integration-guide.md`](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/lib/pwsh/interactive-host-integration-guide.md) explicitly warns that hosts need a clear policy for file-system-only behavior versus full provider semantics.
 
 So the right stance is:
 
@@ -288,7 +288,7 @@ The fork itself is the heavy lift. I would expect all of the following:
    - Remove or hard-fail async pipeline lanes.
 
 5. **Disable or replace native-command integration**
-   - [`CommandDiscovery.cs`](../../../../../lib/pwsh/src/System.Management.Automation/engine/CommandDiscovery.cs) routes `CommandTypes.Application` to `NativeCommandProcessor`.
+   - [`CommandDiscovery.cs`](https://github.com/VladimirReshetnikov/Tools/blob/main/lib/pwsh/src/System.Management.Automation/engine/CommandDiscovery.cs) routes `CommandTypes.Application` to `NativeCommandProcessor`.
    - For v1, that should become "unsupported" or a host callback, not "let the old implementation try."
 
 6. **Trim feature families aggressively**

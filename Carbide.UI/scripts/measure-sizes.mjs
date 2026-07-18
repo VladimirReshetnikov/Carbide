@@ -7,7 +7,7 @@
 //   1 — `npm pack` failed for one or more packages.
 //   2 — one or more packages exceeded its budget.
 //
-// Usage (from src/Carbide.UI/):
+// Usage (from Carbide.UI/):
 //   node scripts/measure-sizes.mjs
 
 import { spawnSync } from "node:child_process";

@@ -6,7 +6,7 @@ Repository HEAD: 43db73bda (T3 forked System.Console.dll landed)
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
-- Scope: The current implemented behavior of `src/Carbide`, including what Carbide is for, how it is built and used today, what is intentionally out of scope, and where the important seams live in code
+- Scope: The current implemented behavior of the top-level `Carbide/` project, including what Carbide is for, how it is built and used today, what is intentionally out of scope, and where the important seams live in code
 - Related code:
   - `../packages/core/`
   - `../packages/cli/`
@@ -370,13 +370,13 @@ dotnet workload install wasm-tools
 npx playwright install chromium
 ```
 
-### Monorepo build order
+### Repository build order
 
-There is no root package-workspace orchestrator under `src/Carbide/`; build the packages explicitly.
+There is no package-workspace orchestrator under `Carbide/`; build the packages explicitly.
 
 ```bash
 # 1. Build or install the ref-pack so Carbide has stable compile-time refs.
-cd src/Carbide/packages/refs-net10.0
+cd Carbide/packages/refs-net10.0
 npm install
 
 # 2. Build the core runtime package.

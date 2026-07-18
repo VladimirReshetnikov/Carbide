@@ -26,7 +26,7 @@ Prerequisites:
   `SharpCompress.dll` for the shared executable catalog.
 
 ```bash
-cd src/Carbide/packages/carbide-pwsh
+cd Carbide/packages/carbide-pwsh
 dotnet build src/CarbidePwsh.csproj
 node scripts/serve.mjs
 # -> carbide-pwsh demo server: http://127.0.0.1:34571/packages/carbide-pwsh/
@@ -218,7 +218,7 @@ PowerShell 7.6 builtin alias surface as recognized command-discovery metadata.
 
 ```bash
 # Build + unit tests:
-cd src/Carbide/packages/carbide-pwsh
+cd Carbide/packages/carbide-pwsh
 dotnet build src/CarbidePwsh.csproj
 dotnet test test/CarbidePwsh.Tests.csproj
 
@@ -233,7 +233,7 @@ Chromium, waits for the xterm-hosted pwsh prompt, and sends keyboard/paste input
 the terminal:
 
 ```bash
-cd src/Carbide/packages/core
+cd Carbide/packages/core
 npm run build:dotnet
 npm run build:ts
 

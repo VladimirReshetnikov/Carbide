@@ -47,7 +47,7 @@ if ($allFiles.Count -eq 0) {
 $fileListPath = [System.IO.Path]::ChangeExtension($CarbideResultsPath, '.files.txt')
 $allFiles.FullName | Set-Content -LiteralPath $fileListPath -Encoding UTF8
 
-$parityProject = 'C:\Tools2\Tools\src\Carbide\packages\carbide-pwsh\parity\CarbidePwsh.Parity.csproj'
+$parityProject = Join-Path $PSScriptRoot 'CarbidePwsh.Parity.csproj'
 $carbideCommand = @(
     'run',
     '--project', $parityProject,

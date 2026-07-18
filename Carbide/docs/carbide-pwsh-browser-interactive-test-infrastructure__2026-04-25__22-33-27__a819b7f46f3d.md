@@ -4,7 +4,7 @@
 - Updated (UTC): 2026-04-26T02:51:09Z
 - Repository HEAD: 020144bd373ad7d9aa29914e84c14963d18d87f4
 - Document type: current-state operational documentation
-- Scope: `src/Carbide/packages/carbide-pwsh`
+- Scope: `Carbide/packages/carbide-pwsh`
 
 ## Purpose
 
@@ -24,7 +24,7 @@ from the terminal.
 `scripts/serve.mjs` remains the human-facing static server:
 
 ```bash
-cd src/Carbide/packages/carbide-pwsh
+cd Carbide/packages/carbide-pwsh
 node scripts/serve.mjs
 ```
 
@@ -46,7 +46,7 @@ small black-box shell driver:
 - `waitForPrompt(options)` waits for a fresh `PS /home/user>` prompt.
 - `textBuffer()` and `tail()` read the visible terminal transcript after ANSI stripping.
 - `saveArtifacts(name, extra)` writes a screenshot, transcript, and JSON diagnostics under
-  `src/Carbide/test-results/carbide-pwsh-browser/`.
+  `Carbide/test-results/carbide-pwsh-browser/`.
 
 If page startup fails before the shell is returned, `launchPwshBrowser()` closes the
 Chromium instance and static server before rethrowing. This keeps failed or interrupted
@@ -124,7 +124,7 @@ tests.
 The browser test depends on the same built artifacts as the human demo:
 
 ```bash
-cd src/Carbide/packages/core
+cd Carbide/packages/core
 npm install
 npm run build:dotnet
 npm run build:ts
@@ -145,8 +145,8 @@ Failures call `saveArtifacts(...)`, which writes:
 - `<prefix>.buffer.txt` - ANSI-stripped terminal transcript.
 - `<prefix>.json` - URL, page errors, console logs, and scenario-specific diagnostics.
 
-Artifacts live under `src/Carbide/test-results/carbide-pwsh-browser/`, which is ignored by
-`src/Carbide/.gitignore`. They are intentionally local debugging evidence rather than
+Artifacts live under `Carbide/test-results/carbide-pwsh-browser/`, which is ignored by
+`Carbide/.gitignore`. They are intentionally local debugging evidence rather than
 tracked fixtures.
 
 ## Invariants For Future Tests

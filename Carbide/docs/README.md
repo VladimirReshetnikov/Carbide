@@ -10,7 +10,7 @@ This directory holds the design material for **Carbide** — a working codename 
 
 - [Carbide current-state guide](Carbide-Current-State-Guide.md) — the authoritative current-state manual: project goals, scope, package map, architecture, feature matrix, build/test guidance, API and CLI usage, tutorial, limitations, and troubleshooting.
 - [carbide-pwsh browser interactive test infrastructure](carbide-pwsh-browser-interactive-test-infrastructure__2026-04-25__22-33-27__a819b7f46f3d.md) — operational contract for browser-level `carbide-pwsh` tests that drive the real xterm endpoint with keyboard/paste input.
-- [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `src/Carbide` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
+- [Carbide code review](reports/carbide-code-review__2026-04-20__16-09-06-000000__201d0d99c75e.md) — source-level review of `Carbide/` after reading the current docs, with findings focused on correctness, safety, lifecycle behavior, and semantic drift.
 - [carbide-pwsh browser dotnet interactive test report](reports/carbide-pwsh-browser-dotnet-interactive-test-report__2026-04-25__22-33-27__89aacdfaa490.md) — implementation and validation report for the browser-level `dotnet` facade scenarios, including the paste-chunk prompt bug found and fixed by the new harness.
 - [carbide-pwsh repo PowerShell parse audit](reports/carbide-pwsh-repo-script-parse-audit__2026-04-23__02-59-32-0527852__9d3a7c1e4b62.md) — authoritative tracked-file audit of all repo PowerShell scripts against `pwsh.exe 7.6`, plus the mismatch catalog, the `carbide-pwsh` fixes that closed each gap, and the final `111 / 111` result.
 - [carbide-pwsh external GitHub corpus parse audit](reports/carbide-pwsh-external-github-corpus-parse-audit__2026-04-23__06-20-22__c2d0b7a8f4e1.md) — large-scale audit against a `6070`-file GitHub corpus downloaded under `C:\TestData\pwsh`, documenting the final corpus-driven parser fixes and the `0` remaining `pwsh-ok / carbide-fail` files.
@@ -38,7 +38,7 @@ This directory holds the design material for **Carbide** — a working codename 
 - [Research report index](research/README.md) — Carbide-specific feasibility studies, surveys, and independent verification reports organized by topic.
 - [JS↔C# WASM interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey__2026-04-18__21-43-55-000000__b27d950cd3b9.md) — landscape survey that motivates Carbide's richer JS-facing bridge direction.
 - [Independent verification of the Carbide WASM JS interop libraries survey](research/js-interop/carbide-wasm-js-interop-libraries-survey-verification__2026-04-19__00-10-31-940963__62239b6e3b7c.md) — independent audit of the survey's claims and recommendations.
-- [Feasibility: integrating `src/Carbide` and Avalonia UI for compiling and running GUI C# apps in a browser](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis for an Avalonia browser GUI story next to Carbide.
+- [Feasibility: integrating `Carbide/` and Avalonia UI for compiling and running GUI C# apps in a browser](research/avalonia-ui/carbide-avalonia-browser-gui-integration__2026-04-18__21-52-50-185670__57c69d8c45e3.md) — feasibility analysis for an Avalonia browser GUI story next to Carbide.
 - [Verification: `carbide-avalonia-browser-gui-integration`](research/avalonia-ui/carbide-avalonia-browser-gui-integration-verification__2026-04-19__00-19-02__73b9556c6bb8.md) — independent verification and corrections for the Avalonia feasibility report.
 - [Feasibility: running a useful `lib/pwsh` subset on Carbide in Node.js](research/powershell/carbide-powershell-subset-feasibility__2026-04-19__20-23-22-238572__8b6d83c519ba.md) — feasibility analysis for a PowerShell-derived automation subset on Carbide, with separate conclusions for runtime hosting and source-build feasibility.
 
@@ -67,8 +67,8 @@ This directory holds the design material for **Carbide** — a working codename 
 
 ## Prior context
 
-The feasibility analysis that precedes this work is the repository-level report [*Feasibility: building and running simple C# projects with only Python + Node.js*](../../../docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md). Carbide is the first concrete answer to the question that report posed: "what would a framework-shaped version of this look like, and how far up the tier ladder can we credibly go?"
+The feasibility analysis that precedes this work is the repository-level report [*Feasibility: building and running simple C# projects with only Python + Node.js*](https://github.com/VladimirReshetnikov/Tools/blob/main/docs/reports/csharp-build-run-without-dotnet-sdk-feasibility__2026-04-17__01-02-58-000000.md). Carbide is the first concrete answer to the question that report posed: "what would a framework-shaped version of this look like, and how far up the tier ladder can we credibly go?"
 
 ## Status
 
-Project initiated under `src/Carbide/`. These documents are the design contract the code in this project is expected to honour.
+The implementation lives under the top-level `Carbide/` directory. These documents are the design contract the code in this project is expected to honour.

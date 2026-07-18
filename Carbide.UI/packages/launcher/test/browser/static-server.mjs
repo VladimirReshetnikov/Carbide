@@ -1,6 +1,6 @@
 // Multi-root static server for @carbide-ui/launcher browser tests.
 //
-// Mounts src/ at the root so the browser can reach both Carbide and Carbide.UI trees
+// Mounts the repository root so the browser can reach both top-level project trees
 // via absolute URLs: /Carbide/packages/core/..., /Carbide.UI/packages/launcher/... etc.
 // No CORS / caching headers — same-origin everything; `cache-control: no-store`
 // matches Carbide core's pattern.
@@ -12,8 +12,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // HERE = Carbide.UI/packages/launcher/test/browser.
-// Walk up 5 levels to reach src/ (Carbide.UI sits directly under src/).
-const SRC_ROOT = path.resolve(HERE, "..", "..", "..", "..", "..");
+// Walk up 5 levels to reach the repository root (Carbide.UI is top-level).
+const REPOSITORY_ROOT = path.resolve(HERE, "..", "..", "..", "..", "..");
 const PORT = Number(process.env.PORT ?? 34568);
 
 function guessMime(filePath) {
@@ -50,8 +50,8 @@ const server = createServer(async (req, res) => {
         const url = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
         const rawPathname = decodeURIComponent(url.pathname).replace(/^\/+/, "");
         const pathname = applyScopedShim(rawPathname);
-        const abs = path.resolve(SRC_ROOT, pathname);
-        if (!abs.startsWith(SRC_ROOT)) {
+        const abs = path.resolve(REPOSITORY_ROOT, pathname);
+        if (!abs.startsWith(REPOSITORY_ROOT)) {
             res.writeHead(403);
             res.end("Forbidden");
             return;
@@ -75,5 +75,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-    console.log(`carbide-ui static server: http://127.0.0.1:${PORT} root=${SRC_ROOT}`);
+    console.log(`carbide-ui static server: http://127.0.0.1:${PORT} root=${REPOSITORY_ROOT}`);
 });

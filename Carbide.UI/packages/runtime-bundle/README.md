@@ -50,7 +50,7 @@ A consumer deploying to a host without static-compression middleware should eith
 After `npm run build`, manually verify the bundle by serving the package root over HTTP and opening `test-shell.html`:
 
 ```bash
-cd src/Carbide.UI/packages/runtime-bundle
+cd Carbide.UI/packages/runtime-bundle
 python -m http.server 8000
 # open http://localhost:8000/test-shell.html in a browser
 # expected: "Carbide.UI runner — UI-M2 splash" renders in the canvas

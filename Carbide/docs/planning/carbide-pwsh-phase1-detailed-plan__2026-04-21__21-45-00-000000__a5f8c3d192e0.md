@@ -430,7 +430,7 @@ The evaluator is synchronous. Only the outer REPL uses `async` (for `await Conso
 ### 6.3 Running
 
 ```bash
-cd src/Carbide/packages/carbide-pwsh/src
+cd Carbide/packages/carbide-pwsh/src
 dotnet build Shell/CarbidePwsh.Shell.csproj
 dotnet build App/CarbidePwsh.App.csproj
 cd ../test
@@ -440,7 +440,7 @@ dotnet test CarbidePwsh.Tests.csproj
 Browser smoke:
 
 ```bash
-cd src/Carbide/packages/carbide-pwsh
+cd Carbide/packages/carbide-pwsh
 node scripts/serve.mjs &
 node scripts/smoke.mjs
 ```

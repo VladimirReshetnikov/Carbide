@@ -33,7 +33,7 @@ Prerequisites: .NET 10 SDK with the `wasm-tools` workload (`dotnet workload inst
 
 ```bash
 # One-time: extract the ref-pack so Carbide's compile-time metadata surface is stable.
-cd src/Carbide/packages/refs-net10.0
+cd Carbide/packages/refs-net10.0
 node scripts/build.mjs
 
 # Core runtime package.

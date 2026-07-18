@@ -186,8 +186,8 @@ async function locateSideloadManifest(packageName: string): Promise<string> {
     //   - <unscoped>/refpack.json (adjacent layout)
     //   - <sibling>/packages/<unscoped>/refpack.json for every immediate child
     //     of this ancestor — covers cross-root layouts like @carbide-ui/* living
-    //     under src/Carbide.UI/packages/ while @carbide/core lives under
-    //     src/Carbide/packages/.
+    //     under Carbide.UI/packages/ while @carbide/core lives under
+    //     Carbide/packages/.
     for (let i = 0; i < 10; i++) {
         candidates.push(path.join(dir, "packages", unscoped, "refpack.json"));
         candidates.push(path.join(dir, unscoped, "refpack.json"));

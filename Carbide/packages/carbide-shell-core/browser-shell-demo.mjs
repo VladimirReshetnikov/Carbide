@@ -219,7 +219,7 @@ async function loadSharpCompressReference() {
         "Unable to locate SharpCompress.dll for the shared shell executable catalog. " +
             "Tried:\n" +
             attempted.join("\n") +
-            "\nBuild C:/Tools2/Tools/src/Carbide/packages/carbide-pwsh/src/CarbidePwsh.csproj " +
+            "\nBuild Carbide/packages/carbide-pwsh/src/CarbidePwsh.csproj from the repository root " +
             "(or the carbide-multishell project) so the browser host can fetch the dependency.",
     );
 }

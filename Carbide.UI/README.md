@@ -77,15 +77,17 @@ Documented per proposal §12 and plan §13:
 ## Testing
 
 ```bash
+# Run these commands from the repository root.
+
 # @carbide/core + browser-adapter: node corpus (pulls in core-P1/P2/P3 regressions)
-cd ../Carbide/packages/core && npm run test:fast
+npm --prefix Carbide/packages/core run test:fast
 
 # @carbide-ui/launcher: unit tests (Node fake-window harness)
-cd packages/launcher && npm test
+npm --prefix Carbide.UI/packages/launcher test
 
 # @carbide-ui/launcher: browser end-to-end (requires Chromium; auto-starts static server)
-cd packages/launcher && npm run test:browser
+npm --prefix Carbide.UI/packages/launcher run test:browser
 
 # Per-package size gate
-node scripts/measure-sizes.mjs
+node Carbide.UI/scripts/measure-sizes.mjs
 ```
