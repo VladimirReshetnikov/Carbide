@@ -90,12 +90,6 @@ node scripts\measure-sizes.mjs
 
 See the workspace READMEs for the complete and faster smoke-test variants.
 
-## History and provenance
-
-The imported Tools lineage contains 139 commits beginning with the original `Carbide project kick-off` on 2026-04-17. It retains the predecessor documents that lived under Tools' `docs/proposals/carbide/` and `docs/reports/` before they were renamed into the Carbide workspace. Commit hashes necessarily changed when repository-relative paths changed from `src/Carbide*` to the top-level directories. The annotated tag `extraction-2026-07-18` identifies the last imported commit before standalone-repository adjustments.
-
-Pre-extraction documents that record a `Repository HEAD` value retain their original Tools commit as historical provenance. Resolve those hashes in the [Tools repository](https://github.com/VladimirReshetnikov/Tools), not in this rewritten repository.
-
 ## Working guidance
 
 - Keep framework work in `Carbide/` and Avalonia integration work in `Carbide.UI/`; preserve the frontend/core boundary and sibling layout.
