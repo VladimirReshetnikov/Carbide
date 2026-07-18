@@ -1,11 +1,6 @@
 # Carbide repository
 
-- Created (UTC): 2026-07-18T02:36:47Z
-- Repository HEAD: `9963d18cca3d1c80b7c450b3389dfc42f3dbaf68`
-- Source Tools base: `f076f9845e532b624dd7c7bed65704ea5777e82f`
-- Status: Active standalone repository
-
-This repository is the standalone home of Carbide, a C# compile-and-run framework for environments without the .NET SDK, and Carbide.UI, its Avalonia browser UI integration family. It was extracted from [`VladimirReshetnikov/Tools`](https://github.com/VladimirReshetnikov/Tools) with the relevant Git history preserved and the two workspaces retained as top-level siblings.
+This repository is the standalone home of Carbide, a C# compile-and-run framework for environments without the .NET SDK, and Carbide.UI, its Avalonia browser UI integration family.
 
 This document is also the canonical repository guidance for maintainers and coding agents. `AGENTS.md` and `CLAUDE.md` point here.
 
@@ -20,8 +15,6 @@ This document is also the canonical repository guidance for maintainers and codi
 ├── LICENSE        # MIT-0 repository license
 └── README.md      # repository overview and canonical guidance
 ```
-
-The sibling topology is intentional. Cross-workspace browser tests and package discovery expect `Carbide/` and `Carbide.UI/` to share this repository root.
 
 ## Where to start
 
@@ -100,3 +93,7 @@ Pre-extraction documents that record a `Repository HEAD` value retain their orig
 ## License
 
 Unless a subtree says otherwise, repository content is licensed under the [MIT No Attribution License](LICENSE). Adapted upstream material retains the attribution and licensing notices identified in its local `ATTRIBUTION.md` or `THIRD_PARTY_NOTICES.md` files.
+
+## Origin
+
+Carbide starts as a structural fork of [WasmSharp](https://github.com/JakeYallop/WasmSharp). See [`ATTRIBUTION.md`](packages/core/ATTRIBUTION.md) for the list of files adapted from upstream sources.
