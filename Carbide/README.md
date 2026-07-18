@@ -16,7 +16,7 @@ Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode,
 
 ## License and provenance
 
-Carbide-authored code, documentation, tests, demos, and fixtures in this workspace are licensed under the repository's [Apache License 2.0](../LICENSE), with copyright held collectively by Carbide Contributors. No sample or first-party subtree uses different license terms; selected [.NET-derived source files](packages/core/THIRD_PARTY_NOTICES.md) retain file-scoped MIT terms documented by adjacent notices.
+Carbide-authored code, documentation, tests, demos, and fixtures in this workspace are licensed under the repository's [Apache License 2.0](../LICENSE), selected [.NET-derived source files](packages/core/THIRD_PARTY_NOTICES.md) retain file-scoped MIT terms documented by adjacent notices.
 
 Carbide began as a structural fork of [JakeYallop/WasmSharp at commit `2f8c93b`](https://github.com/JakeYallop/WasmSharp/tree/2f8c93bfa39f2068ad932a748ba23f740075327c), also under Apache-2.0. [`packages/core/ATTRIBUTION.md`](packages/core/ATTRIBUTION.md) records the imported and adapted source files and their subsequent changes. Selected .NET runtime source and redistributed reference assemblies remain under their upstream MIT terms, as identified by adjacent attribution and third-party-notice files.
 
