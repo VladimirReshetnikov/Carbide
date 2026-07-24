@@ -30,10 +30,16 @@ jobs:
       - name: ESLint
         run: npm run lint
 
-  # Pure-Node packages: no .NET toolchain required.
+  # Pure-Node packages: no .NET toolchain required. Runs on both OSes — development
+  # happens on Windows, deployment targets are POSIX, and path/teardown bugs are
+  # routinely platform-specific.
   unit-node:
-    name: msbuild-lite + nuget unit tests
-    runs-on: ubuntu-latest
+    name: msbuild-lite + nuget unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -60,8 +66,12 @@ jobs:
   # C# xUnit suites of the shell workstream (pwsh/cmd/bash/shell-core/multishell).
   # Plain net10.0 targets — no wasm workload required.
   shell-tests:
-    name: Shell C# test suites
-    runs-on: ubuntu-latest
+    name: Shell C# test suites (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -119,6 +129,12 @@ jobs:
       - name: Build ref-pack
         working-directory: Carbide/packages/refs-net10.0
         run: node scripts/build.mjs
+      # core's Node suite (axaml-companion, sideload tests) resolves
+      # @carbide-ui/refs-avalonia through its monorepo walk-up, so the Avalonia ref-pack
+      # must exist even in this non-UI job. Pure download+extract; no dotnet involved.
+      - name: Build Avalonia ref-pack (sideload fixture for core tests)
+        working-directory: Carbide.UI/packages/refs-avalonia
+        run: npm run build
       - name: "Build sibling packages (file: deps of core/cli)"
         run: |
           (cd Carbide/packages/msbuild-lite && npm ci && npm run build)
