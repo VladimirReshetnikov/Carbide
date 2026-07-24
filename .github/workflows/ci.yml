@@ -181,10 +181,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-ui-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide.UI/packages/runner-dotnet/**/*.csproj') }}
+          key: nuget-ui-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide.UI/packages/runner-dotnet/**/*.csproj', 'Carbide/packages/core/src/Carbide.Core.csproj') }}
           restore-keys: nuget-ui-${{ runner.os }}-
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
+      # The launcher browser fixtures load /Carbide/packages/core/dist/index.js and boot
+      # core's published Mono-WASM runtime in the page — the Carbide.UI validation flow
+      # in the README runs after core validation for exactly this reason. Replicate the
+      # prerequisite here (publish + TS build only; core's own tests run in core-cli).
+      - name: Build ref-pack
+        working-directory: Carbide/packages/refs-net10.0
+        run: node scripts/build.mjs
+      - name: Build @carbide/core (Mono-WASM publish + TS)
+        working-directory: Carbide/packages/core
+        run: |
+          dotnet publish -c Release src/Carbide.Core.csproj
+          npm ci
+          npm run build:ts
       - name: Build Avalonia ref-pack
         working-directory: Carbide.UI/packages/refs-avalonia
         run: npm run build
