@@ -81,23 +81,20 @@ export class BrowserHostAdapter implements HostAdapter {
      * structure.
      */
     resolveRuntimeConfigOverlays(): Promise<EmscriptenModuleOverlays> {
-        const self = this;
         return Promise.resolve({
-            print(text: string): void {
-                const sink = self._terminalSink;
+            print: (text: string): void => {
+                const sink = this._terminalSink;
                 if (sink) {
                     sink.writeStdOut(text + "\n");
                 } else {
-                    // eslint-disable-next-line no-console
                     console.log(text);
                 }
             },
-            printErr(text: string): void {
-                const sink = self._terminalSink;
+            printErr: (text: string): void => {
+                const sink = this._terminalSink;
                 if (sink) {
                     sink.writeStdErr(text + "\n");
                 } else {
-                    // eslint-disable-next-line no-console
                     console.error(text);
                 }
             },

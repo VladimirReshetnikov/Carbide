@@ -10,6 +10,13 @@ import { startAssetServer } from "../../dist/node.js";
  * Send a raw HTTP GET with an exact request path (no WHATWG-URL normalisation).
  * Needed for the traversal check — both fetch() and new URL() collapse "../" segments
  * before they reach the server, hiding whether the server guards against them.
+ *
+ * Used for ALL requests in this file, not just traversal probes: `globalThis.fetch`
+ * routes through undici's global dispatcher, whose pooled sockets leave libuv async
+ * handles alive at process exit. Under `--test-force-exit` on Windows that reliably
+ * trips `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` in src/win/async.c
+ * and the runner marks the whole file failed even though every test passed. Raw
+ * node:http requests keep every handle owned by this file and closed before exit.
  */
 function rawGet(port, rawPath) {
     return new Promise((resolve, reject) => {
@@ -33,19 +40,19 @@ test("asset server serves within-root files, rejects null-byte paths, does not l
     const handle = await startAssetServer(dir);
     const port = Number(new URL(handle.baseUrl).port);
     try {
-        const okResp = await fetch(`${handle.baseUrl}ok.txt`);
+        const okResp = await rawGet(port, "/ok.txt");
         assert.equal(okResp.status, 200);
-        assert.equal(await okResp.text(), "ok");
+        assert.equal(okResp.body, "ok");
 
         // Null byte hits the 400 guard directly; this is our proof the guard path is live.
         const nullResp = await rawGet(port, "/%00bad");
         assert.equal(nullResp.status, 400, `expected 400 for null-byte path, got ${nullResp.status}`);
 
         // Even with a full path injected, the server must never leak a sibling file's contents.
-        const leakResp = await fetch(`${handle.baseUrl}${encodeURIComponent(path.basename(sibling))}`);
-        assert.notEqual(await leakResp.text(), "should-not-be-served", "sibling outside rootDir leaked");
+        const leakResp = await rawGet(port, `/${encodeURIComponent(path.basename(sibling))}`);
+        assert.notEqual(leakResp.body, "should-not-be-served", "sibling outside rootDir leaked");
 
-        const missingResp = await fetch(`${handle.baseUrl}nothere`);
+        const missingResp = await rawGet(port, "/nothere");
         assert.equal(missingResp.status, 404);
     } finally {
         await handle.close();
@@ -74,9 +81,9 @@ test("asset server rejects prefix-sibling traversal", async () => {
     const port = Number(new URL(handle.baseUrl).port);
     try {
         // Sanity: within-root request works.
-        const okResp = await fetch(`${handle.baseUrl}ok.txt`);
+        const okResp = await rawGet(port, "/ok.txt");
         assert.equal(okResp.status, 200);
-        assert.equal(await okResp.text(), "ok");
+        assert.equal(okResp.body, "ok");
 
         // The attack path uses percent-encoded slashes (`%2F`) to smuggle `..` segments
         // past Node's URL class. `new URL("/%2E%2E/x")` normalises `%2E%2E` away, but

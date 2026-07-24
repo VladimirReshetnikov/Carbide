@@ -3,7 +3,7 @@
 import { getEntry, isAllowed } from "./allowlist.js";
 import type { Cache } from "./cache.js";
 import { createFlatContainer, type FlatContainer } from "./flat-container.js";
-import { openDefaultCache, openCache, sha256Hex } from "./cache.js";
+import { openDefaultCache, openCache } from "./cache.js";
 import { buildLock } from "./lock.js";
 import { readNuspec, type NuspecDependencyGroup } from "./nuspec.js";
 import { checkSafety } from "./safety.js";

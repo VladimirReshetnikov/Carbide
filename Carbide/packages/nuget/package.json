@@ -1,6 +1,6 @@
 {
   "name": "@carbide/nuget",
-  "version": "0.0.0",
+  "version": "0.1.0-dev",
   "description": "Bounded NuGet v3 resolver for Carbide: allow-listed managed-only packages only, with nearest-wins conflict resolution, TFM compatibility, a ~/.carbide/nuget-cache/ filesystem cache, and carbide.lock.json for offline replay.",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,15 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.9.0"
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VladimirReshetnikov/Carbide.git",
+    "directory": "Carbide/packages/nuget"
   }
 }

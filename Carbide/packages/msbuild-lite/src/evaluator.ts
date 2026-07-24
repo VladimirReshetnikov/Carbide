@@ -20,7 +20,6 @@ import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { evalCondition, substituteVars } from "./conditions.js";
 import {
-    findChildren,
     isElement,
     parseXml,
     stripNamespace,

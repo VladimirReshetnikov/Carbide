@@ -200,7 +200,6 @@ function defaultStdoutSink(): (text: string) => void {
     // Browser fallback: `console.log` always exists and adds a newline, which would
     // double-space multi-line payloads. Strip a single trailing `\n` so a caller that
     // writes "hello\n" reads "hello" in the console without gaining a blank line.
-    // eslint-disable-next-line no-console
     return (text: string) => { console.log(text.endsWith("\n") ? text.slice(0, -1) : text); };
 }
 
@@ -209,7 +208,6 @@ function defaultStderrSink(): (text: string) => void {
     if (proc?.stderr?.write) {
         return (text: string) => { proc.stderr!.write!(text); };
     }
-    // eslint-disable-next-line no-console
     return (text: string) => { console.error(text.endsWith("\n") ? text.slice(0, -1) : text); };
 }
 

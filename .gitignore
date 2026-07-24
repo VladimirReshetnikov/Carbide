@@ -1,0 +1,3 @@
+# Repository-root dev tooling only. Workspace-specific rules live in
+# Carbide/.gitignore and Carbide.UI/.gitignore.
+/node_modules/

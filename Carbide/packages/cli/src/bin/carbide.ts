@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Carbide CLI entry point. Dispatches to build / run / validate commands.
 
+import { createRequire } from "node:module";
 import { parseArgs } from "../args.js";
 import { BUILD_ARG_SPEC, runBuild } from "../commands/build.js";
 import { RUN_ARG_SPEC, runRun } from "../commands/run.js";
@@ -25,7 +26,12 @@ console.debug = redirectToStderr as typeof console.debug;
 void origInfo;
 void origDebug;
 
-const VERSION = "0.0.0";
+// The CLI's version is whatever its package.json says — no second copy to drift.
+// createRequire keeps this working from both dist/bin/ (shipped) and src/bin/ (dev),
+// which sit at the same depth relative to the package root.
+const VERSION: string = (
+    createRequire(import.meta.url)("../../package.json") as { version: string }
+).version;
 
 const TOP_LEVEL_HELP = `\
 Usage: carbide <command> [options]
@@ -52,7 +58,7 @@ Exit codes:
   4  NuGet policy refusal (allow-list / safety)
   5  NuGet network or cache miss
 
-See https://github.com/… for full documentation.
+See https://github.com/VladimirReshetnikov/Carbide for full documentation.
 `;
 
 /**
@@ -121,5 +127,21 @@ async function main(argv: readonly string[]): Promise<number> {
 
 // Workaround: when the entry is invoked via the `bin` shim on Windows, `process.argv` starts
 // with node + the shim. Node's convention is that user args begin at index 2.
-const code = await main(process.argv.slice(2));
+const argvTail = process.argv.slice(2);
+
+// Last-resort safety net: `main` catches everything thrown on its own await chain, but a
+// rejection fired from a detached async path (runtime bridge events, timers) would otherwise
+// surface as Node's raw unhandled-rejection dump — unformatted, and with exit code 1, which
+// collides with the "compile errors" slot in the CLI's documented exit-code contract. Route
+// such failures through the same classifier so consumers still get a structured payload and
+// a truthful exit code (unknown errors classify as internal → 2).
+const earlyFatal = sniffEarlyFlags(argvTail);
+const handleFatal = (err: unknown): never => {
+    const code = handleCliFailure(err, earlyFatal.format, { verbose: earlyFatal.verbose });
+    process.exit(code);
+};
+process.on("unhandledRejection", handleFatal);
+process.on("uncaughtException", handleFatal);
+
+const code = await main(argvTail);
 process.exit(code);

@@ -67,7 +67,7 @@ function parseNuspecXml(xml: string): {
     dependencyGroups: NuspecDependencyGroup[];
 } {
     // Strip BOM.
-    let src = xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml;
+    const src = xml.charCodeAt(0) === 0xfeff ? xml.slice(1) : xml;
 
     const id = extractElementText(src, "id");
     const version = extractElementText(src, "version");

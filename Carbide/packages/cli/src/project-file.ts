@@ -19,7 +19,7 @@
 import path from "node:path";
 import { readFile, writeFile, access } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
-import { parseCsproj, type ProjectModel } from "@carbide/msbuild-lite";
+import type { ProjectModel } from "@carbide/msbuild-lite";
 import type { CarbideSession, Project, ProjectOptions, BuildResult, Diagnostic } from "@carbide/core";
 import {
     resolve as resolveNuget,
