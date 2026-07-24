@@ -190,11 +190,15 @@ const textFilePattern = /(?:^|\/)(?:LICENSE|README\.md|ATTRIBUTION\.md|THIRD[_-]
 for (const relativePath of workingTreeFiles.filter((candidate) => textFilePattern.test(candidate))) {
     const content = read(relativePath);
     assert(!/MIT(?: No Attribution|-0)/i.test(content), `${relativePath}: stale MIT-0 repository-license wording`);
-    const contentWithoutHistoricalRepositoryUrls = content.replace(
-        /https:\/\/github\.com\/VladimirReshetnikov\/Tools[^\s)>]*/gi,
+    // Repository URLs are not copyright prose: the historical Tools links and this
+    // repository's own canonical URL (needed in package.json `repository` fields for npm
+    // provenance) are exempt. The rule still keeps personal names out of notices,
+    // copyright lines, and documentation text.
+    const contentWithoutRepositoryUrls = content.replace(
+        /(?:git\+)?https:\/\/github\.com\/VladimirReshetnikov\/(?:Tools|Carbide)[^\s)>"]*/gi,
         "",
     );
-    assert(!/Vladimir/i.test(contentWithoutHistoricalRepositoryUrls), `${relativePath}: use Carbide Contributors instead of a personal name`);
+    assert(!/Vladimir/i.test(contentWithoutRepositoryUrls), `${relativePath}: use Carbide Contributors instead of a personal name`);
 }
 
 const rootReadme = read("README.md");

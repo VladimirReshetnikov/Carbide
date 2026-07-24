@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast gate: repository consistency + lint. No .NET toolchain.
+  checks:
+    name: License check + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: License and provenance consistency
+        run: node scripts/check-licenses.mjs
+      - name: Install lint tooling
+        run: npm ci
+      - name: ESLint
+        run: npm run lint
+
+  # Pure-Node packages: no .NET toolchain required.
+  unit-node:
+    name: msbuild-lite + nuget unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            Carbide/packages/msbuild-lite/package-lock.json
+            Carbide/packages/nuget/package-lock.json
+      - name: msbuild-lite
+        working-directory: Carbide/packages/msbuild-lite
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: nuget
+        working-directory: Carbide/packages/nuget
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+  # The heavy path: Mono-WASM runtime publish, core acceptance (Node + a browser smoke
+  # slice), and the CLI suite on top of it.
+  core-cli:
+    name: core + cli
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            Carbide/packages/core/package-lock.json
+            Carbide/packages/cli/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide/packages/core/src/Carbide.Core.csproj', 'Carbide/Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+      - name: Cache extracted ref-pack
+        uses: actions/cache@v4
+        with:
+          path: |
+            Carbide/packages/refs-net10.0/.cache
+            Carbide/packages/refs-net10.0/ref
+          key: refs-net10-${{ runner.os }}-${{ hashFiles('Carbide/packages/refs-net10.0/scripts/build.mjs') }}
+      - name: Build ref-pack
+        working-directory: Carbide/packages/refs-net10.0
+        run: node scripts/build.mjs
+      - name: "Build sibling packages (file: deps of core/cli)"
+        run: |
+          (cd Carbide/packages/msbuild-lite && npm ci && npm run build)
+          (cd Carbide/packages/nuget && npm ci && npm run build)
+      - name: Publish Carbide.Core (Mono-WASM)
+        working-directory: Carbide/packages/core
+        run: dotnet publish -c Release src/Carbide.Core.csproj
+      - name: Build + test core (Node)
+        working-directory: Carbide/packages/core
+        run: |
+          npm ci
+          npm run build:ts
+          npm run build:test-fixtures
+          npm test
+      - name: Install Playwright Chromium
+        working-directory: Carbide/packages/core
+        run: npx playwright install --with-deps chromium
+      - name: Browser smoke slice
+        working-directory: Carbide/packages/core
+        run: npm run test:browser:fast
+      - name: Build + test cli
+        working-directory: Carbide/packages/cli
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+  # Avalonia browser integration: reference pack, runtime bundle publish, launcher suite.
+  carbide-ui:
+    name: Carbide.UI launcher
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Carbide.UI/packages/launcher/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-ui-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide.UI/packages/runner-dotnet/**/*.csproj') }}
+          restore-keys: nuget-ui-${{ runner.os }}-
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+      - name: Build Avalonia ref-pack
+        working-directory: Carbide.UI/packages/refs-avalonia
+        run: npm run build
+      - name: Build runtime bundle
+        working-directory: Carbide.UI/packages/runtime-bundle
+        run: npm run build
+      - name: Build + test launcher
+        working-directory: Carbide.UI/packages/launcher
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: Install Playwright Chromium
+        working-directory: Carbide.UI/packages/launcher
+        run: npx playwright install --with-deps chromium
+      - name: Launcher browser tests
+        working-directory: Carbide.UI/packages/launcher
+        run: npm run test:browser

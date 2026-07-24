@@ -1,5 +1,7 @@
 # Carbide repository
 
+[![CI](https://github.com/VladimirReshetnikov/Carbide/actions/workflows/ci.yml/badge.svg)](https://github.com/VladimirReshetnikov/Carbide/actions/workflows/ci.yml)
+
 This repository is the standalone home of Carbide, a C# compile-and-run framework for environments without the .NET SDK, and Carbide.UI, its Avalonia browser UI integration family.
 
 This document is also the canonical repository guidance for maintainers and coding agents. `AGENTS.md` and `CLAUDE.md` point here.
@@ -33,6 +35,8 @@ Identified third-party source and redistributed artifacts retain their respectiv
 ## Build and validation
 
 The repository requires the .NET 10 SDK version pinned in [`global.json`](global.json), Node.js 20 or newer, and the `wasm-tools` workload. Browser tests additionally require Playwright Chromium. The SDK pin also fixes the Mono WebAssembly runtime at 10.0.6 so the bundled upstream notices remain version-accurate.
+
+Continuous integration runs in [GitHub Actions](.github/workflows/ci.yml) on pushes to `main`, `feature/**` branches, and pull requests: the license/provenance check and ESLint, the pure-Node package suites, the full core + CLI validation (including a browser smoke slice), and the Carbide.UI launcher suite. Lint locally with `npm ci && npm run lint` at the repository root.
 
 Run the repository-level license and provenance consistency check from the repository root:
 
