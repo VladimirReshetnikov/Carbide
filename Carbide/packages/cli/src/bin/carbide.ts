@@ -121,5 +121,21 @@ async function main(argv: readonly string[]): Promise<number> {
 
 // Workaround: when the entry is invoked via the `bin` shim on Windows, `process.argv` starts
 // with node + the shim. Node's convention is that user args begin at index 2.
-const code = await main(process.argv.slice(2));
+const argvTail = process.argv.slice(2);
+
+// Last-resort safety net: `main` catches everything thrown on its own await chain, but a
+// rejection fired from a detached async path (runtime bridge events, timers) would otherwise
+// surface as Node's raw unhandled-rejection dump — unformatted, and with exit code 1, which
+// collides with the "compile errors" slot in the CLI's documented exit-code contract. Route
+// such failures through the same classifier so consumers still get a structured payload and
+// a truthful exit code (unknown errors classify as internal → 2).
+const earlyFatal = sniffEarlyFlags(argvTail);
+const handleFatal = (err: unknown): never => {
+    const code = handleCliFailure(err, earlyFatal.format, { verbose: earlyFatal.verbose });
+    process.exit(code);
+};
+process.on("unhandledRejection", handleFatal);
+process.on("uncaughtException", handleFatal);
+
+const code = await main(argvTail);
 process.exit(code);
