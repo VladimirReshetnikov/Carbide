@@ -37,11 +37,17 @@ function sha256(buf) {
 
 function dotnetPublish() {
     console.log(`[runtime-bundle] dotnet publish ${RUNNER_CSPROJ_DIR}`);
+    // No `shell: true`: dotnet is a real executable on every platform (not a .cmd shim),
+    // and shell mode concatenates args unescaped (Node DEP0190) — which would also break
+    // on a checkout path containing spaces.
     const result = spawnSync(
         "dotnet",
         ["publish", "-c", "Release", "--nologo", "-v", "minimal", RUNNER_CSPROJ_DIR],
-        { stdio: "inherit", shell: process.platform === "win32" },
+        { stdio: "inherit" },
     );
+    if (result.error) {
+        throw result.error;
+    }
     if (result.status !== 0) {
         throw new Error(`dotnet publish failed with exit code ${result.status}`);
     }

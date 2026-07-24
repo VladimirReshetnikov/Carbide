@@ -75,8 +75,18 @@
     out-of-band here and file-copy its output.
   -->
   <Target Name="CarbideBuildForkedSystemConsole" BeforeTargets="Publish">
+    <!--
+      Restore explicitly: a project driven through an MSBuild task call is not part of the
+      entry project's implicit-restore graph, so a fresh clone would fail with NETSDK1004.
+      Restore and Build must be separate task calls with different global-property sets —
+      a combined Restore;Build reuses the pre-restore evaluation and cannot see the
+      obj/*.props|targets that restore generates.
+    -->
     <MSBuild Projects="..\..\core-bcl\System.Console\Carbide.System.Console.csproj"
              Properties="Configuration=$(Configuration)"
+             Targets="Restore" />
+    <MSBuild Projects="..\..\core-bcl\System.Console\Carbide.System.Console.csproj"
+             Properties="Configuration=$(Configuration);CarbideExplicitlyRestored=true"
              Targets="Build" />
   </Target>
   <Target Name="CarbideOverlayForkedSystemConsole" AfterTargets="Publish">

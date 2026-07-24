@@ -9,7 +9,12 @@ import path from "node:path";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 function run(cmd, args, cwd) {
-    const result = spawnSync(cmd, args, { cwd, stdio: "inherit", shell: process.platform === "win32" });
+    // No `shell: true`: dotnet is a real executable on every platform (not a .cmd shim),
+    // and shell mode concatenates args unescaped (Node DEP0190).
+    const result = spawnSync(cmd, args, { cwd, stdio: "inherit" });
+    if (result.error) {
+        throw result.error;
+    }
     if (result.status !== 0) {
         throw new Error(`${cmd} ${args.join(" ")} exited with ${result.status}`);
     }

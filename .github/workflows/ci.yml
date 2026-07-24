@@ -79,7 +79,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide/packages/core/src/Carbide.Core.csproj', 'Carbide/Directory.Build.props') }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide/packages/core/src/Carbide.Core.csproj', 'Carbide/packages/core-bcl/System.Console/Carbide.System.Console.csproj', 'Carbide/Directory.Build.props') }}
           restore-keys: nuget-${{ runner.os }}-
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
