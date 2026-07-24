@@ -1,6 +1,6 @@
 {
   "name": "@carbide/core",
-  "version": "0.0.0",
+  "version": "0.1.0-dev",
   "description": "C# compile-and-run framework for browser and Node.js, powered by Roslyn on Mono-WASM.",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,8 +50,16 @@
   ],
   "license": "Apache-2.0",
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "@playwright/test": "^1.50.0",
     "@types/node": "^22.9.0",
-    "@playwright/test": "^1.50.0"
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VladimirReshetnikov/Carbide.git",
+    "directory": "Carbide/packages/core"
   }
 }

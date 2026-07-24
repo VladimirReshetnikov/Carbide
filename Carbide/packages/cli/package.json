@@ -1,6 +1,6 @@
 {
   "name": "@carbide/cli",
-  "version": "0.0.0",
+  "version": "0.1.0-dev",
   "description": "Command-line interface for Carbide: build / run / validate C# projects without a .NET SDK install.",
   "type": "module",
   "main": "./dist/bin/carbide.js",
@@ -30,7 +30,15 @@
     "@carbide/nuget": "file:../nuget"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
-    "@types/node": "^22.9.0"
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VladimirReshetnikov/Carbide.git",
+    "directory": "Carbide/packages/cli"
   }
 }

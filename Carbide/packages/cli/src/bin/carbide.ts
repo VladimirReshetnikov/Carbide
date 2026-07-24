@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Carbide CLI entry point. Dispatches to build / run / validate commands.
 
+import { createRequire } from "node:module";
 import { parseArgs } from "../args.js";
 import { BUILD_ARG_SPEC, runBuild } from "../commands/build.js";
 import { RUN_ARG_SPEC, runRun } from "../commands/run.js";
@@ -25,7 +26,12 @@ console.debug = redirectToStderr as typeof console.debug;
 void origInfo;
 void origDebug;
 
-const VERSION = "0.0.0";
+// The CLI's version is whatever its package.json says — no second copy to drift.
+// createRequire keeps this working from both dist/bin/ (shipped) and src/bin/ (dev),
+// which sit at the same depth relative to the package root.
+const VERSION: string = (
+    createRequire(import.meta.url)("../../package.json") as { version: string }
+).version;
 
 const TOP_LEVEL_HELP = `\
 Usage: carbide <command> [options]
@@ -52,7 +58,7 @@ Exit codes:
   4  NuGet policy refusal (allow-list / safety)
   5  NuGet network or cache miss
 
-See https://github.com/… for full documentation.
+See https://github.com/VladimirReshetnikov/Carbide for full documentation.
 `;
 
 /**

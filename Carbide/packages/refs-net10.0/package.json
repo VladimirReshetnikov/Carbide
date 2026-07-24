@@ -1,6 +1,6 @@
 {
   "name": "@carbide/refs-net10.0",
-  "version": "0.0.0",
+  "version": "0.1.0-dev",
   "description": "Pre-extracted .NET 10 reference assemblies for Carbide's compile-time API surface. Derived from Microsoft.NETCore.App.Ref; see THIRD_PARTY_NOTICES.md.",
   "type": "module",
   "main": "./ref-manifest.json",
@@ -26,5 +26,13 @@
     "reference-assemblies",
     "net10.0"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VladimirReshetnikov/Carbide.git",
+    "directory": "Carbide/packages/refs-net10.0"
+  }
 }
