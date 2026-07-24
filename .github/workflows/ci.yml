@@ -57,6 +57,32 @@ jobs:
           npm run build
           npm test
 
+  # C# xUnit suites of the shell workstream (pwsh/cmd/bash/shell-core/multishell).
+  # Plain net10.0 targets — no wasm workload required.
+  shell-tests:
+    name: Shell C# test suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-shell-${{ runner.os }}-${{ hashFiles('global.json', 'Carbide/packages/carbide-*/**/*.csproj') }}
+          restore-keys: nuget-shell-${{ runner.os }}-
+      - name: Run suites
+        working-directory: Carbide/packages
+        run: |
+          dotnet test carbide-shell-core/test/CarbideShellCore.Tests.csproj -c Release --nologo
+          dotnet test carbide-pwsh/test/CarbidePwsh.Tests.csproj -c Release --nologo
+          dotnet test carbide-cmd/test/CarbideCmd.Tests.csproj -c Release --nologo
+          dotnet test carbide-bash/test/CarbideBash.Tests.csproj -c Release --nologo
+          dotnet test carbide-multishell-tests/CarbideMultishell.Tests.csproj -c Release --nologo
+
   # The heavy path: Mono-WASM runtime publish, core acceptance (Node + a browser smoke
   # slice), and the CLI suite on top of it.
   core-cli:
