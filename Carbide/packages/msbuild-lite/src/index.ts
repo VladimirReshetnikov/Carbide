@@ -19,7 +19,6 @@ import {
     createEvaluationContext,
     evaluateProjectDocument,
     findDirectoryBuild,
-    type EvaluationContext,
 } from "./evaluator.js";
 import { parseXml, isElement, XmlParseError } from "./xml.js";
 import type {
