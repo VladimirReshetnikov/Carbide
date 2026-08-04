@@ -31,5 +31,27 @@ First published release.
   `Directory.Build.targets` is discovered but not ingested (`MSBLITE027`). Nothing is
   silently ignored — every unsupported construct produces a diagnostic code.
 
+### Fixed
+
+Corrected before the first release. Four `Condition` defects, all of which returned a
+*confident* answer rather than reporting
+themselves as unevaluated — so the affected element was silently kept or dropped with no
+warning:
+
+- **String comparison is now case-insensitive**, as MSBuild specifies.
+  `Condition="'$(Configuration)' == 'Debug'"` against a `Configuration` of `debug` evaluated
+  to false, silently skipping a `<PropertyGroup>` that a real build takes.
+- **`and` now binds tighter than `or`.** The evaluator split on `and` first, so
+  `A or B and C` grouped as `(A or B) and C` instead of `A or (B and C)` — inverted
+  precedence, and a different answer for any mixed condition without explicit parentheses.
+- **`!` negation of a parenthesised group is supported and correct.** `!` used to be folded
+  into the left operand, so `!('$(Configuration)' == 'release')` compared the literal
+  `!('debug'` against `'release')` and answered false where MSBuild answers true. Other `!`
+  forms have no unambiguous meaning in this subset and are now refused rather than
+  mis-parsed.
+- **Parentheses are respected when splitting.** A group is no longer torn apart by the
+  `and`/`or` scan, so explicit grouping overrides precedence as written. Operator words
+  inside quoted literals (`'a and b'`) no longer split the expression either.
+
 [Unreleased]: https://github.com/VladimirReshetnikov/Carbide/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/VladimirReshetnikov/Carbide/releases/tag/v0.1.0

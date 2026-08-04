@@ -1,11 +1,13 @@
 // NuGet version-range subset. See M6 §3 M6.3 and D73 (pre-release allowed).
 // Supported:
-//   1.2.3                — exact pin, equivalent to [1.2.3,1.2.3].
+//   1.2.3                — minimum version: ">= 1.2.3", per NuGet's bare-version rule.
 //   [1.0.0,2.0.0)        — standard bracketed range.
 //   (1.0.0,)             — open upper bound.
 //   [1.0.0,]             — open upper bound (inclusive lower).
+//   [1.2.3]              — exact pin.
 //   [1.0.0,1.0.0]        — exact pin via range form.
 //   1.0.0-preview.2      — pre-release (full identity).
+//   1.0.0+sha.abc123     — build metadata; parsed, preserved, ignored for precedence.
 // Refused (MSNUGET001):
 //   1.*   1.2.*   *      — floating versions.
 
@@ -16,6 +18,12 @@ export interface Version {
     revision: number;
     /** Empty string for release; "alpha", "beta.3", etc. for pre-release. */
     preRelease: string;
+    /**
+     * SemVer 2 build metadata (the part after `+`), without the `+`. Empty when absent.
+     * Carried for round-tripping only: the spec requires it be ignored when comparing, so
+     * `1.0.0-beta+exp` and `1.0.0-beta` are the same version.
+     */
+    buildMetadata: string;
     /** Raw string as parsed; preserved so string equality survives parse→format. */
     raw: string;
 }
@@ -45,10 +53,17 @@ export function parseVersion(s: string): Version {
             "MSNUGET001",
         );
     }
+    // SemVer 2 shape: <core>[-<pre-release>][+<build metadata>]. Strip the metadata first —
+    // it may contain hyphens, so splitting on `-` before removing it would swallow it into
+    // the pre-release label and change how the version compares.
+    const plusIdx = trimmed.indexOf("+");
+    const buildMetadata = plusIdx < 0 ? "" : trimmed.slice(plusIdx + 1);
+    const withoutMetadata = plusIdx < 0 ? trimmed : trimmed.slice(0, plusIdx);
+
     // Separate pre-release suffix.
-    const dashIdx = trimmed.indexOf("-");
-    const core = dashIdx < 0 ? trimmed : trimmed.slice(0, dashIdx);
-    const preRelease = dashIdx < 0 ? "" : trimmed.slice(dashIdx + 1);
+    const dashIdx = withoutMetadata.indexOf("-");
+    const core = dashIdx < 0 ? withoutMetadata : withoutMetadata.slice(0, dashIdx);
+    const preRelease = dashIdx < 0 ? "" : withoutMetadata.slice(dashIdx + 1);
     const parts = core.split(".");
     if (parts.length < 1 || parts.length > 4) {
         throw new VersionParseError(`Malformed version '${trimmed}': expected 1 to 4 numeric components.`);
@@ -66,6 +81,7 @@ export function parseVersion(s: string): Version {
         patch: nums[2],
         revision: nums[3],
         preRelease,
+        buildMetadata,
         raw: trimmed,
     };
 }
@@ -81,6 +97,31 @@ export function compareVersion(a: Version, b: Version): number {
     if (a.preRelease === "") return 1; // a is release, b is pre-release → a > b.
     if (b.preRelease === "") return -1;
     return comparePreRelease(a.preRelease, b.preRelease);
+}
+
+/**
+ * Ordinal, ASCII-case-insensitive comparison — what NuGet's `VersionComparer` uses for
+ * release labels (`StringComparer.OrdinalIgnoreCase`).
+ *
+ * `localeCompare` cannot be used here for two reasons. It is collation-based, so its result
+ * depends on the host's locale data (`"z".localeCompare("ä")` is `1` under `en` and `-1`
+ * under `sv`) — which would let the same inputs resolve to different package graphs on
+ * different machines and quietly break `carbide.lock.json`'s reproducibility. And it treats
+ * case as a tertiary difference rather than ignoring it, so `1.0.0-alpha` and `1.0.0-ALPHA`
+ * would compare as distinct versions when NuGet considers them the same one.
+ *
+ * SemVer restricts identifiers to `[0-9A-Za-z-]`, so folding only ASCII `A-Z` is both
+ * sufficient and immune to locale-specific casing rules (Turkish dotless ı, for instance).
+ */
+function compareOrdinalIgnoreCase(a: string, b: string): number {
+    const foldAscii = (code: number): number =>
+        code >= 0x41 /* A */ && code <= 0x5a /* Z */ ? code + 0x20 : code;
+    const n = Math.min(a.length, b.length);
+    for (let i = 0; i < n; i++) {
+        const delta = foldAscii(a.charCodeAt(i)) - foldAscii(b.charCodeAt(i));
+        if (delta !== 0) return delta < 0 ? -1 : 1;
+    }
+    return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 
 function comparePreRelease(a: string, b: string): number {
@@ -101,7 +142,7 @@ function comparePreRelease(a: string, b: string): number {
         } else if (bNum !== null) {
             return 1;
         } else {
-            const cmp = av.localeCompare(bv);
+            const cmp = compareOrdinalIgnoreCase(av, bv);
             if (cmp !== 0) return cmp;
         }
     }

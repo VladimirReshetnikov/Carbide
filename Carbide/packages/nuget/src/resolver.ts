@@ -32,6 +32,25 @@ import {
 } from "./version-range.js";
 import { MSNUGET_CODES } from "./warnings.js";
 
+/**
+ * Whether an already-resolved version string names the same version as a parsed one.
+ *
+ * Raw string inequality is not the same question: NuGet compares pre-release labels
+ * case-insensitively and ignores build metadata, so `1.0.0-Beta` and `1.0.0-beta+exp` are
+ * one version wearing three spellings. Comparing the strings would report a same-depth
+ * conflict that does not exist and emit a spurious `MSNUGET` tie warning.
+ */
+function sameVersion(existingRaw: string, candidate: Version): boolean {
+    if (existingRaw === candidate.raw) {
+        return true;
+    }
+    try {
+        return compareVersion(parseVersion(existingRaw), candidate) === 0;
+    } catch {
+        return false;
+    }
+}
+
 /** Resolve a set of top-level PackageReferences into a graph of packages + DLL bytes. */
 export async function resolve(
     packages: readonly PackageReference[],
@@ -93,16 +112,18 @@ export async function resolve(
                     severity: "info",
                 });
                 resolved.delete(idKey);
-            } else if (next.depth === existing.depth && existing.package.version !== version.raw) {
-                // Same depth, different version — semantically higher wins. Falls back to
-                // lexicographic compare only when one side fails to parse (rare; malformed
-                // pre-release labels).
+            } else if (next.depth === existing.depth && !sameVersion(existing.package.version, version)) {
+                // Same depth, different version — semantically higher wins. Falls back to an
+                // ordinal compare only when one side fails to parse (rare; malformed
+                // pre-release labels). The fallback must not be `localeCompare`: its result
+                // depends on host locale data, which would make the resolved graph — and so
+                // `carbide.lock.json` — differ between machines.
                 let keepNewer: boolean;
                 try {
                     const existingParsed = parseVersion(existing.package.version);
                     keepNewer = compareVersion(version, existingParsed) > 0;
                 } catch {
-                    keepNewer = version.raw.localeCompare(existing.package.version) > 0;
+                    keepNewer = version.raw > existing.package.version;
                 }
                 if (keepNewer) {
                     warnings.push({

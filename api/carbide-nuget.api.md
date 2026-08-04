@@ -188,6 +188,7 @@ export interface Version {
     patch: number;
     revision: number;
     preRelease: string;
+    buildMetadata: string;
     raw: string;
 }
 
