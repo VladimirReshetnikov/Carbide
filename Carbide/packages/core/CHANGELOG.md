@@ -78,6 +78,16 @@ First published release.
   `Task<int>` variant replaced the program's exit code. The substitution now applies only when
   the CLR's entry point is compiler-generated, which is exactly the case it was written for.
   Candidate ordering is also pinned, since `Type.GetMethods` order is unspecified.
+- **`CarbideConsole` and stock `Console` no longer disagree about the terminal's size.** The
+  TS layer pushes the initial geometry with a priming `NotifyResize` *before* the run's
+  `TerminalInputState` exists, so the value was dropped and `Cols`/`Rows` kept their 80×24
+  placeholders for the whole run unless the user happened to resize. The T3-forked
+  `Console.WindowWidth` asks xterm directly and was correct, so in a 120×40 terminal
+  `CarbideConsole.WindowWidth` returned 80 while `Console.WindowWidth` returned 120. The
+  state now seeds from the same live source the fork uses, which removes the ordering
+  dependency instead of trying to sequence the two calls. Every interactive fixture built its
+  mock at exactly 80×24 — the same value as the fallback — so the suite could not distinguish
+  "delivered" from "dropped"; a new 120×40 fixture now covers it.
 - **Shift+Tab is decoded as Shift+Tab, not Shift+F2.** The terminfo shim omitted the back-tab
   entry (`kcbt`, `CSI Z`), so xterm.js's Shift+Tab fell through to `KeyParser`'s SCO-style
   single-letter branch, where `Z` maps to F2. Reverse-tab-order navigation in a user's TUI

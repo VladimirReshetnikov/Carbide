@@ -51,6 +51,19 @@ internal static partial class CarbideTerminalInterop
     internal static partial void NotifyTreatControlCAsInput(bool value);
 
     /// <summary>
+    /// JSImport into <c>globalThis.Carbide.Terminal.getCols</c> — the live xterm column count.
+    /// The T3-forked <c>System.Console</c> already reads geometry this way; Carbide's own
+    /// <see cref="TerminalInputState"/> now seeds from the same source at creation so the two
+    /// APIs cannot disagree about the same terminal.
+    /// </summary>
+    [JSImport("globalThis.Carbide.Terminal.getCols")]
+    internal static partial int GetCols();
+
+    /// <summary>JSImport into <c>globalThis.Carbide.Terminal.getRows</c>.</summary>
+    [JSImport("globalThis.Carbide.Terminal.getRows")]
+    internal static partial int GetRows();
+
+    /// <summary>
     /// T2.1 — callback-based delay. Replaces an earlier Promise-returning JSImport. The
     /// Mono-WASM Promise-to-Task marshaler forces continuations through the ThreadPool
     /// (via <c>TaskCreationOptions.RunContinuationsAsynchronously</c> on the bridging

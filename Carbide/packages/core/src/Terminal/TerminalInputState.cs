@@ -85,9 +85,46 @@ internal sealed class TerminalInputState
     public static TerminalInputState Create(string projectId)
     {
         var state = new TerminalInputState(projectId);
+        state.SeedGeometryFromTerminal();
         s_registry[projectId] = state;
         s_current = state;
         return state;
+    }
+
+    /// <summary>
+    /// Read the terminal's real size once, at creation.
+    ///
+    /// <para>The TS layer pushes the initial geometry with a priming
+    /// <c>NotifyResize</c> before it calls <c>RunInteractiveAsync</c> — which is before this
+    /// state exists, so <c>TryGet</c> returned null and the value was dropped on the floor.
+    /// <see cref="Cols"/>/<see cref="Rows"/> then kept their 80x24 placeholders for the whole
+    /// run unless the user happened to resize the window, so
+    /// <c>CarbideConsole.WindowWidth</c> reported 80 in a 120-column terminal while the
+    /// T3-forked <c>Console.WindowWidth</c> — which asks xterm directly — reported 120. Two
+    /// APIs documented as equivalent, disagreeing about the same terminal.</para>
+    ///
+    /// <para>Seeding from the same live source removes the ordering dependency entirely
+    /// rather than trying to sequence the two calls. The bridge is installed by the TS side
+    /// before <c>RunInteractiveAsync</c>, so it is available here; a missing bridge (a
+    /// non-interactive host, or a mock that omits the getters) leaves the placeholders.</para>
+    /// </summary>
+    private void SeedGeometryFromTerminal()
+    {
+        try
+        {
+            var cols = CarbideTerminalInterop.GetCols();
+            var rows = CarbideTerminalInterop.GetRows();
+            if (cols > 0 && rows > 0)
+            {
+                Cols = cols;
+                Rows = rows;
+            }
+        }
+        catch (Exception)
+        {
+            // No bridge installed — keep the documented 80x24 fallback rather than failing
+            // the run over a cosmetic value.
+        }
     }
 
     /// <summary>Release the state from the global lookup and clear the thread-static.</summary>
