@@ -68,6 +68,13 @@ not at fault:
   rather than handed to the filesystem, so a case-insensitive host cannot make one half of a
   pattern follow different rules from the other.
 
+- **Ordering in emitted output is reproducible.** The evaluation trace's `resolved` list and
+  the collected package/project reference list were sorted with `localeCompare`, whose result
+  depends on the host's ICU locale data and which collates punctuation and case rather than
+  comparing code units — so `Serilog.Sinks.Console` and `SerilogTimings` could order
+  differently on two machines. Both are `carbide audit` output. Sorting is now ordinal,
+  matching the adjacent `sources` list, which already used the default ordinal sort.
+
 ### Changed
 
 - Glob matching is documented as **case-sensitive on every host**. MSBuild inherits the

@@ -20,6 +20,7 @@ import {
     evaluateProjectDocument,
     findDirectoryBuild,
 } from "./evaluator.js";
+import { compareOrdinal } from "./ordinal.js";
 import { parseXml, isElement, XmlParseError } from "./xml.js";
 import type {
     ParseOptions,
@@ -212,7 +213,7 @@ function deduplicatePackageRefs(
         if (!seen.has(key)) seen.set(key, r.version);
     }
     return [...seen.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => compareOrdinal(a, b))
         .map(([id, version]) => ({ id, version }));
 }
 

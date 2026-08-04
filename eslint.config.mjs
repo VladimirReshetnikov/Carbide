@@ -47,6 +47,30 @@ export default tseslint.config(
                 "error",
                 { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
             ],
+            // Locale-sensitive string operations produce different results on different
+            // machines, because they depend on the host's ICU data. Three separate audits
+            // found `localeCompare` deciding real outcomes: which package version wins,
+            // the ordering inside `carbide.lock.json`, and the order of a `carbide audit`
+            // payload. Each would have let two developers derive different results from
+            // identical inputs. Sort and compare ordinally instead — for the ASCII-ish
+            // identifiers Carbide handles (package ids, TFMs, paths, SemVer labels) ordinal
+            // ordering is both correct and reproducible.
+            "no-restricted-syntax": [
+                "error",
+                {
+                    selector: "MemberExpression[property.name='localeCompare']",
+                    message:
+                        "localeCompare depends on host locale data and is not reproducible. Compare " +
+                        "ordinally: `a < b ? -1 : a > b ? 1 : 0`, or the compareOrdinal helper.",
+                },
+                {
+                    selector:
+                        "MemberExpression[property.name=/^toLocale(LowerCase|UpperCase|DateString|TimeString|String)$/]",
+                    message:
+                        "toLocale* depends on host locale data and is not reproducible. Use the " +
+                        "non-locale form (toLowerCase / toUpperCase / toISOString).",
+                },
+            ],
         },
     },
     {

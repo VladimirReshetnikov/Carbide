@@ -6,6 +6,7 @@
 
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { compareOrdinal } from "./ordinal.js";
 
 const EXCLUDED_DIR_NAMES = new Set(["bin", "obj", ".git", ".svn", ".hg"]);
 
@@ -243,7 +244,7 @@ export async function resolveCompileItems(
         .sort();
 
     const resolved = [...provenance.entries()]
-        .sort(([a], [b]) => a.localeCompare(b))
+        .sort(([a], [b]) => compareOrdinal(a, b))
         .map(([file, prov]) => ({ file, included: included.get(file) ?? false, provenance: prov }));
 
     return { sources, operationMatches, resolved };

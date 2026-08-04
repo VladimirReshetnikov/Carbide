@@ -41,6 +41,12 @@ NuGet allow-list, S5 for single-plus-siblings project graphs).
 - **Publish preparation.** `scripts/prepare-publish.mjs` rewrites `@carbide/cli`'s `file:`
   sibling references to the published range (and back), so the workspace stays usable
   without a registry while published installs still resolve.
+- **Reproducibility lint.** ESLint now rejects `localeCompare` and the `toLocale*` family in
+  the shipped TypeScript sources. Three separate audits found `localeCompare` deciding real
+  outcomes — which package version wins a tie, the ordering inside `carbide.lock.json`, and
+  the order of a `carbide audit` payload — each of which would let two machines derive
+  different results from identical inputs. The rule turns a repeatedly-rediscovered class of
+  defect into a build failure.
 - **Install rehearsal.** The release flow now packs real tarballs and installs them into a
   scratch project before anything reaches a registry — every other suite runs against the
   workspace rather than against what a consumer receives. The 0.1.0 candidate was verified
