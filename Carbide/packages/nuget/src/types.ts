@@ -62,7 +62,12 @@ export interface ResolvedPackage {
 export interface ResolveLock {
     schemaVersion: 1;
     generator: "carbide";
-    generatedAt: string;
+    /**
+     * Present only in locks written before the file became byte-reproducible. Carbide no
+     * longer emits it — a timestamp guarantees a diff on every resolve even when the graph is
+     * unchanged — but locks that carry one still parse.
+     */
+    generatedAt?: string;
     packages: ResolvedPackage[];
     warnings: Warning[];
 }

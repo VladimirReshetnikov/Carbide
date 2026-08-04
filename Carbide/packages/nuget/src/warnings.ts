@@ -19,6 +19,13 @@ export const MSNUGET_CODES = {
      * package silently supplied nothing.
      */
     NO_COMPATIBLE_LIB_FOLDER: "MSNUGET011",
+    /**
+     * A package declares `<dependencies>` groups but none targets the framework being
+     * resolved, so it contributes no transitive dependencies. Reported rather than assumed:
+     * the alternative — merging every group — silently pulled packages meant for other
+     * frameworks into the graph.
+     */
+    NO_COMPATIBLE_DEPENDENCY_GROUP: "MSNUGET012",
     SAFETY_NATIVE: "MSNUGET015",
     SAFETY_TARGETS: "MSNUGET016",
     SAFETY_ANALYZERS: "MSNUGET017",

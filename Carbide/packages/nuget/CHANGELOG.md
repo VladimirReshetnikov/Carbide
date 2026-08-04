@@ -67,6 +67,24 @@ First published release.
 - **`MSNUGET011` reports a package that contributes no references**, naming the `lib/` folders
   that were present, so the cause is visible where it happens rather than inferred from a
   compile error later.
+- **Dependency-group selection understands long-form target frameworks.** A great many
+  published nuspecs write `.NETStandard2.0` / `.NETFramework4.7.2` rather than the short
+  folder-name form. Those labels parsed as unrecognised, so *every* group of such a package
+  looked incompatible at once and the resolver fell into a fallback that merged them all —
+  pulling .NET Framework-only dependencies into a `net10.0` build.
+- **No applicable dependency group now means no dependencies**, which is also NuGet's answer,
+  and is reported as `MSNUGET012` naming the groups that were declared. The previous fallback
+  merged every group "so we at least try something".
+- **Group selection and `lib/` folder selection share one compatibility chain**, so a package's
+  assets and its transitive dependencies can no longer be chosen under different rules. They
+  disagreed about `netcoreapp`.
+- **`carbide.lock.json` is byte-reproducible.** Package ordering ran through `localeCompare`,
+  which orders differently from ordinal (punctuation and case are collated) *and* varies with
+  the host's locale data — so two developers could commit different byte orderings of the same
+  graph, in the one artifact whose purpose is reproducibility. Ordering is now ordinal, and the
+  `generatedAt` timestamp is no longer written: it guaranteed a diff on every resolve even when
+  nothing changed, nothing in Carbide reads it, and git already records when the file changed.
+  `ResolveLock.generatedAt` is now optional so previously written locks still parse.
 
 [Unreleased]: https://github.com/VladimirReshetnikov/Carbide/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/VladimirReshetnikov/Carbide/releases/tag/v0.1.0

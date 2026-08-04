@@ -9,6 +9,8 @@ import { readNuspec, type NuspecDependencyGroup } from "./nuspec.js";
 import { checkSafety } from "./safety.js";
 import {
     collectLibFolders,
+    compatibleLibFolders,
+    normaliseTfmLabel,
     parseTfm,
     pickBestLibFolder,
     type Tfm,
@@ -197,7 +199,18 @@ export async function resolve(
         // then enqueue each direct dep. Empty groups mean "supported TFM, zero deps"
         // — they must be preferred over distant non-empty groups.
         const depsForTfm = selectDependenciesForTfm(nuspec.dependencyGroups, tfm);
-        for (const dep of depsForTfm) {
+        if (depsForTfm === null) {
+            warnings.push({
+                code: MSNUGET_CODES.NO_COMPATIBLE_DEPENDENCY_GROUP,
+                message:
+                    `Package '${nuspec.id}' ${nuspec.version} declares dependency groups but none targets ` +
+                    `${tfmLabel} (declared: ${nuspec.dependencyGroups
+                        .map((g) => g.targetFramework ?? "<untargeted>")
+                        .join(", ")}). Resolving it with no transitive dependencies.`,
+                severity: "warning",
+            });
+        }
+        for (const dep of depsForTfm ?? []) {
             queue.push({
                 ref: { id: dep.id, versionRange: dep.versionRange },
                 depth: next.depth + 1,
@@ -321,34 +334,39 @@ async function pickVersion(ref: PackageReference, flatContainer: FlatContainer):
     return match;
 }
 
+/**
+ * Pick the single nearest-compatible `<group>`, NuGet-style. Returns `null` when the package
+ * declares groups but none of them applies to the target.
+ *
+ * Ranking reuses {@link compatibleLibFolders}, the same ordered chain that chooses the `lib/`
+ * folder, so a package's assets and its dependencies are never selected under different rules
+ * — the two used to disagree about `netcoreapp`, for instance.
+ */
 function selectDependenciesForTfm(
     groups: readonly NuspecDependencyGroup[],
     tfm: Tfm,
-): readonly { id: string; versionRange: string }[] {
-    // Score each <group> (including empty ones) against the target TFM.
-    let best: { group: NuspecDependencyGroup; score: number } | null = null;
+): readonly { id: string; versionRange: string }[] | null {
+    if (groups.length === 0) {
+        return [];
+    }
+    const chain = compatibleLibFolders(tfm);
+    let best: { group: NuspecDependencyGroup; rank: number } | null = null;
     for (const group of groups) {
-        const score = tfmMatchScore(group.targetFramework, tfm);
-        if (score === null) continue;
-        if (!best || score > best.score) {
-            best = { group, score };
+        // An untyped (flat) dependency list applies to any target, at lowest priority.
+        const rank = group.targetFramework === null
+            ? chain.length
+            : chain.indexOf(normaliseTfmLabel(group.targetFramework));
+        if (rank < 0) {
+            continue;
+        }
+        if (best === null || rank < best.rank) {
+            best = { group, rank };
         }
     }
-    if (best) return best.group.dependencies;
-    // No compatible group — flatten all direct deps so we at least try something.
-    return groups.flatMap((g) => g.dependencies);
-}
-
-function tfmMatchScore(label: string | null, target: Tfm): number | null {
-    if (label === null) return 0; // untyped group: usable but lowest priority.
-    const parsed = parseTfm(label);
-    if (!parsed) return null;
-    if (parsed.family !== target.family && !(parsed.family === "netstandard" && target.family === "net")) {
-        return null;
-    }
-    if (parsed.version > target.version) return null;
-    // Higher score = closer to target. Subtract the gap.
-    return 1000 - (target.version - parsed.version);
+    // No applicable group means no dependencies for this framework — which is what NuGet
+    // concludes too. Merging every group instead ("so we at least try something") pulled
+    // .NET Framework packages into a net10.0 build.
+    return best === null ? null : best.group.dependencies;
 }
 
 function appendRequestedBy(entry: ResolvedEntry, requestedBy: string): void {

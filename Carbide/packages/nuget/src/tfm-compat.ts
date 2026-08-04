@@ -11,6 +11,38 @@ export interface Tfm {
     version: number;
 }
 
+/**
+ * Normalise a target-framework label to the short "folder name" spelling used by `lib/` paths
+ * and by {@link compatibleLibFolders}.
+ *
+ * Nuspec `targetFramework` attributes are written both ways in the wild: newer tooling emits
+ * `netstandard2.0`, while a great many published packages carry the long form
+ * `.NETStandard2.0` / `.NETFramework4.7.2`. Treating the long form as unrecognised meant a
+ * package's dependency groups all looked incompatible at once.
+ *
+ * Unknown labels are returned lower-cased rather than rejected: they simply will not appear in
+ * a compatibility chain, which is the same outcome by a less surprising route.
+ */
+export function normaliseTfmLabel(raw: string): string {
+    const s = raw.trim().toLowerCase().replace(/\s+/g, "");
+    // `.NETFramework4.7.2` → `net472`; `.NETFramework4.5` → `net45`.
+    const framework = /^\.netframework(\d+(?:\.\d+)*)$/.exec(s);
+    if (framework) {
+        return `net${framework[1].split(".").join("")}`;
+    }
+    // `.NETStandard2.0` → `netstandard2.0`; `.NETCoreApp3.1` → `netcoreapp3.1`;
+    // `.NETCoreApp10.0` → `net10.0` (the unified line kept the old identifier).
+    const dotted = /^\.net(standard|coreapp)(\d+)\.(\d+)$/.exec(s);
+    if (dotted) {
+        const [, family, major, minor] = dotted;
+        if (family === "coreapp" && Number(major) >= 5) {
+            return `net${major}.${minor}`;
+        }
+        return `net${family}${major}.${minor}`;
+    }
+    return s;
+}
+
 /** Parse a TFM string. Returns null for unrecognised or multi-TFM strings. */
 export function parseTfm(raw: string): Tfm | null {
     const s = raw.trim().toLowerCase();

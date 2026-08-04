@@ -74,6 +74,7 @@ export declare const MSNUGET_CODES: {
     readonly FLOATING_VERSION_UNSUPPORTED: "MSNUGET001";
     readonly NEAREST_WINS_TIE: "MSNUGET010";
     readonly NO_COMPATIBLE_LIB_FOLDER: "MSNUGET011";
+    readonly NO_COMPATIBLE_DEPENDENCY_GROUP: "MSNUGET012";
     readonly SAFETY_NATIVE: "MSNUGET015";
     readonly SAFETY_TARGETS: "MSNUGET016";
     readonly SAFETY_ANALYZERS: "MSNUGET017";
@@ -121,7 +122,7 @@ export interface PackageReference {
 export interface ResolveLock {
     schemaVersion: 1;
     generator: "carbide";
-    generatedAt: string;
+    generatedAt?: string;
     packages: ResolvedPackage[];
     warnings: Warning[];
 }
