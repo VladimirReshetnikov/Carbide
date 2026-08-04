@@ -41,6 +41,11 @@ NuGet allow-list, S5 for single-plus-siblings project graphs).
 - **Publish preparation.** `scripts/prepare-publish.mjs` rewrites `@carbide/cli`'s `file:`
   sibling references to the published range (and back), so the workspace stays usable
   without a registry while published installs still resolve.
+- **Install rehearsal.** The release flow now packs real tarballs and installs them into a
+  scratch project before anything reaches a registry — every other suite runs against the
+  workspace rather than against what a consumer receives. The 0.1.0 candidate was verified
+  this way: all five packages install, the ref pack's `postinstall` extracts, and both the
+  `carbide` binary and a direct `@carbide/core` import build and run.
 - [`RELEASING.md`](RELEASING.md) — the publish procedure and the compatibility rules that
   apply from 0.1.0 onward.
 - The first [upstream-drift report](Carbide/docs/drift/carbide-drift-report__2026-08-04__release-0.1.0.md),

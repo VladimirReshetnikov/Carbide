@@ -98,13 +98,35 @@ While the version is `0.x`:
    any generated payload was skipped rather than verified. A silent skip is exactly how an
    incomplete tarball would reach the registry, so this must be clean before publishing.
 
-9. **Publish** in dependency order — `msbuild-lite`, `nuget`, `refs-net10.0`, `core`, `cli`:
+9. **Rehearse the install.** Every suite in this repository runs against the *workspace*, not
+   against what a consumer receives. Pack the tarballs and install them into a scratch
+   directory to close that gap before anything reaches a registry:
+
+   ```powershell
+   npm pack --pack-destination <scratch>\tarballs   # in each package directory
+   ```
+
+   Then, in a fresh directory whose `package.json` points every `@carbide/*` dependency **and
+   override** at the packed tarballs, run `npm install` and check:
+
+   - all five packages install, and `@carbide/refs-net10.0`'s `postinstall` extracts the ref
+     pack (~167 assemblies);
+   - `@carbide/core`'s `_framework` payload is present;
+   - `carbide --version`, `carbide run --source …`, `carbide validate` (exit 0 clean, exit 1
+     on a compile error), and `carbide build --out …` all behave;
+   - a script importing `@carbide/core` and `@carbide/core/node` resolves through the
+     `exports` map and completes a build + run.
+
+   The `overrides` block matters: without it npm resolves `@carbide/cli`'s `^0.1.0` sibling
+   ranges from the registry, which is exactly what you are trying not to depend on yet.
+
+10. **Publish** in dependency order — `msbuild-lite`, `nuget`, `refs-net10.0`, `core`, `cli`:
 
    ```powershell
    npm publish --access public
    ```
 
-10. **Restore and tag.**
+11. **Restore and tag.**
 
     ```powershell
     node scripts/prepare-publish.mjs --restore
