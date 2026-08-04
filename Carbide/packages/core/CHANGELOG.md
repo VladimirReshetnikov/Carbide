@@ -86,6 +86,12 @@ First published release.
 
 ### Notes
 
+- Session lifetime is now pinned by tests: `shutdown()` is idempotent, a shut-down session
+  refuses to create projects or register references, shutdown invalidates outstanding
+  reference handles, and work already in flight still completes. Every other suite calls
+  `shutdown()` in teardown, so the happy path was exercised constantly while these
+  properties — the ones callers actually lean on — were asserted nowhere.
+
 - Source generators and analyzers are not supported.
 - The `@carbide/refs-net10.0` pack still ships plain PEs. Shipping it in Webcil form as well
   would need a PE→Webcil converter in its build for a case no host exercises: Node reads the
