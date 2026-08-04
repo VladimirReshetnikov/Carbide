@@ -361,6 +361,8 @@ T3 ships a Carbide-authored replacement for Mono-WASM's `System.Console.dll` so 
 
 The public types mention `net8.0` and `net10.0`, but the repository currently ships and documents only `@carbide/refs-net10.0`, and the build/test corpus is centered on `net10.0`. Treat `net10.0` as the supported path unless you are deliberately experimenting with the fallback runtime-DLL metadata path.
 
+Be precise about what the value does. `ProjectOptions.targetFramework` — and a `.csproj`'s `<TargetFramework>` — selects which `lib/<tfm>/` folder is taken from a NuGet package. It does **not** select the compile-time reference set: `@carbide/core` never reads the field, and compile-time metadata always comes from the net10.0 ref pack (or the net10.0 runtime BCL). A `net8.0` project therefore binds APIs introduced after net8.0 — `System.Threading.Lock`, for instance, compiles and runs — so code that builds under Carbide can fail on a real net8.0 SDK. Since M7 the CLI names this with an `MSPROJ011` warning rather than leaving it silent; declaring `net10.0` makes the two halves agree.
+
 ## Build And Test From Source
 
 ### Prerequisites

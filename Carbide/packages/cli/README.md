@@ -152,6 +152,12 @@ Sub-projects' source sets come from their own csprojs and are unaffected.
 | 5 | NuGet network / cache miss (`MSNUGET030` under `--offline`). |
 | *N* | For `carbide run`, the user program's own exit code. |
 
+### `TargetFramework` semantics (`MSPROJ011`)
+
+A project's `<TargetFramework>` selects which `lib/<tfm>/` folder is taken from a NuGet package. It does **not** select the compile-time reference set: Carbide always compiles against net10.0 metadata — the `@carbide/refs-net10.0` ref pack when installed, the net10.0 runtime BCL otherwise. A `net8.0` project therefore still binds APIs introduced after net8.0, so code that compiles here can fail on a real net8.0 SDK.
+
+`carbide` emits `MSPROJ011` as a warning whenever a project declares `net8.0`, so the disagreement is visible rather than silent. Declare `net10.0` to make the two halves agree.
+
 ## JSON output format (since U1)
 
 `--format json` (the default) writes a structured payload to stdout as a *trailer*, preceded by a sentinel line:

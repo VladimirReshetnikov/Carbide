@@ -50,6 +50,16 @@ export interface BuildResult {
 }
 
 export interface ProjectOptions {
+    /**
+     * Declares the project's target framework. **This does not select the compile-time
+     * reference set.** Carbide always compiles against net10.0 metadata — the
+     * `@carbide/refs-net10.0` ref pack when installed, the net10.0 runtime BCL otherwise —
+     * so a project declaring `"net8.0"` still binds APIs introduced after net8.0.
+     *
+     * The value is carried for consumers that resolve framework-specific assets: the CLI
+     * passes it to `@carbide/nuget` to pick a package's `lib/<tfm>/` folder, and warns
+     * (`MSPROJ011`) when a project declares net8.0, because the two halves disagree.
+     */
     targetFramework?: "net8.0" | "net10.0";
     /** C# language version string (e.g. "latest", "preview", "12"). Passed through to Roslyn's CSharpParseOptions. */
     languageVersion?: string;

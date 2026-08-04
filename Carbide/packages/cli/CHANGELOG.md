@@ -33,6 +33,10 @@ First published release.
   or internal error, `3` unsupported flag combination, `4` NuGet policy refusal, `5` NuGet
   network or cache miss — paired with a closed set of `error.category` values in the JSON
   payload.
+- **`MSPROJ011`.** A project declaring `<TargetFramework>net8.0</TargetFramework>` now gets a
+  warning: the TFM selects which `lib/<tfm>/` folder is taken from a NuGet package, but never
+  the compile-time reference set, which is always net10.0. Such a project can bind APIs
+  introduced after net8.0 and so compile here while failing on a real net8.0 SDK.
 - **Capture-bypass advisories.** `carbide run` routes `@carbide/core`'s `MSCAP001` /
   `MSCAP002` advisories into the JSON payload's `warnings` array (and to stderr under
   `--format human`). They are kept separate from compile diagnostics, so a program that both

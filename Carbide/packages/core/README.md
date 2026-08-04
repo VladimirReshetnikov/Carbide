@@ -133,7 +133,7 @@ When omitted, Carbide auto-picks a host adapter:
 - `nullable?: boolean` (enables nullable context globally)
 - `implicitUsings?: boolean` (default true; injects a hidden `Carbide.GlobalUsings.g.cs`)
 - `defineConstants?: string[]` (preprocessor symbols)
-- `targetFramework?: "net8.0" | "net10.0"` (current codebase is optimized for `net10.0`; this is not yet a full TFM selector)
+- `targetFramework?: "net8.0" | "net10.0"` — **not a compile-time selector.** Carbide always compiles against net10.0 metadata (the `@carbide/refs-net10.0` ref pack when installed, the net10.0 runtime BCL otherwise), so a project declaring `net8.0` still binds APIs introduced after net8.0. The value is carried for consumers that resolve framework-specific assets: the CLI passes it to `@carbide/nuget` to pick a package's `lib/<tfm>/` folder, and warns `MSPROJ011` when a project declares net8.0.
 
 ### `project` operations
 

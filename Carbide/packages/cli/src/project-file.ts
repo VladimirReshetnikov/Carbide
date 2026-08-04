@@ -432,6 +432,24 @@ async function configureSubproject(
 ): Promise<SubprojectPipelineResult> {
     const model = node.model;
     const options = buildOptionsFromModel(model);
+
+    // MSPROJ011 — `targetFramework` picks NuGet `lib/` folders but never the BCL reference
+    // set: `@carbide/core` ignores the field, and compile-time metadata always comes from
+    // the net10.0 ref pack (or the net10.0 runtime BCL). A `net8.0` project therefore
+    // compiles against net10.0 APIs, which is a silent surprise worth naming.
+    if (options.targetFramework === "net8.0") {
+        warnings.push({
+            code: "MSPROJ011",
+            message:
+                `Project '${node.csprojPath}' targets 'net8.0'. Carbide resolves net8.0 NuGet ` +
+                "assets for it, but always compiles against the net10.0 reference set — APIs " +
+                "added after net8.0 will still bind. Use net10.0 to make the two agree.",
+            severity: "warning",
+            category: "csproj",
+            project: node.csprojPath,
+        });
+    }
+
     const project = session.createProject(options);
 
     // Load compile items and register them under a path relative to *this* sub-project's
