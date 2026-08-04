@@ -43,6 +43,10 @@ NuGet allow-list, S5 for single-plus-siblings project graphs).
   without a registry while published installs still resolve.
 - [`RELEASING.md`](RELEASING.md) — the publish procedure and the compatibility rules that
   apply from 0.1.0 onward.
+- The first [upstream-drift report](Carbide/docs/drift/carbide-drift-report__2026-08-04__release-0.1.0.md),
+  which architecture §11 requires. It found and fixed preview `Microsoft.Extensions.*`
+  packages shipping inside `@carbide/core`'s runtime payload, and records the deliberate
+  hold at Roslyn `4.14.0` now that `5.x` has shipped.
 
 [Unreleased]: https://github.com/VladimirReshetnikov/Carbide/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/VladimirReshetnikov/Carbide/releases/tag/v0.1.0

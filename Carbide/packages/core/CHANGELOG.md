@@ -55,6 +55,17 @@ First published release.
   `MSCAP001` is suppressed for `runInteractive`, where the terminal bridge does receive
   handle-level writes.
 
+### Changed
+
+- `Microsoft.Extensions.Logging.Abstractions` (and the
+  `Microsoft.Extensions.DependencyInjection.Abstractions` it pulls in) moved from
+  `10.0.0-preview.5.25277.114` to the stable `10.0.6`. Both ship as assemblies inside the
+  `_framework` payload, so a published Carbide was carrying preview builds of a released
+  library. The vendored upstream notices moved with them
+  (`third-party/dotnet-extensions-preview/` → `third-party/dotnet-extensions/`), and
+  `scripts/check-publish.mjs` now fails on any prerelease `PackageReference` in a project
+  whose output ships.
+
 ### Notes
 
 - Webcil mode is off (`<WasmEnableWebcil>false</WasmEnableWebcil>`); source generators and

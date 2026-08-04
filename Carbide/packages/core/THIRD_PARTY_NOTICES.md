@@ -25,7 +25,7 @@ The npm package contains the Mono WebAssembly runtime, .NET framework assemblies
 | Microsoft.CodeAnalysis.Elfie | 1.0.0 | MIT. |
 | Microsoft.DiaSymReader | 2.0.0 | MIT. |
 | Humanizer.Core | 2.14.1 | MIT, copyright .NET Foundation and Contributors. |
-| Microsoft.Extensions.DependencyInjection.Abstractions and Microsoft.Extensions.Logging.Abstractions | 10.0.0-preview.5.25277.114 | MIT; exact package [`LICENSE.TXT`](third-party/dotnet-extensions-preview/LICENSE.TXT) and complete [`THIRD-PARTY-NOTICES.TXT`](third-party/dotnet-extensions-preview/THIRD-PARTY-NOTICES.TXT). |
+| Microsoft.Extensions.DependencyInjection.Abstractions and Microsoft.Extensions.Logging.Abstractions | 10.0.6 | MIT, declared by the packages as the SPDX expression `MIT` rather than a bundled license file; the canonical .NET MIT text is vendored at [`LICENSE.TXT`](third-party/dotnet-extensions/LICENSE.TXT) and the complete package [`THIRD-PARTY-NOTICES.TXT`](third-party/dotnet-extensions/THIRD-PARTY-NOTICES.TXT) is included verbatim. Both packages ship byte-identical notices. |
 | System.Composition family, System.Configuration.ConfigurationManager, System.Diagnostics.EventLog, and System.Security.Cryptography.ProtectedData | 9.0.0 | MIT; exact package [`LICENSE.TXT`](third-party/dotnet-9/LICENSE.TXT) and complete [`THIRD-PARTY-NOTICES.TXT`](third-party/dotnet-9/THIRD-PARTY-NOTICES.TXT). |
 | System.Data.DataSetExtensions | 4.5.0 | MIT; exact package [`LICENSE.TXT`](third-party/dotnet-corefx-4.5/LICENSE.TXT) and complete [`THIRD-PARTY-NOTICES.TXT`](third-party/dotnet-corefx-4.5/THIRD-PARTY-NOTICES.TXT). |
 

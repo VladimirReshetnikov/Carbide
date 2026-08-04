@@ -36,7 +36,11 @@
     <PackageReference Include="Jab" Version="0.11.0" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" Version="4.14.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0-preview.5.25277.114" />
+    <!-- Pinned to the 10.0.6 servicing band, matching the Mono-WASM runtime the SDK pin
+         fixes, so the vendored upstream notices stay version-accurate. Both this package
+         and the Microsoft.Extensions.DependencyInjection.Abstractions it pulls in ship as
+         DLLs in _framework, so a published Carbide must not carry preview builds of them. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />
   </ItemGroup>
 
   <PropertyGroup Condition="$(Configuration) == 'Debug'">

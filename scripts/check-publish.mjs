@@ -88,6 +88,17 @@ const publishedPackages = [
 const releaseTrain = new Set(publishedPackages.map((entry) => entry.name));
 const localSpecPattern = /^(?:file:|link:|workspace:|portal:)/;
 
+/**
+ * C# projects whose `PackageReference`s end up as DLLs inside a published tarball —
+ * `@carbide/core` ships the whole Mono-WASM `_framework` payload. A prerelease dependency
+ * there is invisible to every npm-level check but very visible to a consumer, so it is
+ * called out here rather than discovered after publish.
+ */
+const shippedProjects = [
+    "Carbide/packages/core/src/Carbide.Core.csproj",
+    "Carbide/packages/core-bcl/System.Console/Carbide.System.Console.csproj",
+];
+
 function assert(condition, message) {
     if (!condition) {
         errors.push(message);
@@ -207,6 +218,25 @@ for (const entry of publishedPackages) {
             `${entry.name}: ${conditional.sourcePath} exists but the tarball would not carry ` +
                 `${conditional.prefix} — check the files allow-list`,
         );
+    }
+}
+
+for (const projectPath of shippedProjects) {
+    const absolute = path.join(repositoryRoot, projectPath);
+    if (!existsSync(absolute)) {
+        errors.push(`${projectPath}: shipped project is missing`);
+        continue;
+    }
+    const project = readFileSync(absolute, "utf8");
+    for (const match of project.matchAll(/<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"/g)) {
+        const [, id, version] = match;
+        // SemVer says everything after the first `-` is a prerelease label.
+        if (version.includes("-")) {
+            errors.push(
+                `${projectPath}: ${id} is pinned to the prerelease ${version}. Its assembly ships in ` +
+                    "@carbide/core's _framework payload, so a release must use a stable version.",
+            );
+        }
     }
 }
 

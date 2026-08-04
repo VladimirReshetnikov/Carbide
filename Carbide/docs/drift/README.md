@@ -12,9 +12,9 @@ Periodic upstream-drift reports live here, per [architecture §11](../planning/c
 - Any new issues filed in `dotnet/runtime` or `dotnet/roslyn` labelled against WASM/browser since the last report.
 - Deltas in `wasm-tools` workload manifest used for builds (currently `10.0.200-manifests.*` on SDK `10.0.201`).
 
-## Seed report
+## Reports
 
-No report filed yet. First one to be produced after M1 lands and CI is wired up.
+- [2026-08-04 — release 0.1.0](carbide-drift-report__2026-08-04__release-0.1.0.md) — first report. Found and fixed preview `Microsoft.Extensions.*` packages shipping inside `@carbide/core`'s `_framework` payload; recorded the deliberate hold at Roslyn `4.14.0` now that `5.x` is out.
 
 ## Documented differences (M1)
 
