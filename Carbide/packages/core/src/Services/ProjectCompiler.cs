@@ -427,6 +427,130 @@ internal sealed class ProjectCompiler : IDisposable
     }
 
     /// <summary>
+    /// P0.1 (post-M9 usability plan §2.1) — the output-side capture bypass.
+    ///
+    /// <para>Carbide captures program output with <see cref="Console.SetOut"/>. Writes made
+    /// through the handle-level streams (<c>Console.OpenStandardOutput()</c> /
+    /// <c>OpenStandardError()</c>) never touch <c>Console.Out</c>: Mono-WASM sends them
+    /// straight down the file-descriptor path, so they surface on the host process's real
+    /// stdio and are absent from the returned <see cref="RunResult"/>.</para>
+    ///
+    /// <para>The plan's preferred fix was to intercept at the runtime's fd layer. That is
+    /// not reachable through a supported extension point: on the Node host neither the
+    /// emscripten <c>print</c>/<c>printErr</c> overlays (which the browser's T1 terminal
+    /// bridge relies on) nor a <c>preRun</c> hook fire for these writes. So Carbide takes
+    /// the plan's warning-first path (U1.D5) with a reliable detector — Roslyn already knows
+    /// exactly which call sites reach these APIs — rather than a brittle runtime patch.</para>
+    /// </summary>
+    private static readonly DiagnosticDescriptor CaptureBypassOutputRule = new(
+        id: "MSCAP001",
+        title: "Console output bypasses Carbide's capture",
+        messageFormat:
+            "'Console.{0}()' writes past Carbide's output capture. The bytes reach the host process's "
+            + "{1} directly and will be missing from RunResult.{2}. Use Console.{3} for captured output, "
+            + "or Project.runInteractive, where the terminal bridge does receive handle-level writes.",
+        category: "Carbide.Capture",
+        defaultSeverity: Microsoft.CodeAnalysis.DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// The input-side mirror of <see cref="CaptureBypassOutputRule"/>. Carbide seeds program
+    /// input by replacing <see cref="Console.In"/>; <c>Console.OpenStandardInput()</c> hands
+    /// back the runtime's own stream, which is never connected to it. Unlike the output side
+    /// this applies to interactive runs too — T2 patches <c>Console.In</c>, not the handle.
+    /// </summary>
+    private static readonly DiagnosticDescriptor CaptureBypassInputRule = new(
+        id: "MSCAP002",
+        title: "Console input bypasses Carbide's stdin plumbing",
+        messageFormat:
+            "'Console.OpenStandardInput()' reads past Carbide's stdin plumbing. Carbide seeds program "
+            + "input through Console.In, which this handle does not observe, so reads see no data. "
+            + "Use Console.In / Console.ReadLine() instead.",
+        category: "Carbide.Capture",
+        defaultSeverity: Microsoft.CodeAnalysis.DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    /// <summary>
+    /// Reports every call site in the user's sources that reaches a stream-handle API which
+    /// bypasses Carbide's capture. Binding is only attempted for invocations whose simple
+    /// name already matches, so the common case costs one syntax walk and no semantic work.
+    /// </summary>
+    /// <param name="interactive">
+    /// When true, the output-side rule is suppressed: the interactive path installs
+    /// emscripten <c>print</c>/<c>printErr</c> multiplexers that do route handle-level
+    /// writes into the terminal bridge (T1.3 DT-T1.6). The input-side rule still applies.
+    /// </param>
+    private static Diagnostic[] DetectCaptureBypasses(Compilation compilation, bool interactive)
+    {
+        var consoleType = compilation.GetTypeByMetadataName("System.Console");
+        if (consoleType is null)
+        {
+            return [];
+        }
+
+        List<Microsoft.CodeAnalysis.Diagnostic>? found = null;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            // The implicit-usings document is Carbide's own and contains only directives.
+            if (tree.FilePath == ImplicitUsingsDocumentPath)
+            {
+                continue;
+            }
+
+            SemanticModel? model = null;
+            foreach (var node in tree.GetRoot().DescendantNodes())
+            {
+                if (node is not Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax invocation)
+                {
+                    continue;
+                }
+
+                var simpleName = InvokedSimpleName(invocation);
+                var rule = simpleName switch
+                {
+                    "OpenStandardOutput" or "OpenStandardError" when !interactive => CaptureBypassOutputRule,
+                    "OpenStandardInput" => CaptureBypassInputRule,
+                    _ => null,
+                };
+                if (rule is null)
+                {
+                    continue;
+                }
+
+                // Only now is semantic binding worth its cost — and it is required, because
+                // the name alone could belong to any type the user happens to define.
+                model ??= compilation.GetSemanticModel(tree);
+                if (model.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method
+                    || !SymbolEqualityComparer.Default.Equals(method.ContainingType, consoleType))
+                {
+                    continue;
+                }
+
+                var arguments = simpleName == "OpenStandardError"
+                    ? new object[] { simpleName, "stderr", "stdErr", "Error.Write" }
+                    : new object[] { simpleName, "stdout", "stdOut", "Write" };
+                found ??= [];
+                found.Add(Microsoft.CodeAnalysis.Diagnostic.Create(
+                    rule,
+                    invocation.GetLocation(),
+                    rule == CaptureBypassInputRule ? [] : arguments));
+            }
+        }
+
+        return found is null ? [] : found.ToCarbideDiagnosticArray();
+    }
+
+    /// <summary>The invoked member's simple name, for both `X.Y()` and bare `Y()` forms.</summary>
+    private static string? InvokedSimpleName(Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax invocation)
+        => invocation.Expression switch
+        {
+            Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText,
+            Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
+            Microsoft.CodeAnalysis.CSharp.Syntax.MemberBindingExpressionSyntax binding => binding.Name.Identifier.ValueText,
+            _ => null,
+        };
+
+    /// <summary>
     /// Fetches the compilation with the requested output kind, bails with diagnostics when
     /// pre-emit errors exist, and otherwise returns the compilation for emission or
     /// execution. Centralises the "get compilation + filter for errors" dance that both
@@ -493,6 +617,9 @@ internal sealed class ProjectCompiler : IDisposable
         {
             return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
+
+        // P0.1 — computed before the run so the advisory survives an uncaught exception.
+        var bypassDiagnostics = DetectCaptureBypasses(compilation, interactive: false);
 
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
@@ -657,8 +784,8 @@ internal sealed class ProjectCompiler : IDisposable
         var stdErr = stdErrCapture.ToString();
 
         return uncaught is null
-            ? RunResult.Success_(stdOut, stdErr, exitCode, sw.Elapsed.TotalMilliseconds)
-            : RunResult.Uncaught(stdOut, stdErr, uncaught, sw.Elapsed.TotalMilliseconds);
+            ? RunResult.Success_(stdOut, stdErr, exitCode, sw.Elapsed.TotalMilliseconds, bypassDiagnostics)
+            : RunResult.Uncaught(stdOut, stdErr, uncaught, sw.Elapsed.TotalMilliseconds, bypassDiagnostics);
     }
 
     [UnconditionalSuppressMessage(
@@ -836,6 +963,10 @@ internal sealed class ProjectCompiler : IDisposable
             SynchronizationContext.SetSynchronizationContext(oldSyncContext);
             return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
+
+        // P0.1 — output-side rule suppressed here: the interactive path's emscripten
+        // print/printErr multiplexers do route handle-level writes into the terminal bridge.
+        var bypassDiagnostics = DetectCaptureBypasses(compilation, interactive: true);
 
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
             ?? throw new InvalidOperationException("No entry point discovered in compilation.");
@@ -1041,7 +1172,7 @@ internal sealed class ProjectCompiler : IDisposable
         var stdErr = stdErrTee.ToString();
 
         return uncaught is null
-            ? RunResult.Success_(stdOut, stdErr, exitCode, sw.Elapsed.TotalMilliseconds)
-            : RunResult.Uncaught(stdOut, stdErr, uncaught, sw.Elapsed.TotalMilliseconds);
+            ? RunResult.Success_(stdOut, stdErr, exitCode, sw.Elapsed.TotalMilliseconds, bypassDiagnostics)
+            : RunResult.Uncaught(stdOut, stdErr, uncaught, sw.Elapsed.TotalMilliseconds, bypassDiagnostics);
     }
 }

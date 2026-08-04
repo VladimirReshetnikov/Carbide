@@ -45,11 +45,24 @@ First published release.
   real mismatches, not on the transition.
 - `RunAssemblyOptionsRequest` is now a declared type on the `./interop/schema` entry point,
   alongside the other request shapes.
+- **Capture-bypass advisories.** Output written through `Console.OpenStandardOutput()` /
+  `OpenStandardError()` never reaches Carbide's `Console.SetOut` capture — Mono-WASM sends
+  it down the file-descriptor path, so it lands on the host process's real stdio and is
+  absent from the returned `RunResult`. `run()` now reports every such call site as an
+  `MSCAP001` warning in `RunResult.diagnostics`, and `Console.OpenStandardInput()` (which
+  never observes the `stdin` Carbide seeds through `Console.In`) as `MSCAP002`. Detection is
+  symbol-bound, so a user-defined method that happens to share the name is not flagged.
+  `MSCAP001` is suppressed for `runInteractive`, where the terminal bridge does receive
+  handle-level writes.
 
 ### Notes
 
 - Webcil mode is off (`<WasmEnableWebcil>false</WasmEnableWebcil>`); source generators and
   analyzers are not supported.
+- The `MSCAP00*` advisories report the bypass rather than capturing the escaped bytes. The
+  runtime's file-descriptor layer is not reachable through a supported extension point:
+  neither the emscripten `print`/`printErr` overlays nor a `preRun` hook fire for these
+  writes on the Node host.
 - Synchronous console input (`Console.ReadKey(bool)`, `Console.In.ReadLine()`) throws a
   pointed `NotSupportedException` directing callers to `runInteractive` plus the async APIs.
 

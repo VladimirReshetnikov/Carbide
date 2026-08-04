@@ -1,12 +1,10 @@
 // `carbide run` — compiles sources and executes the program. Streams the program's
 // stdout/stderr through the outer process. Since M9, --project walks `<ProjectReference>`
-// edges and builds every sub-project before running the root.
-//
-// Note: program arguments after `--` are parsed by the CLI arg parser but are not
-// forwarded into the runtime yet.
+// edges and builds every sub-project before running the root. Since U2, program arguments
+// after `--` and `--stdin` are forwarded into the runtime.
 
 import path from "node:path";
-import { CarbideSession, type Project, type RunOptions } from "@carbide/core";
+import { CarbideSession, type Diagnostic, type Project, type RunOptions } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
 import { deriveAssemblyName, readReferenceBytes, readSource, readStdinSource } from "../io.js";
 import { parseFormat, renderDiagnostic, renderAttributedDiagnostic, writeJson } from "../format.js";
@@ -26,6 +24,42 @@ import {
     LOG_LEVEL_STRING_FLAGS,
     resolveLogLevel,
 } from "../logging.js";
+
+/**
+ * Split a `RunResult`'s diagnostics into compile diagnostics and run-time advisories.
+ *
+ * core P0.1 added the `MSCAP00*` capture-bypass advisories, which ride along in
+ * `RunResult.diagnostics` even on a run that compiled and executed. Keying the failure
+ * branch on `diagnostics.length` would then misreport a program that both throws and
+ * touches `Console.OpenStandardOutput()` as a compile failure, so the two are separated
+ * here and only compile diagnostics decide the shape of the output.
+ */
+function splitRunDiagnostics(diagnostics: readonly Diagnostic[]): {
+    compile: Diagnostic[];
+    advisories: Diagnostic[];
+} {
+    const compile: Diagnostic[] = [];
+    const advisories: Diagnostic[] = [];
+    for (const diagnostic of diagnostics) {
+        (diagnostic.id.startsWith("MSCAP") ? advisories : compile).push(diagnostic);
+    }
+    return { compile, advisories };
+}
+
+/** Render advisories in the CLI's structured `warnings` shape. */
+function advisoryWarnings(advisories: readonly Diagnostic[]): {
+    code: string;
+    message: string;
+    severity: string;
+    project: string | null;
+}[] {
+    return advisories.map((diagnostic) => ({
+        code: diagnostic.id,
+        message: diagnostic.message,
+        severity: diagnostic.severity,
+        project: null,
+    }));
+}
 
 export const RUN_ARG_SPEC = {
     strings: [
@@ -112,19 +146,21 @@ export async function runRun(args: ParsedArgs): Promise<number> {
         }
 
         const result = await project.run(runOptions);
+        const { compile, advisories } = splitRunDiagnostics(result.diagnostics);
+        const warnings = advisoryWarnings(advisories);
 
         if (!result.success) {
-            if (result.diagnostics.length > 0) {
+            if (compile.length > 0) {
                 if (format === "human") {
-                    for (const d of result.diagnostics) {
+                    for (const d of compile) {
                         process.stderr.write(renderDiagnostic(d) + "\n");
                     }
                 } else {
                     writeJson({
                         success: false,
                         assemblyName,
-                        diagnostics: result.diagnostics,
-                        warnings: [],
+                        diagnostics: compile,
+                        warnings,
                         durationMs: result.durationMs,
                         invocation,
                     });
@@ -140,17 +176,23 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                     stdErr: result.stdErr,
                     uncaughtException: result.uncaughtException ?? null,
                     exitCode: result.exitCode ?? 1,
-                    warnings: [],
+                    warnings,
                     durationMs: result.durationMs,
                     invocation,
                 });
             } else {
+                for (const d of advisories) {
+                    process.stderr.write(renderDiagnostic(d) + "\n");
+                }
                 process.stdout.write(result.stdOut);
             }
             return result.exitCode && result.exitCode !== 0 ? result.exitCode : 1;
         }
 
         if (format === "human") {
+            for (const d of advisories) {
+                process.stderr.write(renderDiagnostic(d) + "\n");
+            }
             process.stdout.write(result.stdOut);
             if (result.stdErr) process.stderr.write(result.stdErr);
         } else {
@@ -160,7 +202,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 stdOut: result.stdOut,
                 stdErr: result.stdErr,
                 exitCode: result.exitCode ?? 0,
-                warnings: [],
+                warnings,
                 durationMs: result.durationMs,
                 invocation,
             });
@@ -242,19 +284,21 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
     }
 
     const result = await multi.root.project.run(runOptions);
+    const { compile, advisories } = splitRunDiagnostics(result.diagnostics);
+    const warnings = [...csprojWarnings, ...advisoryWarnings(advisories)];
 
     if (!result.success) {
-        if (result.diagnostics.length > 0) {
+        if (compile.length > 0) {
             if (format === "human") {
-                for (const d of result.diagnostics) {
+                for (const d of compile) {
                     process.stderr.write(renderDiagnostic(d) + "\n");
                 }
             } else {
                 writeJson({
                     success: false,
                     assemblyName: rootAssembly,
-                    diagnostics: result.diagnostics,
-                    warnings: csprojWarnings,
+                    diagnostics: compile,
+                    warnings,
                     durationMs: result.durationMs,
                     invocation,
                 });
@@ -270,17 +314,23 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
                 stdErr: result.stdErr,
                 uncaughtException: result.uncaughtException ?? null,
                 exitCode: result.exitCode ?? 1,
-                warnings: csprojWarnings,
+                warnings,
                 durationMs: result.durationMs,
                 invocation,
             });
         } else {
+            for (const d of advisories) {
+                process.stderr.write(renderDiagnostic(d) + "\n");
+            }
             process.stdout.write(result.stdOut);
         }
         return result.exitCode && result.exitCode !== 0 ? result.exitCode : 1;
     }
 
     if (format === "human") {
+        for (const d of advisories) {
+            process.stderr.write(renderDiagnostic(d) + "\n");
+        }
         process.stdout.write(result.stdOut);
         if (result.stdErr) process.stderr.write(result.stdErr);
     } else {
@@ -290,7 +340,7 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
             stdOut: result.stdOut,
             stdErr: result.stdErr,
             exitCode: result.exitCode ?? 0,
-            warnings: csprojWarnings,
+            warnings,
             durationMs: result.durationMs,
             invocation,
         });

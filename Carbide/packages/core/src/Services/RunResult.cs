@@ -22,22 +22,26 @@ public sealed class RunResult
     public double DurationMs { get; init; }
     public Diagnostic[] Diagnostics { get; init; } = [];
 
-    public static RunResult Success_(string stdOut, string stdErr, int exitCode, double durationMs) => new()
+    // `diagnostics` carries run-time advisories (currently the MSCAP00* capture-bypass
+    // warnings) on an otherwise successful run. Compile failures use CompileFailure.
+    public static RunResult Success_(string stdOut, string stdErr, int exitCode, double durationMs, Diagnostic[]? diagnostics = null) => new()
     {
         Success = true,
         StdOut = stdOut,
         StdErr = stdErr,
         ExitCode = exitCode,
         DurationMs = durationMs,
+        Diagnostics = diagnostics ?? [],
     };
 
-    public static RunResult Uncaught(string stdOut, string stdErr, string exceptionText, double durationMs) => new()
+    public static RunResult Uncaught(string stdOut, string stdErr, string exceptionText, double durationMs, Diagnostic[]? diagnostics = null) => new()
     {
         Success = false,
         StdOut = stdOut,
         StdErr = stdErr,
         UncaughtException = exceptionText,
         DurationMs = durationMs,
+        Diagnostics = diagnostics ?? [],
     };
 
     public static RunResult CompileFailure(Diagnostic[] diagnostics, double durationMs) => new()

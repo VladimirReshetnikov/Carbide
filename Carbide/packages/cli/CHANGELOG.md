@@ -33,6 +33,11 @@ First published release.
   or internal error, `3` unsupported flag combination, `4` NuGet policy refusal, `5` NuGet
   network or cache miss — paired with a closed set of `error.category` values in the JSON
   payload.
+- **Capture-bypass advisories.** `carbide run` routes `@carbide/core`'s `MSCAP001` /
+  `MSCAP002` advisories into the JSON payload's `warnings` array (and to stderr under
+  `--format human`). They are kept separate from compile diagnostics, so a program that both
+  throws and bypasses capture is still reported as a runtime failure with its
+  `uncaughtException`, not as a compile failure.
 - **Process-level safety net.** Failures raised from detached async paths are routed through
   the same classifier as thrown errors, so they still produce a structured payload and a
   truthful exit code rather than Node's raw unhandled-rejection dump.

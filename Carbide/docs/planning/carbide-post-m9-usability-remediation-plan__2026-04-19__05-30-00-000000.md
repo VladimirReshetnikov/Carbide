@@ -19,16 +19,19 @@ M9 landed the last in-scope shape S5 ([detailed plan](milestones/carbide-M9-deta
 
 | Ref | Item | Status | Addressed by |
 |---|---|---|---|
-| P0.1 | Structured output is not fully enforceable (`Console.OpenStandardOutput` bypasses capture) | **Open** | Phase U1 |
+| P0.1 | Structured output is not fully enforceable (`Console.OpenStandardOutput` bypasses capture) | **Done** | Phase U1 (sentinel-framed JSON trailer) + M7-era `MSCAP001` / `MSCAP002` advisories. The runtime-level fd capture proposed in §2.1 was ruled out: neither the emscripten `print`/`printErr` overlays nor a `preRun` hook reach these writes on the Node host, so Carbide reports every bypassing call site instead of silently losing the bytes. |
 | P0.2 | `carbide run` did not surface csproj/NuGet warnings in JSON | **Done** | Resolved before this plan (M6-era fix); M9 kept `run`'s warnings array across the multi-project path. |
 | P0.3 | Project-graph orchestration (`<ProjectReference>`) missing | **Done** | [M9](milestones/carbide-M9-detailed-plan__2026-04-18__23-18-54-749142.md) |
-| P1.1 | Program argv / stdin not forwarded | **Open** | Phase U2 |
-| P1.2 | Logging is too verbose by default | **Open** | Phase U1 |
-| P1.3 | NuGet "known failures" surface as "unexpected error" | **Open** | Phase U1 |
-| P2.1 | `.csproj` default compile items surprise (CS8802 for scratch dirs) | **Open** | Phase U3 |
-| Proposal | `carbide audit --project` for introspection | **Open** | Phase U3 |
+| P1.1 | Program argv / stdin not forwarded | **Done** | [Phase U2](milestones/carbide-U2-detailed-plan__2026-04-19__07-00-00-000000.md) — `RunOptions.args` / `.stdin`; the CLI forwards everything after a lone `--`, plus `--stdin`. |
+| P1.2 | Logging is too verbose by default | **Done** | [Phase U1](milestones/carbide-U1-detailed-plan__2026-04-19__06-00-00-000000.md) — `--log-level`, `--verbose` / `-v`, `--quiet` / `-q`; info and debug are routed to stderr so JSON output stays clean. |
+| P1.3 | NuGet "known failures" surface as "unexpected error" | **Done** | [Phase U1](milestones/carbide-U1-detailed-plan__2026-04-19__06-00-00-000000.md) — structured error classification with a closed `error.category` set and dedicated exit codes 4 (policy refusal) and 5 (network / cache miss). |
+| P2.1 | `.csproj` default compile items surprise (CS8802 for scratch dirs) | **Done** | [Phase U3](milestones/carbide-U3-detailed-plan__2026-04-19__08-00-00-000000.md) — the `CARBIDE_HINT_CS8802` advisory plus the `--scratch` flag. |
+| Proposal | `carbide audit --project` for introspection | **Done** | [Phase U3](milestones/carbide-U3-detailed-plan__2026-04-19__08-00-00-000000.md) — `carbide audit` and `carbide tree`. |
 
-The P0.1 / P1 items are where Carbide feels most unfinished to someone actually driving it from a shell or agent runtime today. P2.1 is a smaller polish item but the "scratch directory" failure mode is easy to hit on day 1.
+**Status as of the 0.1.0 release: every item in this table is closed.** The sections below are
+retained as the design record for how each was addressed; where the delivered shape differs
+from the plan, the table's "Addressed by" column is authoritative and the
+[current-state guide](../Carbide-Current-State-Guide.md) describes the behaviour that shipped.
 
 ### 1.2 Shape of the work
 
