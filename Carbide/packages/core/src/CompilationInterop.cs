@@ -297,9 +297,19 @@ public static partial class CompilationInterop
         }
 
         var parseOptions = DocumentOptions.DefaultParseOptions;
-        if (!string.IsNullOrWhiteSpace(dto.LanguageVersion)
-            && Microsoft.CodeAnalysis.CSharp.LanguageVersionFacts.TryParse(dto.LanguageVersion, out var langVersion))
+        if (!string.IsNullOrWhiteSpace(dto.LanguageVersion))
         {
+            // An unparseable value used to fall through to the default language version, so
+            // `"lastest"` compiled as if nothing had been asked for. `csc` rejects it
+            // (CS1617) and so does Carbide: there is no defensible fallback for "the caller
+            // asked for a language version we do not recognise".
+            if (!Microsoft.CodeAnalysis.CSharp.LanguageVersionFacts.TryParse(dto.LanguageVersion, out var langVersion))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid ProjectOptions.languageVersion '{dto.LanguageVersion}'. Expected a C# "
+                    + "language version such as 'latest', 'preview', 'latestMajor', 'default', or a "
+                    + "number like '12' / '13'.");
+            }
             parseOptions = parseOptions.WithLanguageVersion(langVersion);
         }
         if (dto.DefineConstants is { Length: > 0 } defines)

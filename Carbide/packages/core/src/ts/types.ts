@@ -61,7 +61,12 @@ export interface ProjectOptions {
      * (`MSPROJ011`) when a project declares net8.0, because the two halves disagree.
      */
     targetFramework?: "net8.0" | "net10.0";
-    /** C# language version string (e.g. "latest", "preview", "12"). Passed through to Roslyn's CSharpParseOptions. */
+    /**
+     * C# language version string (e.g. `"latest"`, `"preview"`, `"latestMajor"`,
+     * `"default"`, or a number like `"12"`). Passed through to Roslyn's
+     * `CSharpParseOptions`. A value Roslyn does not recognise throws rather than silently
+     * falling back to the default, matching `csc`'s CS1617.
+     */
     languageVersion?: string;
     /** When true, enables the `Enable` NullableContextOptions globally. */
     nullable?: boolean;
@@ -71,6 +76,12 @@ export interface ProjectOptions {
      */
     implicitUsings?: boolean;
     assemblyName?: string;
+    /**
+     * Accepted and carried, but it does not affect compilation — C# has no compiler-level
+     * root namespace (it is an MSBuild/IDE property used when generating new files), so
+     * Roslyn takes namespaces from each file. Kept so a `.csproj`'s `<RootNamespace>` can
+     * round-trip through `ProjectOptions` without being dropped.
+     */
     rootNamespace?: string;
     /** Preprocessor symbols (for `#if DEBUG`, `#if MY_FEATURE`, etc.). Equivalent to `<DefineConstants>`. */
     defineConstants?: string[];

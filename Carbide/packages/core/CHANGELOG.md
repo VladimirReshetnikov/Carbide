@@ -57,6 +57,14 @@ First published release.
 
 ### Changed
 
+- **`ProjectOptions.languageVersion` validates.** A value Roslyn cannot parse used to fall
+  through to the default, so `"lastest"` compiled as if nothing had been asked for.
+  `createProject` now throws with the accepted spellings listed, matching `csc`'s CS1617.
+- **`ProjectOptions.targetFramework` and `.rootNamespace` are documented for what they
+  actually do.** `targetFramework` selects a NuGet package's `lib/<tfm>/` folder but never
+  the compile-time reference set, which is always net10.0; `rootNamespace` is carried but has
+  no compiler effect, because C# has no compiler-level root namespace. Neither behaviour
+  changed — both were previously undocumented on the public type.
 - `Microsoft.Extensions.Logging.Abstractions` (and the
   `Microsoft.Extensions.DependencyInjection.Abstractions` it pulls in) moved from
   `10.0.0-preview.5.25277.114` to the stable `10.0.6`. Both ship as assemblies inside the
