@@ -65,6 +65,24 @@ First published release.
   metadata root. This is what keeps browser compilation working at all: `BrowserHostAdapter`
   has no ref pack, so the browser always takes the runtime-assembly path.
 
+### Fixed
+
+- **A user-declared synchronous `Main` is no longer displaced by an unrelated async
+  sibling.** T2.1 added a substitution so that Roslyn's *synthesised* wrapper for
+  `async Task Main` — which deadlocks on single-threaded Mono-WASM — is bypassed in favour of
+  the underlying async method. The search ran for every non-awaitable entry point, though,
+  including a real `static void Main`: a single unrelated helper such as
+  `static async Task WarmUpAsync()` in the same class was invoked *instead of* `Main`, with
+  `success: true`, empty stdout, and no diagnostic. `carbide build` emitted a PE whose entry
+  point was `Main` while `carbide run` on the same sources executed something else, and the
+  `Task<int>` variant replaced the program's exit code. The substitution now applies only when
+  the CLR's entry point is compiler-generated, which is exactly the case it was written for.
+  Candidate ordering is also pinned, since `Type.GetMethods` order is unspecified.
+- **Shift+Tab is decoded as Shift+Tab, not Shift+F2.** The terminfo shim omitted the back-tab
+  entry (`kcbt`, `CSI Z`), so xterm.js's Shift+Tab fell through to `KeyParser`'s SCO-style
+  single-letter branch, where `Z` maps to F2. Reverse-tab-order navigation in a user's TUI
+  silently triggered whatever F2 was bound to — a wrong key rather than an unrecognised one.
+
 ### Changed
 
 - **`ProjectOptions.languageVersion` validates.** A value Roslyn cannot parse used to fall

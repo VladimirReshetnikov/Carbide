@@ -37,6 +37,13 @@ internal sealed class XtermTerminfo
         db["\x1b[C"] = new('\0', ConsoleKey.RightArrow, false, false, false);
         db["\x1b[D"] = new('\0', ConsoleKey.LeftArrow, false, false, false);
 
+        // Back-tab (terminfo `kcbt`). xterm.js emits CSI Z for Shift+Tab. Without this entry
+        // the sequence fell through to KeyParser's SCO-style single-letter branch, where `Z`
+        // maps to F2 — so Shift+Tab was decoded as Shift+F2 rather than being reported as
+        // unrecognised. A wrong key is worse than no key: reverse-tab-order navigation in a
+        // user's TUI silently triggers whatever F2 is bound to.
+        db["\x1b[Z"] = new('\t', ConsoleKey.Tab, shift: true, alt: false, control: false);
+
         // Navigation cluster.
         db["\x1b[H"] = new('\0', ConsoleKey.Home, false, false, false);
         db["\x1b[F"] = new('\0', ConsoleKey.End, false, false, false);

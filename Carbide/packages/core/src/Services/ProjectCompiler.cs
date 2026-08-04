@@ -855,6 +855,21 @@ internal sealed class ProjectCompiler : IDisposable
             return declared;
         }
 
+        // The substitution above exists solely to step around Roslyn's *synthesised*
+        // wrapper, so it must only ever apply to one. Without this guard the sibling
+        // search ran for every non-awaitable entry point, including a user's genuine
+        // `static void Main` — and a single unrelated helper such as
+        // `static async Task WarmUpAsync()` in the same class was then invoked *instead
+        // of Main*, with `success: true`, empty stdout, and no diagnostic. The wrapper is
+        // always compiler-generated and always angle-bracket named (`<Main>` for
+        // `async Task Main`, `<Main>$` for top-level statements); a method the user
+        // actually declared is the one `Assembly.EntryPoint`, `dotnet run`, and the PE
+        // emitted by `project.build()` all agree on, so it has to be the one we run.
+        if (!IsCompilerGenerated(declared))
+        {
+            return declared;
+        }
+
         var declaringType = declared.DeclaringType;
         if (declaringType is null)
         {
@@ -868,6 +883,9 @@ internal sealed class ProjectCompiler : IDisposable
                       | System.Reflection.BindingFlags.NonPublic)
             .Where(m => IsAwaitableReturn(m.ReturnType))
             .Where(m => ParametersMatch(m.GetParameters(), declaredParams))
+            // `Type.GetMethods` order is explicitly unspecified, so pin it: otherwise the
+            // choice among equally-matching candidates could vary between runtimes.
+            .OrderBy(m => m.Name, StringComparer.Ordinal)
             .ToList();
 
         if (candidates.Count == 0)
@@ -888,6 +906,16 @@ internal sealed class ProjectCompiler : IDisposable
         var userDefined = candidates.FirstOrDefault(m => !m.Name.Contains('<'));
         return userDefined ?? candidates[0];
     }
+
+    /// <summary>
+    /// Whether a method was emitted by the compiler rather than written by the user.
+    /// Roslyn marks synthesised entry-point wrappers with
+    /// <see cref="System.Runtime.CompilerServices.CompilerGeneratedAttribute"/> and gives them
+    /// a name no C# identifier can have, so either signal alone is conclusive.
+    /// </summary>
+    private static bool IsCompilerGenerated(System.Reflection.MethodInfo method)
+        => method.Name.Contains('<')
+            || method.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), inherit: false);
 
     private static bool IsAwaitableReturn(Type t)
     {

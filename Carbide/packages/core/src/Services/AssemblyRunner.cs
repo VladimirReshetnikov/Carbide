@@ -194,6 +194,15 @@ internal static class AssemblyRunner
             return declared;
         }
 
+        // Only ever substitute for a compiler-synthesised wrapper — see the matching guard
+        // and rationale in ProjectCompiler.ResolveAsyncEntryOrFallback. Running the search
+        // for a user-declared `static void Main` meant an unrelated awaitable helper in the
+        // same class was invoked instead of the entry point, silently.
+        if (!IsCompilerGenerated(declared))
+        {
+            return declared;
+        }
+
         var declaringType = declared.DeclaringType;
         if (declaringType is null)
         {
@@ -205,6 +214,8 @@ internal static class AssemblyRunner
             .GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
             .Where(m => IsAwaitableReturn(m.ReturnType))
             .Where(m => ParametersMatch(m.GetParameters(), declaredParams))
+            // `Type.GetMethods` order is explicitly unspecified; pin it for determinism.
+            .OrderBy(m => m.Name, StringComparer.Ordinal)
             .ToList();
 
         if (candidates.Count == 0)
@@ -220,6 +231,11 @@ internal static class AssemblyRunner
         var userDefined = candidates.FirstOrDefault(m => !m.Name.Contains('<', StringComparison.Ordinal));
         return userDefined ?? candidates[0];
     }
+
+    /// <summary>Whether a method was emitted by the compiler rather than written by the user.</summary>
+    private static bool IsCompilerGenerated(MethodInfo method)
+        => method.Name.Contains('<', StringComparison.Ordinal)
+            || method.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), inherit: false);
 
     private static bool IsAwaitableReturn(Type t)
     {
