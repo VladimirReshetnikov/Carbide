@@ -35,7 +35,12 @@ NuGet allow-list, S5 for single-plus-siblings project graphs).
   the TypeScript interfaces and C# DTOs still agree field-for-field.
 - **Release gates.** `scripts/check-changelog.mjs` keeps every package's changelog and
   version in lock-step; `scripts/check-licenses.mjs` keeps the license and provenance
-  material consistent. Both run on every pull request.
+  material consistent; `scripts/check-publish.mjs` asks npm what each package would actually
+  ship and checks the tarball carries its license, notices, changelog, and build output. All
+  run on every pull request.
+- **Publish preparation.** `scripts/prepare-publish.mjs` rewrites `@carbide/cli`'s `file:`
+  sibling references to the published range (and back), so the workspace stays usable
+  without a registry while published installs still resolve.
 - [`RELEASING.md`](RELEASING.md) — the publish procedure and the compatibility rules that
   apply from 0.1.0 onward.
 

@@ -60,11 +60,12 @@ npm ci
 npm run check
 ```
 
-That runs the license and provenance check, the changelog and release-metadata check, the TypeScript ↔ C# wire-contract check, and ESLint. The API surface freeze needs the TypeScript packages built first:
+That runs the license and provenance check, the changelog and release-metadata check, the TypeScript ↔ C# wire-contract check, and ESLint. The API surface freeze and the publish-readiness check need the TypeScript packages built first:
 
 ```powershell
 node scripts/build-ts-packages.mjs
 node scripts/api-surface.mjs
+node scripts/check-publish.mjs
 ```
 
 Core validation proceeds in dependency order:

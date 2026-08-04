@@ -12,6 +12,8 @@
         "build:ts-packages": "node scripts/build-ts-packages.mjs",
         "api-surface": "node scripts/api-surface.mjs",
         "api-surface:write": "node scripts/api-surface.mjs --write",
+        "check-publish": "node scripts/check-publish.mjs",
+        "prepare-publish": "node scripts/prepare-publish.mjs",
         "check": "npm run check-licenses && npm run check-changelog && npm run check-wire-schema && npm run lint"
     },
     "devDependencies": {

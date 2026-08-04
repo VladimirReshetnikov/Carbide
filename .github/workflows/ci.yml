@@ -61,6 +61,11 @@ jobs:
       - name: Wire-contract compatibility fixtures
         working-directory: Carbide/packages/core
         run: node --test --test-force-exit test/node/wire-compat.test.mjs
+      # Asks npm what each package would actually ship. The Mono-WASM `_framework` payload
+      # is not built in this job, so that one slice is reported as skipped rather than
+      # failed; a release build covers it via `RELEASING.md`.
+      - name: Publish readiness
+        run: node scripts/check-publish.mjs
 
   # Pure-Node packages: no .NET toolchain required. Runs on both OSes — development
   # happens on Windows, deployment targets are POSIX, and path/teardown bugs are

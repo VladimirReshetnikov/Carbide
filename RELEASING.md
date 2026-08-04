@@ -22,6 +22,7 @@ together, and each has a machine check:
 | TypeScript exports, CLI flags, exit codes | [`api/`](api/README.md) | `node scripts/api-surface.mjs` |
 | JSExport wire payloads (`SCHEMA_VERSION`) | `Carbide/packages/core/test/fixtures/wire/` | `node scripts/check-wire-schema.mjs` + `wire-compat.test.mjs` |
 | Versions and release notes | `CHANGELOG.md` files | `node scripts/check-changelog.mjs` |
+| Tarball contents and manifest metadata | each package's `files` allow-list | `node scripts/check-publish.mjs` |
 
 While the version is `0.x`:
 
@@ -70,25 +71,44 @@ While the version is `0.x`:
    browser suites, the CLI suite, and the Carbide.UI launcher suite. A release is not cut
    from a green fast gate alone.
 
-7. **Pack and inspect.** In each package directory:
+7. **Check publish readiness.** This asks npm what each package would actually ship and
+   checks the answer — license, notices, changelog, build output, and the Mono-WASM
+   `_framework` payload, plus the manifest metadata npm needs for provenance.
 
    ```powershell
-   npm pack --dry-run
+   node scripts/check-publish.mjs
    ```
 
-   Confirm `CHANGELOG.md`, `LICENSE`, `README.md`, and the attribution and third-party
-   notice files are present in every tarball that redistributes upstream material.
+   Run it *after* step 6, so the `_framework` slice is present rather than reported as
+   skipped.
 
-8. **Publish** in dependency order — `msbuild-lite`, `nuget`, `refs-net10.0`, `core`, `cli` —
-   then tag:
+8. **Rewrite the sibling dependencies.** `@carbide/cli` resolves `@carbide/core`,
+   `@carbide/msbuild-lite`, and `@carbide/nuget` through `file:` references so the workspace
+   works without a registry. Those cannot survive publication:
 
    ```powershell
-   git tag -a v0.1.0 -m "Carbide 0.1.0"
-   git push origin v0.1.0
+   node scripts/prepare-publish.mjs
+   node scripts/check-publish.mjs --release
    ```
 
-   `@carbide/cli` depends on its siblings through `file:` references for local development.
-   Rewrite those to the published version range before publishing the CLI.
+   `--release` fails if any local spec remains.
+
+9. **Publish** in dependency order — `msbuild-lite`, `nuget`, `refs-net10.0`, `core`, `cli`:
+
+   ```powershell
+   npm publish --access public
+   ```
+
+10. **Restore and tag.**
+
+    ```powershell
+    node scripts/prepare-publish.mjs --restore
+    git tag -a v0.1.0 -m "Carbide 0.1.0"
+    git push origin v0.1.0
+    ```
+
+    The restore is a byte-clean round trip — `git diff` should be empty afterwards. Do not
+    commit the rewritten manifests; `main` keeps the `file:` references.
 
 ## After the release
 
