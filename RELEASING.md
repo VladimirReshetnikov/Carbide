@@ -71,6 +71,18 @@ While the version is `0.x`:
    browser suites, the CLI suite, and the Carbide.UI launcher suite. A release is not cut
    from a green fast gate alone.
 
+   Run it at least once from a **fresh clone**, not from your working tree:
+
+   ```powershell
+   git clone . <scratch>\freshclone
+   ```
+
+   A working tree carries `obj/`, `node_modules/`, and an already-extracted ref pack, so it
+   cannot see the failures that only a clean checkout hits — the restore ordering for the
+   out-of-band `Carbide.System.Console` build broke exactly this way once, with a
+   `NETSDK1004` that no incremental build would ever have reproduced. A contributor
+   following the README gets the clean path, so it is the one worth proving.
+
 7. **Check publish readiness.** This asks npm what each package would actually ship and
    checks the answer — license, notices, changelog, build output, the Mono-WASM `_framework`
    payload, and the extracted reference pack — plus the manifest metadata npm needs for
