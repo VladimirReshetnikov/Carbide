@@ -1,6 +1,6 @@
 {
   "name": "@carbide/cli",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Command-line interface for Carbide: build / run / validate C# projects without a .NET SDK install.",
   "type": "module",
   "main": "./dist/bin/carbide.js",
@@ -8,6 +8,7 @@
     "carbide": "./dist/bin/carbide.js"
   },
   "files": [
+    "CHANGELOG.md",
     "dist"
   ],
   "scripts": {

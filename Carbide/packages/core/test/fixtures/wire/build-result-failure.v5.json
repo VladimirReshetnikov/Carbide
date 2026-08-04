@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 5,
+  "success": false,
+  "diagnostics": [
+    {
+      "id": "CS0103",
+      "severity": "error",
+      "message": "The name 'Foo' does not exist in the current context",
+      "path": "Program.cs",
+      "spanStart": 0,
+      "spanEnd": 3,
+      "lineStart": 0,
+      "lineEnd": 0,
+      "columnStart": 0,
+      "columnEnd": 3
+    }
+  ],
+  "durationMs": 7
+}

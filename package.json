@@ -6,7 +6,13 @@
     "type": "module",
     "scripts": {
         "lint": "eslint .",
-        "check-licenses": "node scripts/check-licenses.mjs"
+        "check-licenses": "node scripts/check-licenses.mjs",
+        "check-changelog": "node scripts/check-changelog.mjs",
+        "check-wire-schema": "node scripts/check-wire-schema.mjs",
+        "build:ts-packages": "node scripts/build-ts-packages.mjs",
+        "api-surface": "node scripts/api-surface.mjs",
+        "api-surface:write": "node scripts/api-surface.mjs --write",
+        "check": "npm run check-licenses && npm run check-changelog && npm run check-wire-schema && npm run lint"
     },
     "devDependencies": {
         "@eslint/js": "^9.31.0",

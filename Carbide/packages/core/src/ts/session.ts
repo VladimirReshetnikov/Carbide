@@ -2,7 +2,12 @@ import type { HostAdapter } from "./host/adapter.js";
 import { BrowserHostAdapter } from "./host/browser/browser-adapter.js";
 import { bootRuntime } from "./runtime/boot.js";
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
-import { parseRunResult, SCHEMA_VERSION, type ProjectOptionsRequest } from "./interop/schema.js";
+import {
+    parseRunResult,
+    SCHEMA_VERSION,
+    type ProjectOptionsRequest,
+    type RunAssemblyOptionsRequest,
+} from "./interop/schema.js";
 import type { ProjectOptions, ReferenceHandle, RunAssemblyOptions, RunResult } from "./types.js";
 import { Project } from "./project.js";
 
@@ -161,7 +166,7 @@ export class CarbideSession {
         if (options.pe.length === 0) {
             throw new Error("CarbideSession.runAssembly: options.pe must be non-empty.");
         }
-        const payload = {
+        const payload: RunAssemblyOptionsRequest = {
             schemaVersion: SCHEMA_VERSION,
             peBase64: bytesToBase64(options.pe),
             referencesBase64: (options.references ?? []).map((bytes) => {

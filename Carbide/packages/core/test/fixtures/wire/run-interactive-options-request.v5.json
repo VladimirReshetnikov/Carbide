@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 5,
+  "args": ["--interactive"],
+  "stderrStyle": "red"
+}

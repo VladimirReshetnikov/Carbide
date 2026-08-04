@@ -1,6 +1,6 @@
 {
   "name": "@carbide/msbuild-lite",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Bounded .csproj parser for Carbide. Semantic port of src/cs-agent-tools/src/cs_kit/msbuild_lite.py — supports TFM/Nullable/LangVersion/ImplicitUsings/DefineConstants/AssemblyName/RootNamespace + Compile globs + PackageReference/ProjectReference capture + simple Condition evaluation.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,7 @@
     }
   },
   "files": [
+    "CHANGELOG.md",
     "dist"
   ],
   "scripts": {

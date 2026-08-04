@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 4,
+  "success": true,
+  "exitCode": 0,
+  "stdOut": "hello\n",
+  "stdErr": "",
+  "durationMs": 11,
+  "diagnostics": []
+}

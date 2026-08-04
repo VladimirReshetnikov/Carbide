@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 5,
+  "success": false,
+  "exitCode": null,
+  "stdOut": "before\n",
+  "stdErr": "",
+  "uncaughtException": "System.InvalidOperationException: boom\n   at Program.<Main>$(String[] args)",
+  "durationMs": 8.25,
+  "diagnostics": []
+}

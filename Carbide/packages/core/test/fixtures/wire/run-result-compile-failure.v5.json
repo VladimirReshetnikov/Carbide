@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 5,
+  "success": false,
+  "stdOut": "",
+  "stdErr": "",
+  "durationMs": 3.5,
+  "diagnostics": [
+    {
+      "id": "CS1002",
+      "severity": "error",
+      "message": "; expected",
+      "path": "Program.cs",
+      "spanStart": 20,
+      "spanEnd": 20,
+      "lineStart": 1,
+      "lineEnd": 1,
+      "columnStart": 20,
+      "columnEnd": 20
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 # Carbide Current-State Guide
 
 Created (UTC): 2026-04-18T23:36:06Z
-Updated (UTC): 2026-04-20T14:30:00Z
-Repository HEAD: 43db73bda (T3 forked System.Console.dll landed)
+Updated (UTC): 2026-08-04T00:00:00Z
+Repository HEAD: M7 published-API stability lock; packages released at 0.1.0
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -24,7 +24,9 @@ Repository HEAD: 43db73bda (T3 forked System.Console.dll landed)
 
 ## Summary
 
-Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M9 + M11 + U1–U3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, sentinel-framed JSON output, and structured error classification all exist; Webcil mode, source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not.
+Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M7 + M9 + M11 + U1–U3 + T1–T3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, the interactive xterm terminal path, sentinel-framed JSON output, structured error classification, and — since M7 — a frozen published API surface all exist; Webcil mode, source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not.
+
+The published packages are at `0.1.0`. From that release onward the exported TypeScript surface, the CLI's flag and exit-code contract, and the JSExport wire payloads are frozen and gated in CI — see [`RELEASING.md`](../../RELEASING.md) and [`api/`](../../api/README.md).
 
 This guide is the current-state companion to the planning documents. The vision and architecture pages explain why Carbide exists and the intended shape of the system; this page explains what is actually present in the repository now, how to use it successfully, where the sharp edges are, and which apparent capabilities are still only roadmap material.
 
@@ -35,21 +37,25 @@ This guide is the current-state companion to the planning documents. The vision 
   - multi-document source management
   - session-scoped user DLL references
   - deterministic PE and portable-PDB emission
-  - `carbide build`, `carbide run`, and `carbide validate`
-  - bounded `.csproj` parsing through `@carbide/msbuild-lite`
+  - `carbide build`, `carbide run`, `carbide validate`, `carbide audit`, and `carbide tree`
+  - bounded `.csproj` parsing through `@carbide/msbuild-lite`, including `Directory.Build.props` and `<Import>`
   - bounded NuGet v3 resolution, caching, allow-list policy, and `carbide.lock.json`
   - `@carbide/refs-net10.0` for a stable compile-time API surface
   - multi-project `<ProjectReference>` graph builds (topological leaves-first compilation, sibling-PE metadata references, cycle + AssemblyName-collision errors, diagnostic attribution per sub-project)
+  - program argv and stdin forwarding, and the interactive xterm terminal path (streaming output, async console input, colors, cursor, resize, Ctrl+C)
+  - a frozen published API surface, wire contract, and changelog train at `0.1.0`
 - Deliberately not implemented yet:
   - `.sln` parsing (vision §7 caps shape S5 at one-plus-siblings)
   - Webcil mode
   - source generators and analyzers
-  - `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, or general MSBuild execution
-  - live program-output streaming, program-stdin forwarding, and program-argv forwarding
+  - `<Target>`, `<Task>`, `<UsingTask>`, `<Choose>`, or general MSBuild execution — each is refused with an `MSBLITE0*` code rather than silently ignored
+  - `Directory.Build.targets` ingestion (discovered, logged as `MSBLITE027`, then skipped)
+  - synchronous console input (`Console.ReadKey(bool)`, `Console.In.ReadLine()`), which throws a pointed `NotSupportedException` pointing at `runInteractive` plus the async APIs
   - SDK-level workload parity or general-purpose `dotnet` compatibility
 - Automated verification in-repo:
   - Node acceptance tests for core and CLI behavior
-  - Playwright browser smoke tests for hello-world, multi-document editing, emitted-PE round-trips, and user-DLL references
+  - Playwright browser smoke tests for hello-world, multi-document editing, emitted-PE round-trips, user-DLL references, and the interactive terminal
+  - the M7 gates: API surface freeze, wire-contract parity between TypeScript and C#, changelog and version lock-step, license and provenance consistency
   - optional live NuGet smoke tests gated by `CARBIDE_NUGET_LIVE=1`
 
 ## What Carbide Is For
@@ -211,7 +217,9 @@ This is the key architectural distinction:
 | Offline replay | Supported | `--offline` plus cache/lock |
 | Webcil | Not implemented | `<WasmEnableWebcil>false</WasmEnableWebcil>` |
 | Source generators / analyzers | Not implemented | Analyzer-bearing packages are refused |
-| Program argv/stdin | Not wired through yet | The CLI parser understands `--`, but the runtime run path still invokes `Main` with an empty string array |
+| Program argv/stdin | Supported (U2) | `RunOptions.args` / `RunOptions.stdin` forward to the entry point's `Main(string[] args)` and to `Console.In`. The CLI passes anything after a lone `--` as program argv. Binary stdin is not supported; the payload is UTF-8 text |
+| Published API surface freeze | Supported (M7) | The exported TypeScript surface, CLI flags, exit codes, and error categories are recorded in `api/` and regenerated by `scripts/api-surface.mjs`; CI fails on an unrecorded change |
+| Wire-contract freeze | Supported (M7) | `SCHEMA_VERSION` 5 payloads are pinned by golden fixtures under `packages/core/test/fixtures/wire/`; `scripts/check-wire-schema.mjs` asserts the TypeScript interfaces and C# DTOs still agree field-for-field |
 | Interactive browser terminal (T1) | Supported (T1) | `Project.runInteractive({ terminal })` streams stdout/stderr into an xterm.js-shaped `Terminal` while the program runs. Browser adapter only; Node-backed sessions throw. ANSI passthrough is unchanged. `Console.OpenStandardOutput()` writes now route to the terminal via the emscripten `print` overlay rather than the devtools console. |
 | Interactive stdin / `CarbideConsole.*Async` | Supported (T2) with runtime limitation | `Carbide.Terminal.CarbideConsole` exposes `ReadLineAsync`, `ReadKeyAsync`, `ForegroundColor`/`BackgroundColor`/`ResetColor`, `SetCursorPosition`/`CursorVisible`, `WindowWidth`/`Height`, `Title`, `Clear`, `TerminalResized`/`CancelKeyPress` events, `TreatControlCAsInput`, `DelayAsync`, `WaitForResizeAsync`, `WriteRaw`. `Console.In` is reflection-patched to a `BrowserTerminalReader`; synchronous `Console.In.ReadLine()` etc. throw a pointed `NotSupportedException`. T2.1 follow-up: three fixtures (`ReadKeyAsync`, Ctrl+C, resize-event) are test-skipped pending a Mono-WASM browser async-scheduler fix — see drift (T2) for details. |
 | Pre-compiled-library `Console.*` parity | Supported (T3) | `@carbide/core`'s publish step overlays a Carbide-forked `System.Console.dll` on top of the stock Mono-WASM one in `_framework/`. In an interactive run (`Project.runInteractive`), stock `Console.ForegroundColor` / `BackgroundColor` / `ResetColor` / `SetCursorPosition` / `CursorVisible` / `Title` (setter) / `Clear` / `WindowWidth` / `WindowHeight` / `TreatControlCAsInput` / `CancelKeyPress` all work end-to-end. Synchronous `Console.ReadKey(bool)` / `Console.In.ReadLine()` remain PNS with a pointed "use runInteractive + async" message — true sync-block over async needs a worker + SharedArrayBuffer, tracked as T3.1. |

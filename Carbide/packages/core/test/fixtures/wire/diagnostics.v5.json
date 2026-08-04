@@ -1,0 +1,26 @@
+[
+  {
+    "id": "CS0219",
+    "severity": "warning",
+    "message": "The variable 'unused' is assigned but its value is never used",
+    "path": "Helper.cs",
+    "spanStart": 61,
+    "spanEnd": 67,
+    "lineStart": 4,
+    "lineEnd": 4,
+    "columnStart": 12,
+    "columnEnd": 18
+  },
+  {
+    "id": "CS1002",
+    "severity": "error",
+    "message": "; expected",
+    "path": "Program.cs",
+    "spanStart": 20,
+    "spanEnd": 20,
+    "lineStart": 1,
+    "lineEnd": 1,
+    "columnStart": 20,
+    "columnEnd": 20
+  }
+]

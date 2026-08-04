@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 5,
+  "args": ["--name", "world"],
+  "stdin": "line one\nline two\n"
+}

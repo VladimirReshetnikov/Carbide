@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 5,
+  "targetFramework": "net10.0",
+  "languageVersion": "latest",
+  "nullable": true,
+  "implicitUsings": true,
+  "assemblyName": "Program",
+  "rootNamespace": "Sample",
+  "defineConstants": ["DEBUG", "MY_FEATURE"]
+}

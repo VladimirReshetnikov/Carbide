@@ -1,6 +1,6 @@
 {
   "name": "@carbide/nuget",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Bounded NuGet v3 resolver for Carbide: allow-listed managed-only packages only, with nearest-wins conflict resolution, TFM compatibility, a ~/.carbide/nuget-cache/ filesystem cache, and carbide.lock.json for offline replay.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,6 +12,7 @@
     }
   },
   "files": [
+    "CHANGELOG.md",
     "dist",
     "ATTRIBUTION.md"
   ],

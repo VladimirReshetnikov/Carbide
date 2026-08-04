@@ -2,17 +2,20 @@
 
 Carbide is a C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a Node CLI, a bounded `.csproj` parser, a bounded NuGet resolver, and an optional .NET reference-pack sibling.
 
-**Current implementation status:** the repository has working M1-M6 functionality. That means:
+**Current implementation status:** the published packages are at `0.1.0` (M1–M7, M9, M11, U1–U3, T1–T3). That means:
 
 - browser and Node runtime support via `@carbide/core`
 - multi-document source management
 - user-supplied DLL references
 - deterministic PE/PDB emission
-- `carbide build`, `carbide run`, and `carbide validate`
-- bounded `.csproj` support via `@carbide/msbuild-lite`
+- `carbide build`, `carbide run`, `carbide validate`, `carbide audit`, and `carbide tree`
+- bounded `.csproj` support via `@carbide/msbuild-lite`, including `Directory.Build.props` and `<Import>`
 - bounded `PackageReference` resolution, cache, and `carbide.lock.json` via `@carbide/nuget`
+- sibling `<ProjectReference>` graph builds, compiled leaves-first
+- program argv/stdin forwarding and the interactive xterm terminal path
+- a frozen public API surface and wire contract, gated in CI (see [`RELEASING.md`](../RELEASING.md))
 
-Still pending are sibling `<ProjectReference>` build orchestration, Webcil mode, source generators/analyzers, and broader MSBuild parity. The authoritative current-state guide is [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md).
+Still pending are Webcil mode, source generators/analyzers, `.sln` parsing, `<Target>`/`<Task>` execution, and broader MSBuild parity. The authoritative current-state guide is [Carbide Current-State Guide](docs/Carbide-Current-State-Guide.md).
 
 ## License and provenance
 

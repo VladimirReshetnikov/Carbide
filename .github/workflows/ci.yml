@@ -25,10 +25,42 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: License and provenance consistency
         run: node scripts/check-licenses.mjs
+      - name: Changelog and release-metadata consistency
+        run: node scripts/check-changelog.mjs
+      - name: Wire-contract consistency (TypeScript ↔ C#)
+        run: node scripts/check-wire-schema.mjs
       - name: Install lint tooling
         run: npm ci
       - name: ESLint
         run: npm run lint
+
+  # The M7 compatibility freeze. Pure TypeScript: no .NET toolchain, no WASM publish —
+  # `@carbide/core`'s `build:ts` compiles src/ts alone. Fast enough to gate every PR.
+  api-surface:
+    name: Public API surface freeze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            Carbide/packages/core/package-lock.json
+            Carbide/packages/cli/package-lock.json
+            Carbide/packages/msbuild-lite/package-lock.json
+            Carbide/packages/nuget/package-lock.json
+      - name: Install extractor tooling
+        run: npm ci
+      - name: Build the TypeScript packages
+        run: node scripts/build-ts-packages.mjs
+      - name: Check the committed API reports
+        run: node scripts/api-surface.mjs
+      - name: Wire-contract compatibility fixtures
+        working-directory: Carbide/packages/core
+        run: node --test --test-force-exit test/node/wire-compat.test.mjs
 
   # Pure-Node packages: no .NET toolchain required. Runs on both OSes — development
   # happens on Windows, deployment targets are POSIX, and path/teardown bugs are

@@ -39,6 +39,19 @@ export interface RunOptionsRequest {
 }
 
 /**
+ * M4 — payload for {@link import("../session.js").CarbideSession.runAssembly}. Assembly and
+ * reference bytes are base64 here for the same reason {@link parseBuildResult} decodes them:
+ * the JSExport string pipeline carries them without custom `Uint8Array` marshalling.
+ */
+export interface RunAssemblyOptionsRequest {
+    schemaVersion: number;
+    peBase64: string;
+    referencesBase64: string[];
+    args: string[];
+    stdin: string | null;
+}
+
+/**
  * T1 — optional knobs for {@link import("../project.js").Project.runInteractive}. Unlike
  * {@link RunOptionsRequest}, an interactive run always goes through the JSON payload — the
  * empty-string fast-path is not a shape `runInteractive` ever takes.

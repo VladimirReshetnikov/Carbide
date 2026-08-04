@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 5,
+  "peBase64": "TVqQAA==",
+  "referencesBase64": ["TVqQAA=="],
+  "args": ["--name", "world"],
+  "stdin": "line one\n"
+}

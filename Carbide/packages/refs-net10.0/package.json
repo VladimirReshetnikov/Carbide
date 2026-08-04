@@ -1,6 +1,6 @@
 {
   "name": "@carbide/refs-net10.0",
-  "version": "0.1.0-dev",
+  "version": "0.1.0",
   "description": "Pre-extracted .NET 10 reference assemblies for Carbide's compile-time API surface. Derived from Microsoft.NETCore.App.Ref; see THIRD_PARTY_NOTICES.md.",
   "type": "module",
   "main": "./ref-manifest.json",
@@ -9,6 +9,7 @@
     "./ref-manifest.json": "./ref-manifest.json"
   },
   "files": [
+    "CHANGELOG.md",
     "ref-manifest.json",
     "ref/net10.0/*.dll",
     "THIRD_PARTY_NOTICES.md",

@@ -3,8 +3,8 @@
 Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../../LICENSE), with copyright held collectively by Carbide Contributors.
 
 - Created (UTC): 2026-04-19T01:36:09Z
-- Updated (UTC): 2026-04-20T14:45:00Z
-- Repository HEAD: 43db73bda
+- Updated (UTC): 2026-08-04T00:00:00Z
+- Repository HEAD: M7 published-API stability lock; packages released at 0.1.0
 
 This directory groups the detailed implementation plans for individual Carbide milestones.
 
@@ -24,3 +24,10 @@ This directory groups the detailed implementation plans for individual Carbide m
 - [T1 — detailed plan (streaming output + terminal session API)](carbide-T1-detailed-plan__2026-04-20__00-16-33-000000.md) — first phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).
 - [T2 — detailed plan (cooperative async input + `CarbideConsole`)](carbide-T2-detailed-plan__2026-04-20__03-09-57-000000.md) — second phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md).
 - [T3 — detailed plan (forked `System.Console.dll`)](carbide-T3-detailed-plan__2026-04-20__13-56-27-000000.md) — third phase of the [xterm.js interactive console plan](../carbide-xterm-interactive-console-plan__2026-04-19__23-34-41-000000.md). **Implemented (base surface).** Replaces the stock `System.Console.dll` with a Carbide fork so pre-compiled NuGet libraries call stock `Console.ForegroundColor` / `Console.WindowWidth` / `Console.CancelKeyPress` etc. without code changes. Sync-block APIs (`Console.ReadKey`, `Console.GetCursorPosition`) remain PNS pending T3.1 (worker + SAB).
+- **M7 — published API + stability lock. Implemented; no separate plan document.** The architecture plan's [§9 M7](../carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md) acceptance — "a compatibility-freeze test harness pins the JSON schemas and TypeScript types at 0.1.0; subsequent PRs that break them are caught by the harness" — is met by four gates that run on every pull request:
+  - `scripts/api-surface.mjs` renders the exported TypeScript surface of every published package (plus the CLI's flag, exit-code, and error-category contract) into the committed reports under [`api/`](../../../../api/README.md), and fails on an unrecorded change.
+  - `scripts/check-wire-schema.mjs` asserts `SCHEMA_VERSION` and the JSExport payload field sets stay identical across the TypeScript and C# halves — the one contract the compiler cannot check.
+  - `packages/core/test/node/wire-compat.test.mjs` replays the golden payloads under `packages/core/test/fixtures/wire/` through the shipped parsers.
+  - `scripts/check-changelog.mjs` keeps all five packages, the repository changelog, and `CARBIDE_VERSION` at one version.
+
+  The release procedure and the compatibility rules that apply from 0.1.0 onward live in [`RELEASING.md`](../../../../RELEASING.md).

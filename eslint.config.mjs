@@ -49,4 +49,24 @@ export default tseslint.config(
             ],
         },
     },
+    {
+        // Repository tooling: the release and provenance gates run on every PR, so they are
+        // held to the same correctness bar as shipped code.
+        files: ["scripts/**/*.mjs"],
+        extends: [js.configs.recommended],
+        languageOptions: {
+            ecmaVersion: 2023,
+            sourceType: "module",
+            globals: {
+                console: "readonly",
+                process: "readonly",
+                URL: "readonly",
+                TextDecoder: "readonly",
+                TextEncoder: "readonly",
+            },
+        },
+        rules: {
+            "no-empty": ["error", { allowEmptyCatch: true }],
+        },
+    },
 );
