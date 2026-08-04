@@ -36,6 +36,15 @@ public class WasmMetadataReferenceResolver
         await source.CopyToAsync(ms).ConfigureAwait(false);
         var bytes = ms.ToArray();
 
+        // M8: with Webcil enabled the publish pipeline emits no PE files at all — every
+        // managed assembly arrives as a Webcil image (usually wrapped in a `.wasm` module).
+        // Try that container first when the bytes announce it, so the runtime-assembly
+        // fallback keeps working; PE remains the path for ref packs and user DLLs.
+        if (WebcilReader.LooksLikeWebcil(bytes))
+        {
+            return (bytes, WebcilReader.TryCreateReference(bytes, url.AbsolutePath));
+        }
+
         if (!HasManagedMetadata(bytes))
         {
             return (bytes, null);

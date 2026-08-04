@@ -2,7 +2,7 @@
 
 Created (UTC): 2026-04-18T23:36:06Z
 Updated (UTC): 2026-08-04T00:00:00Z
-Repository HEAD: M7 published-API stability lock; packages released at 0.1.0
+Repository HEAD: M7 stability lock + M8 Webcil packaging; packages at 0.1.0
 
 - Status: Informational
 - Audience: Users, maintainers, reviewers, and future contributors
@@ -24,7 +24,7 @@ Repository HEAD: M7 published-API stability lock; packages released at 0.1.0
 
 ## Summary
 
-Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M7 + M9 + M11 + U1–U3 + T1–T3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, the interactive xterm terminal path, sentinel-framed JSON output, structured error classification, and — since M7 — a frozen published API surface all exist; Webcil mode, source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not.
+Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M7 + M8 + M9 + M11 + U1–U3 + T1–T3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, the interactive xterm terminal path, sentinel-framed JSON output, structured error classification, and — since M7 — a frozen published API surface all exist; since M8 managed assemblies also ship in Webcil form. Source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not exist.
 
 The published packages are at `0.1.0`. From that release onward the exported TypeScript surface, the CLI's flag and exit-code contract, and the JSExport wire payloads are frozen and gated in CI — see [`RELEASING.md`](../../RELEASING.md) and [`api/`](../../api/README.md).
 
@@ -44,9 +44,9 @@ This guide is the current-state companion to the planning documents. The vision 
   - multi-project `<ProjectReference>` graph builds (topological leaves-first compilation, sibling-PE metadata references, cycle + AssemblyName-collision errors, diagnostic attribution per sub-project)
   - program argv and stdin forwarding, and the interactive xterm terminal path (streaming output, async console input, colors, cursor, resize, Ctrl+C)
   - a frozen published API surface, wire contract, and changelog train at `0.1.0`
+  - Webcil packaging: managed assemblies ship as `.wasm`, so no `.dll` content type is served
 - Deliberately not implemented yet:
   - `.sln` parsing (vision §7 caps shape S5 at one-plus-siblings)
-  - Webcil mode
   - source generators and analyzers
   - `<Target>`, `<Task>`, `<UsingTask>`, `<Choose>`, or general MSBuild execution — each is refused with an `MSBLITE0*` code rather than silently ignored
   - `Directory.Build.targets` ingestion (discovered, logged as `MSBLITE027`, then skipped)
@@ -215,7 +215,7 @@ This is the key architectural distinction:
 | `<Target>` / `<Task>` / `<UsingTask>` / `<Choose>` / `<ItemDefinitionGroup>` | Refused (M11) | Emit `MSBLITE020`–`MSBLITE023`, `MSBLITE028`. |
 | NuGet cache and lock file | Supported | `~/.carbide/nuget-cache` plus `carbide.lock.json` |
 | Offline replay | Supported | `--offline` plus cache/lock |
-| Webcil | Not implemented | `<WasmEnableWebcil>false</WasmEnableWebcil>` |
+| Webcil | Supported (M8) | `<WasmEnableWebcil>true</WasmEnableWebcil>`. Every managed assembly in `_framework/` ships as a `.wasm` file wrapping a Webcil image, so no `.dll` content type is served. Carbide reads the container itself for compile-time metadata — Webcil replaces the PE headers rather than wrapping them, so `PEReader` cannot be used |
 | Source generators / analyzers | Not implemented | Analyzer-bearing packages are refused |
 | Program argv/stdin | Supported (U2) | `RunOptions.args` / `RunOptions.stdin` forward to the entry point's `Main(string[] args)` and to `Console.In`. The CLI passes anything after a lone `--` as program argv. Binary stdin is not supported; the payload is UTF-8 text |
 | Published API surface freeze | Supported (M7) | The exported TypeScript surface, CLI flags, exit codes, and error categories are recorded in `api/` and regenerated by `scripts/api-surface.mjs`; CI fails on an unrecorded change |
@@ -345,7 +345,6 @@ T3 ships a Carbide-authored replacement for Mono-WASM's `System.Console.dll` so 
 - `<ProjectReference>` is walked and each reachable sub-project is built, but parallel compilation is not used; the leaves-first topological order is sequential.
 - `.sln` parsing is not supported; the CLI's `--project` flag takes one `.csproj`.
 - `Directory.Build.props`, `<Import>`, `<Target>`, `<Task>`, property functions, and broad MSBuild evaluation are not implemented.
-- Webcil mode is off.
 - The public runtime path does not expose program-stdin or program-argv yet.
 - Output capture is `Console.SetOut`-based. Writes through the handle-level streams (`Console.OpenStandardOutput()` / `OpenStandardError()`) bypass it: Mono-WASM sends them down the file-descriptor path, so they surface as raw bytes on the host process's real stdout and are absent from `RunResult`. Since M7 each such call site is reported as an `MSCAP001` warning rather than silently losing the bytes, and `Console.OpenStandardInput()` — which never observes the `stdin` Carbide seeds through `Console.In` — as `MSCAP002`. `runInteractive` is exempt from `MSCAP001`; its terminal bridge does receive handle-level writes. Escaped bytes can still prefix the CLI's JSON output, which is why the JSON trailer is sentinel-framed (U1.1).
 - CLI invocations are cold-start oriented; there is no background daemon or pooled runtime process.
@@ -823,9 +822,10 @@ The planning documents remain relevant because they describe intended future sea
 
 For contributors, the main future-facing topics are:
 
-- M7: public API hardening and stability freeze
-- M8: Webcil mode
+- M7: public API hardening and stability freeze — landed; see [`api/`](../../api/README.md) and [`RELEASING.md`](../../RELEASING.md)
+- M8: Webcil mode — landed; see the architecture plan's §7 implementation outcome
 - M9: `<ProjectReference>` build graphs — landed; see the M9 detailed plan
+- M10 / M12 / M13: WASI target, source generators, custom compiler driver — Band C, not started
 - bridge/UI proposals in this docs directory, which are exploratory and not part of the current shipping surface
 
 Treat roadmap docs as plans, not as claims about present behavior.

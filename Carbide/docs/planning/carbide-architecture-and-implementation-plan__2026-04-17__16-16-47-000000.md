@@ -432,6 +432,33 @@ Carbide's position: Webcil support is Band B, not v1. Implementation plan:
 
 Webcil compatibility is flagged as "optional, on the roadmap" in v1 documentation, "supported" in v2.
 
+### Implementation outcome (M8)
+
+Webcil is enabled. Two of the assumptions above did not survive contact with the format, and
+the delivered shape differs accordingly:
+
+- **"Roslyn's metadata reader accepts PE bytes regardless of container format, so the
+  loader's job is just to pass the inner PE stream" — incorrect.** Webcil is not a wrapper
+  around a PE; it *replaces* the PE/COFF headers with a 28-byte header of its own plus a
+  compact section table. There is no inner PE stream to hand over, and `PEReader` rejects the
+  image outright. Carbide therefore reads the Webcil header itself, maps the CLI header's RVA
+  to a file offset, slices the ECMA-335 metadata root out, and builds the reference with
+  `ModuleMetadata.CreateFromMetadata`. See `packages/core/src/Services/WebcilReader.cs`.
+  The SDK additionally wraps the Webcil image in a WebAssembly module (so the asset is served
+  as `application/wasm`), so the reader unwraps that first.
+- **"Provide `@carbide/refs-<tfm>` in both forms and let the host adapter pick by
+  content-type" — not needed as specified.** `BrowserHostAdapter` does not implement
+  `resolveReferencePack` at all: in the browser Carbide takes the runtime-assembly path, which
+  is precisely the path Webcil changes. The ref packs are consumed by the Node adapter from
+  disk, where no MIME problem exists. Dual-form ref packs would add a build-time PE→Webcil
+  converter for a case no host currently exercises, so they are deliberately not built.
+- **`<WasmEnableWebcil>true</WasmEnableWebcil>` breaks a post-publish file overlay.** T3's
+  forked `System.Console` was copied over `_framework/System.Console.dll`, which no longer
+  exists — a Webcil publish emits no `.dll` at all. The overlay now writes
+  `System.Console.wasm`, still as PE bytes: Mono's loader dispatches on the image magic rather
+  than the file extension, which keeps the overlay a file copy instead of requiring Carbide to
+  re-implement the SDK's PE→Webcil conversion for one assembly.
+
 ## 8. Python consumer path
 
 Carbide does not need a Python layer; the Node CLI is sufficient for scripted callers. However, `cs-agent-tools` (Python) will remain an important consumer. The proposal for `cs_kit`:

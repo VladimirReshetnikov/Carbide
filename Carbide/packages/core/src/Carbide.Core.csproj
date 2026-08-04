@@ -21,7 +21,7 @@
          lets Node/non-bundler callers fetch _framework/*.dll over http without a patch step. -->
     <WasmBundlerFriendlyBootConfig>false</WasmBundlerFriendlyBootConfig>
 
-    <WasmEnableWebcil>false</WasmEnableWebcil>
+    <WasmEnableWebcil>true</WasmEnableWebcil>
 
     <RootNamespace>Carbide.Core</RootNamespace>
     <AssemblyName>Carbide.Core</AssemblyName>
@@ -93,19 +93,29 @@
              Properties="Configuration=$(Configuration);CarbideExplicitlyRestored=true"
              Targets="Build" />
   </Target>
+  <!--
+    M8 — with Webcil on, the publish pipeline emits `System.Console.wasm` and no `.dll` at
+    all, so the overlay has to write over the `.wasm` asset the boot config actually names.
+    The bytes stay a plain PE: Mono's loader dispatches on the image's magic, not on the
+    file extension, so a PE served under a `.wasm` name loads correctly. That keeps the
+    overlay a file copy instead of requiring Carbide to re-implement the SDK's PE→Webcil
+    conversion for a single assembly.
+  -->
   <Target Name="CarbideOverlayForkedSystemConsole" AfterTargets="Publish">
     <PropertyGroup>
       <CarbideForkedConsoleDll>..\..\core-bcl\System.Console\bin\$(Configuration)\$(TargetFramework)\System.Console.dll</CarbideForkedConsoleDll>
       <CarbideFrameworkPublishDir>$(PublishDir)wwwroot\_framework\</CarbideFrameworkPublishDir>
+      <CarbideStockConsoleAsset Condition="'$(WasmEnableWebcil)' == 'true'">System.Console.wasm</CarbideStockConsoleAsset>
+      <CarbideStockConsoleAsset Condition="'$(CarbideStockConsoleAsset)' == ''">System.Console.dll</CarbideStockConsoleAsset>
     </PropertyGroup>
     <Error Condition="!Exists('$(CarbideForkedConsoleDll)')"
            Text="T3 overlay failed: forked System.Console.dll not found at $(CarbideForkedConsoleDll). Build Carbide.System.Console.csproj first." />
-    <Error Condition="!Exists('$(CarbideFrameworkPublishDir)System.Console.dll')"
-           Text="T3 overlay failed: stock System.Console.dll not found at $(CarbideFrameworkPublishDir). Did the Mono-WASM publish step run?" />
+    <Error Condition="!Exists('$(CarbideFrameworkPublishDir)$(CarbideStockConsoleAsset)')"
+           Text="T3 overlay failed: stock $(CarbideStockConsoleAsset) not found at $(CarbideFrameworkPublishDir). Did the Mono-WASM publish step run?" />
     <Copy SourceFiles="$(CarbideForkedConsoleDll)"
-          DestinationFolder="$(CarbideFrameworkPublishDir)"
+          DestinationFiles="$(CarbideFrameworkPublishDir)$(CarbideStockConsoleAsset)"
           OverwriteReadOnlyFiles="true"
           UseHardlinksIfPossible="false" />
-    <Message Text="T3: overlaid forked System.Console.dll into $(CarbideFrameworkPublishDir)" Importance="high" />
+    <Message Text="T3: overlaid forked System.Console into $(CarbideFrameworkPublishDir)$(CarbideStockConsoleAsset)" Importance="high" />
   </Target>
 </Project>

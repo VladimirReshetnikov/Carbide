@@ -13,18 +13,39 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-test("shipped _framework/System.Console.dll is the Carbide T3 fork", () => {
-    const dllPath = resolve(
-        __dirname,
-        "../../src/bin/Release/net10.0/publish/wwwroot/_framework/System.Console.dll",
+// M8: with Webcil enabled the publish pipeline names every managed assembly `.wasm` and
+// emits no `.dll`, so the overlay writes `System.Console.wasm`. The bytes are still a plain
+// PE — Mono's loader dispatches on the image magic, not the extension — so the marker scan
+// below is unchanged. Resolve whichever asset the current publish produced.
+const frameworkDir = resolve(__dirname, "../../src/bin/Release/net10.0/publish/wwwroot/_framework");
+const consoleAssetPath = [
+    resolve(frameworkDir, "System.Console.wasm"),
+    resolve(frameworkDir, "System.Console.dll"),
+].find((candidate) => existsSync(candidate));
+
+test("the shipped System.Console asset is the Carbide T3 fork", () => {
+    assert.ok(
+        consoleAssetPath,
+        `Neither System.Console.wasm nor System.Console.dll exists in ${frameworkDir}. ` +
+            "Run `dotnet publish -c Release src/Carbide.Core.csproj` from packages/core/.",
     );
+    const dllPath = consoleAssetPath;
     const bytes = readFileSync(dllPath);
+
+    // The overlay copies PE bytes regardless of the asset name, so the fork must never be a
+    // Webcil image — if it were, Mono would still load it but this marker scan would be
+    // scanning a different container than the one the fork was compiled into.
+    assert.equal(
+        bytes.subarray(0, 2).toString("latin1"),
+        "MZ",
+        `Expected the overlaid ${dllPath} to be a PE image; got magic ${bytes.subarray(0, 4).toString("hex")}.`,
+    );
 
     // Marker constant declared in ConsolePal.Browser.cs. C#'s string literal compiles to a
     // UTF-16LE BlobHeap entry; scanning for the UTF-16LE encoding of the first 20 chars is

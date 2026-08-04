@@ -55,6 +55,16 @@ First published release.
   `MSCAP001` is suppressed for `runInteractive`, where the terminal bridge does receive
   handle-level writes.
 
+- **Webcil packaging (M8).** `<WasmEnableWebcil>true</WasmEnableWebcil>`: every managed
+  assembly in `_framework/` now ships as a `.wasm` file wrapping a Webcil image, so a
+  deployment no longer serves any `.dll` content type — the CDN and corporate-proxy problem
+  that motivated Webcil. Carbide reads the container itself for compile-time metadata:
+  Webcil *replaces* the PE headers rather than wrapping them, so `PEReader` and
+  `MetadataReference.CreateFromImage` cannot be used. The new reader unwraps the WebAssembly
+  module, walks the Webcil section table, and builds the reference from the ECMA-335
+  metadata root. This is what keeps browser compilation working at all: `BrowserHostAdapter`
+  has no ref pack, so the browser always takes the runtime-assembly path.
+
 ### Changed
 
 - **`ProjectOptions.languageVersion` validates.** A value Roslyn cannot parse used to fall
@@ -76,8 +86,10 @@ First published release.
 
 ### Notes
 
-- Webcil mode is off (`<WasmEnableWebcil>false</WasmEnableWebcil>`); source generators and
-  analyzers are not supported.
+- Source generators and analyzers are not supported.
+- The `@carbide/refs-net10.0` pack still ships plain PEs. Shipping it in Webcil form as well
+  would need a PE→Webcil converter in its build for a case no host exercises: Node reads the
+  pack from disk, and the browser does not consume it.
 - The `MSCAP00*` advisories report the bypass rather than capturing the escaped bytes. The
   runtime's file-descriptor layer is not reachable through a supported extension point:
   neither the emscripten `print`/`printErr` overlays nor a `preRun` hook fire for these
