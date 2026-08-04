@@ -80,8 +80,24 @@ const publishedPackages = [
     {
         directory: "Carbide/packages/refs-net10.0",
         name: "@carbide/refs-net10.0",
-        required: ["CHANGELOG.md", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "ref-manifest.json"],
+        required: ["CHANGELOG.md", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md", "scripts/build.mjs"],
         requiredPrefixes: ["third-party/"],
+        // The manifest and the extracted assemblies are produced by `scripts/build.mjs`,
+        // which downloads Microsoft.NETCore.App.Ref. A checkout that has not run it has
+        // neither, and making a ~50 MB network fetch a precondition of the fast CI gate
+        // would be a poor trade — `RELEASING.md` runs this check after a full build.
+        conditional: [
+            {
+                sourcePath: "ref-manifest.json",
+                prefix: "ref-manifest.json",
+                why: "the extracted reference pack (run `node scripts/build.mjs`)",
+            },
+            {
+                sourcePath: "ref/net10.0",
+                prefix: "ref/net10.0/",
+                why: "the extracted reference pack (run `node scripts/build.mjs`)",
+            },
+        ],
     },
 ];
 
@@ -207,10 +223,17 @@ for (const entry of publishedPackages) {
     for (const conditional of entry.conditional ?? []) {
         const sourceExists = existsSync(path.join(repositoryRoot, entry.directory, conditional.sourcePath));
         if (!sourceExists) {
-            notes.push(
-                `${entry.name}: skipped the ${conditional.prefix} check — not built in this tree. ` +
-                    `A release build needs ${conditional.why}.`,
-            );
+            // Skipping is fine in the fast CI gate, which builds no generated payloads. At
+            // release time it is not: a silent skip is exactly how an incomplete tarball
+            // would get published, so `--release` turns every skip into a failure.
+            const message =
+                `${entry.name}: ${conditional.prefix} is not built in this tree, so its contents ` +
+                `were not checked. Needs ${conditional.why}.`;
+            if (releaseMode) {
+                errors.push(message);
+            } else {
+                notes.push(message);
+            }
             continue;
         }
         assert(

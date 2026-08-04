@@ -72,15 +72,18 @@ While the version is `0.x`:
    from a green fast gate alone.
 
 7. **Check publish readiness.** This asks npm what each package would actually ship and
-   checks the answer — license, notices, changelog, build output, and the Mono-WASM
-   `_framework` payload, plus the manifest metadata npm needs for provenance.
+   checks the answer — license, notices, changelog, build output, the Mono-WASM `_framework`
+   payload, and the extracted reference pack — plus the manifest metadata npm needs for
+   provenance and a guard against prerelease `PackageReference`s in projects whose output
+   ships.
 
    ```powershell
    node scripts/check-publish.mjs
    ```
 
-   Run it *after* step 6, so the `_framework` slice is present rather than reported as
-   skipped.
+   Generated payloads (`_framework`, the ref pack) are only checked when they exist, so run
+   this *after* step 6. In the default mode a missing payload is reported as a note; step 8
+   turns those notes into failures.
 
 8. **Rewrite the sibling dependencies.** `@carbide/cli` resolves `@carbide/core`,
    `@carbide/msbuild-lite`, and `@carbide/nuget` through `file:` references so the workspace
@@ -91,7 +94,9 @@ While the version is `0.x`:
    node scripts/check-publish.mjs --release
    ```
 
-   `--release` fails if any local spec remains.
+   `--release` is the strict form: it fails if any local dependency spec remains **and** if
+   any generated payload was skipped rather than verified. A silent skip is exactly how an
+   incomplete tarball would reach the registry, so this must be clean before publishing.
 
 9. **Publish** in dependency order — `msbuild-lite`, `nuget`, `refs-net10.0`, `core`, `cli`:
 
