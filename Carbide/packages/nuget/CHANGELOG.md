@@ -54,6 +54,19 @@ First published release.
   `buildMetadata` field carrying it for round-tripping.
 - The module header claimed a bare `1.2.3` was "an exact pin, equivalent to `[1.2.3,1.2.3]`",
   contradicting both the code and NuGet, where it means `>= 1.2.3`.
+- **The TFM fallback chain reaches every compatible framework.** It stopped at `net6.0` and
+  `netstandard2.0`, so a package shipping only `lib/net5.0/`, `lib/netcoreapp3.1/`, or
+  `lib/netstandard1.x/` — all common among libraries that have not been repackaged in years —
+  matched no folder. Such a package still resolved; it just contributed no references, and
+  the build then reported CS0246 against the user's own source with nothing pointing back at
+  the package. The chain now runs `net<target>` → … → `net5.0` → `netcoreapp3.1` → … →
+  `netcoreapp1.0` → `netstandard2.1` → … → `netstandard1.0`. .NET Framework assets
+  (`net472`, `net48`) stay incompatible, which is correct for a net5.0-or-later target. A
+  `netstandard` target's own chain also bottomed out at 2.0, leaving `netstandard1.x` targets
+  with no compatible folders at all.
+- **`MSNUGET011` reports a package that contributes no references**, naming the `lib/` folders
+  that were present, so the cause is visible where it happens rather than inferred from a
+  compile error later.
 
 [Unreleased]: https://github.com/VladimirReshetnikov/Carbide/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/VladimirReshetnikov/Carbide/releases/tag/v0.1.0

@@ -12,6 +12,13 @@ export const MSNUGET_CODES = {
     PARSE_ERROR: "MSNUGET000",
     FLOATING_VERSION_UNSUPPORTED: "MSNUGET001",
     NEAREST_WINS_TIE: "MSNUGET010",
+    /**
+     * A package resolved, but none of its `lib/<tfm>/` folders is compatible with the target
+     * framework, so it contributes no references. Without this the failure surfaces far from
+     * its cause: the build reports CS0246 against the user's own source with no hint that a
+     * package silently supplied nothing.
+     */
+    NO_COMPATIBLE_LIB_FOLDER: "MSNUGET011",
     SAFETY_NATIVE: "MSNUGET015",
     SAFETY_TARGETS: "MSNUGET016",
     SAFETY_ANALYZERS: "MSNUGET017",

@@ -53,5 +53,27 @@ warning:
   `and`/`or` scan, so explicit grouping overrides precedence as written. Operator words
   inside quoted literals (`'a and b'`) no longer split the expression either.
 
+Two compile-item glob defects, both of which made a pattern match nothing at all — so the
+project compiled without those sources and the error surfaced as CS0246 against code that was
+not at fault:
+
+- **`?` is a wildcard again.** It was escaped into a literal question mark, which cannot
+  appear in a Windows filename, so `Include="File?.cs"` could never match. It now matches
+  exactly one character, as MSBuild specifies.
+- **A pattern may reach outside the project directory.** The walk was rooted at the project
+  directory regardless of what the pattern said, so `Include="..\Shared\*.cs"` — the standard
+  shared-source idiom — matched nothing. The pattern's wildcard-free prefix now becomes the
+  walk root, which also keeps the walk tight: `../Shared/*.cs` visits `../Shared` and nothing
+  else. Named prefix segments are matched case-sensitively against real directory entries
+  rather than handed to the filesystem, so a case-insensitive host cannot make one half of a
+  pattern follow different rules from the other.
+
+### Changed
+
+- Glob matching is documented as **case-sensitive on every host**. MSBuild inherits the
+  filesystem's behaviour, so the same `.csproj` resolves differently on Windows and Linux;
+  Carbide gives one answer everywhere, consistent with how it treats document paths as exact
+  identities.
+
 [Unreleased]: https://github.com/VladimirReshetnikov/Carbide/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/VladimirReshetnikov/Carbide/releases/tag/v0.1.0

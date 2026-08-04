@@ -42,28 +42,84 @@ export function normaliseSlashes(input: string): string {
 
 /**
  * Expand a single MSBuild glob pattern against `projectDir`. Returns sorted absolute paths
- * of matching `.cs` files. Matches cs_kit._expand_compile_glob:
+ * of matching `.cs` files.
  *   - supports `**` (any number of directory levels including zero)
  *   - supports `*`  (any chars except `/`)
+ *   - supports `?`  (exactly one char except `/`)
  *   - literal segments match case-sensitively
+ *
+ * Case sensitivity is deliberate and uniform across hosts. MSBuild inherits the filesystem's
+ * behaviour, so the same `.csproj` resolves differently on Windows and Linux; Carbide prefers
+ * a single answer everywhere, matching how it treats document paths as exact identities
+ * elsewhere.
+ *
+ * The pattern's wildcard-free prefix is resolved against the project directory and becomes
+ * the walk root, so a pattern may point outside the project — `..\Shared\*.cs`, the usual
+ * shared-source idiom, is common and used to match nothing at all. Deriving the root from the
+ * prefix also keeps the walk tight: `../Shared/*.cs` visits `../Shared` and nothing else.
  */
 export async function expandGlob(projectDir: string, pattern: string): Promise<string[]> {
     const normalisedPattern = normaliseSlashes(pattern.trim());
     const projectAbs = path.resolve(projectDir);
 
-    // Walk the whole tree once; the matcher is cheap against each candidate.
-    const all = await collectAllFiles(projectAbs);
-    const re = globToRegex(normalisedPattern);
+    const segments = normalisedPattern.split("/");
+    const wildcardIndex = segments.findIndex((s) => s.includes("*") || s.includes("?"));
+    // With no wildcard at all the last segment is the filename, and everything before it is
+    // the base. Otherwise the base is everything up to the first segment carrying a wildcard.
+    const baseSegments = wildcardIndex < 0 ? segments.slice(0, -1) : segments.slice(0, wildcardIndex);
+    const remainder = (wildcardIndex < 0 ? segments.slice(-1) : segments.slice(wildcardIndex)).join("/");
+    const baseAbs = await resolveBaseDir(projectAbs, baseSegments);
+    if (baseAbs === null) {
+        return [];
+    }
+
+    // Walk the base once; the matcher is cheap against each candidate.
+    const all = await collectAllFiles(baseAbs);
+    const re = globToRegex(remainder);
 
     const matches = new Set<string>();
     for (const abs of all) {
         if (!abs.toLowerCase().endsWith(".cs")) continue;
-        const rel = normaliseSlashes(path.relative(projectAbs, abs));
+        const rel = normaliseSlashes(path.relative(baseAbs, abs));
         if (re.test(rel)) {
             matches.add(abs);
         }
     }
     return [...matches].sort();
+}
+
+/**
+ * Resolve a pattern's wildcard-free prefix to an absolute directory, or `null` when it does
+ * not exist.
+ *
+ * Named segments are matched against real directory entries **case-sensitively**, rather than
+ * handed to `path.resolve` and left to the filesystem. On Windows the filesystem would accept
+ * `sub/` for a directory named `Sub/`, so the prefix would match case-insensitively while the
+ * wildcard part of the same pattern matched case-sensitively — one pattern, two rules, and a
+ * different answer than on Linux. Navigation segments (`.`, `..`) are applied as written.
+ */
+async function resolveBaseDir(projectAbs: string, baseSegments: readonly string[]): Promise<string | null> {
+    let current = projectAbs;
+    for (const segment of baseSegments) {
+        if (segment === "" || segment === ".") {
+            continue;
+        }
+        if (segment === "..") {
+            current = path.dirname(current);
+            continue;
+        }
+        let entries;
+        try {
+            entries = await readdir(current, { withFileTypes: true });
+        } catch {
+            return null;
+        }
+        if (!entries.some((entry) => entry.isDirectory() && entry.name === segment)) {
+            return null;
+        }
+        current = path.join(current, segment);
+    }
+    return current;
 }
 
 async function collectAllFiles(dir: string): Promise<string[]> {
@@ -90,9 +146,13 @@ async function collectAllFiles(dir: string): Promise<string[]> {
 }
 
 /**
- * Convert an MSBuild glob pattern (with `**`, `*`) to a RegExp matching the full relative
+ * Convert an MSBuild glob pattern (with `**`, `*`, `?`) to a RegExp matching the full relative
  * path (forward-slash normalised). Literal characters are escaped; `**` matches any number of
- * directory segments (possibly zero); `*` matches any sequence except `/`.
+ * directory segments (possibly zero); `*` matches any sequence except `/`; `?` matches exactly
+ * one character except `/`.
+ *
+ * `?` used to be escaped into a literal question mark, which on Windows can never match a real
+ * filename — so `Include="File?.cs"` silently contributed nothing.
  */
 export function globToRegex(pattern: string): RegExp {
     let re = "^";
@@ -115,7 +175,10 @@ export function globToRegex(pattern: string): RegExp {
                 re += "[^/]*";
                 i++;
             }
-        } else if ("\\^$.|?()[]{}+".includes(ch)) {
+        } else if (ch === "?") {
+            re += "[^/]";
+            i++;
+        } else if ("\\^$.|()[]{}+".includes(ch)) {
             re += "\\" + ch;
             i++;
         } else {

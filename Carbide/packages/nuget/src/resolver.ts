@@ -161,6 +161,20 @@ export async function resolve(
             ? entryNames.filter((e) => e.toLowerCase().startsWith(`lib/${picked.toLowerCase()}/`) && e.toLowerCase().endsWith(".dll"))
             : [];
 
+        // A package that resolves but supplies nothing is worse than one that fails: the
+        // build then reports CS0246 against the user's own source, with nothing connecting
+        // that to the package. Say so here, where the cause is still visible.
+        if (libDlls.length === 0) {
+            warnings.push({
+                code: MSNUGET_CODES.NO_COMPATIBLE_LIB_FOLDER,
+                message: libFolders.length === 0
+                    ? `Package '${nuspec.id}' ${nuspec.version} contains no lib/ folder, so it contributes no references.`
+                    : `Package '${nuspec.id}' ${nuspec.version} has no lib/ folder compatible with ${tfmLabel} ` +
+                      `(found: ${[...libFolders].sort().join(", ")}), so it contributes no references.`,
+                severity: "warning",
+            });
+        }
+
         const pkgEntry: ResolvedEntry = {
             depth: next.depth,
             bytes,

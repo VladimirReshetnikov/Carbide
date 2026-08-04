@@ -40,7 +40,13 @@ test("pickBestLibFolder: prefers net10.0 when available", () => {
     assert.equal(pickBestLibFolder(tfm, ["net6.0", "netstandard2.0"]), "net6.0");
     assert.equal(pickBestLibFolder(tfm, ["netstandard2.1", "netstandard2.0"]), "netstandard2.1");
     assert.equal(pickBestLibFolder(tfm, ["netstandard2.0"]), "netstandard2.0");
-    assert.equal(pickBestLibFolder(tfm, ["netcoreapp3.1"]), null);
+    // This used to assert `null`, which locked in a gap rather than a rule: .NET 5+ is the
+    // continuation of .NET Core, so NuGet considers netcoreapp assets compatible with a
+    // net10.0 target. Treating them as incompatible made such packages resolve while
+    // supplying no references at all. See tfm-fallback.test.mjs for the full chain.
+    assert.equal(pickBestLibFolder(tfm, ["netcoreapp3.1"]), "netcoreapp3.1");
+    // .NET Framework assets remain genuinely incompatible.
+    assert.equal(pickBestLibFolder(tfm, ["net472"]), null);
 });
 
 test("libFolderOf / collectLibFolders", () => {
