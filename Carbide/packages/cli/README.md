@@ -31,6 +31,7 @@ carbide build --source Thing.cs --assembly-name MyLib --out out/lib/
 | `--project <path>.csproj` | Read a `.csproj` and build per its options. Mutually exclusive with `--source` / `--assembly-name` / `--target-framework`. Since M5. |
 | `--source <path>` | Source file. Repeatable. `-` reads one source from stdin. |
 | `--ref <path>` | Reference DLL. Repeatable. Bytes are passed via `session.addReference`. |
+| `--analyzer <path>` | Roslyn source-generator DLL. Repeatable. Passed via `session.addAnalyzer`; refused if it carries no usable generator. In `--project` mode it attaches to the root project only, matching `--ref`. Also accepted by `run` and `validate`. |
 | `--out <dir>` | Output directory. Writes `<assembly-name>.dll` and `<assembly-name>.pdb`. Pass `-` to write PE bytes to stdout (no PDB). |
 | `--assembly-name <n>` | Assembly name. Default: basename of first source. |
 | `--target-framework <t>` | Currently informational; `net10.0` is the only supported TFM. |

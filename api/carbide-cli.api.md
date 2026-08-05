@@ -135,6 +135,7 @@ export declare const BUILD_ARG_SPEC: {
     readonly strings: readonly [
         "source",
         "ref",
+        "analyzer",
         "out",
         "assembly-name",
         "target-framework",
@@ -170,6 +171,7 @@ export declare const RUN_ARG_SPEC: {
     readonly strings: readonly [
         "source",
         "ref",
+        "analyzer",
         "assembly-name",
         "format",
         "project",
@@ -203,6 +205,7 @@ export declare const VALIDATE_ARG_SPEC: {
     readonly strings: readonly [
         "source",
         "ref",
+        "analyzer",
         "assembly-name",
         "format",
         "project",

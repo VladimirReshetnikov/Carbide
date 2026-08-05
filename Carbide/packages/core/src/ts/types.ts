@@ -102,6 +102,23 @@ export interface ReferenceHandle {
 }
 
 /**
+ * M12 — opaque handle for a source-generator assembly registered on a session via
+ * {@link CarbideSession.addAnalyzer}. Distinct from {@link ReferenceHandle} because the two
+ * are not interchangeable: a generator is a compile-time tool and never becomes part of the
+ * compiled program's reference set, so attaching one where the other belongs would be a
+ * silent mistake if a single handle type covered both.
+ */
+export interface AnalyzerHandle {
+    readonly id: string;
+    readonly name?: string;
+    readonly sessionId: string;
+    /** True once the session has disposed the analyzer (or the session itself). */
+    readonly disposed: boolean;
+    /** Discriminator so a {@link ReferenceHandle} cannot be passed where this is expected. */
+    readonly kind: "analyzer";
+}
+
+/**
  * U2 — optional knobs for {@link Project.run}. When every field is default (or the caller
  * omits the options entirely), the interop boundary is called without marshalling a JSON
  * blob at all.

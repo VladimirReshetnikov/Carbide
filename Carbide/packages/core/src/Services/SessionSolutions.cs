@@ -85,13 +85,18 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
                 entry.Compiler.Dispose();
             }
         }
+
+        // Unload the generator assemblies' load context. Generators are session-scoped
+        // compile-time tools; without this, every session that registered one leaves its
+        // assemblies loaded for the lifetime of the page.
+        state.AnalyzerRegistry.Dispose();
     }
 
     public string CreateProject(string sessionId, DocumentOptions? options = null, string? assemblyName = null)
     {
         var state = GetSession(sessionId);
         var projectId = Guid.NewGuid().ToString("N");
-        var compiler = new ProjectCompiler(state.ReferenceRegistry, assemblyName, options);
+        var compiler = new ProjectCompiler(state.ReferenceRegistry, assemblyName, options, state.AnalyzerRegistry);
         _projects[projectId] = new ProjectEntry(sessionId, compiler);
         state.ProjectIds.Add(projectId);
         return projectId;
@@ -135,6 +140,60 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
             }
         }
         return true;
+    }
+
+    // --- M12: source-generator surface --------------------------------------------------
+
+    /// <summary>
+    /// Registers a source-generator assembly in the session and returns the new id. The
+    /// assembly is loaded and its generators instantiated here, so a DLL that carries no
+    /// usable generator is refused now rather than contributing nothing later.
+    /// </summary>
+    public string AddAnalyzer(string sessionId, byte[] bytes, string? name)
+    {
+        var state = GetSession(sessionId);
+        return state.AnalyzerRegistry.Add(bytes, name);
+    }
+
+    /// <summary>
+    /// Removes a generator from the session registry and detaches it from every project in
+    /// the session that had it attached. No-op if the id was never registered.
+    /// </summary>
+    public bool RemoveAnalyzer(string sessionId, string analyzerId)
+    {
+        var state = GetSession(sessionId);
+        if (!state.AnalyzerRegistry.Remove(analyzerId))
+        {
+            return false;
+        }
+        foreach (var projectId in state.ProjectIds)
+        {
+            if (_projects.TryGetValue(projectId, out var entry))
+            {
+                entry.Compiler.DetachAnalyzer(analyzerId);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Attaches a session-registered source generator to a project.</summary>
+    public void AttachAnalyzer(string projectId, string analyzerId)
+    {
+        if (!_projects.TryGetValue(projectId, out var entry))
+        {
+            throw new InvalidOperationException($"Unknown project id '{projectId}'.");
+        }
+        if (!_sessions.TryGetValue(entry.SessionId, out var state))
+        {
+            throw new InvalidOperationException(
+                $"Project '{projectId}' is attached to session '{entry.SessionId}', which no longer exists.");
+        }
+        if (!state.AnalyzerRegistry.Contains(analyzerId))
+        {
+            throw new InvalidOperationException(
+                $"Analyzer '{analyzerId}' is not registered in session '{entry.SessionId}'.");
+        }
+        entry.Compiler.AttachAnalyzer(analyzerId);
     }
 
     /// <summary>Attaches a session-registered reference to a project.</summary>
@@ -251,6 +310,7 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
     {
         public HashSet<string> ProjectIds { get; } = new(StringComparer.Ordinal);
         public ReferenceRegistry ReferenceRegistry { get; } = new();
+        public AnalyzerRegistry AnalyzerRegistry { get; } = new();
     }
 
     private sealed record ProjectEntry(string SessionId, ProjectCompiler Compiler);

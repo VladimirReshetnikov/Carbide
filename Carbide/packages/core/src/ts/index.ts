@@ -9,6 +9,7 @@ export type {
     BuildResult,
     ProjectOptions,
     ReferenceHandle,
+    AnalyzerHandle,
     InteractiveRunOptions,
     TerminalSession,
     XtermTerminalLike,

@@ -7,6 +7,15 @@ flag, exit-code, and error-category surface frozen by this release is recorded i
 
 ## [Unreleased]
 
+### Added
+
+- **`--analyzer <path>` on `build`, `run`, and `validate`.** Registers a Roslyn
+  source-generator DLL and attaches it to the project being compiled. Repeatable, and scoped
+  exactly like `--ref`: in `--project` mode it attaches to the root project only, so naming a
+  root csproj does not silently reconfigure the libraries it references. A DLL carrying no
+  usable source generator is refused rather than compiled against as if it had contributed
+  nothing.
+
 ## [0.1.0] - 2026-08-04
 
 First published release.

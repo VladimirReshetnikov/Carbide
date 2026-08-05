@@ -24,7 +24,7 @@ Repository HEAD: M7 stability lock + M8 Webcil packaging; packages at 0.1.0
 
 ## Summary
 
-Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M7 + M8 + M9 + M11 + U1–U3 + T1–T3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, the interactive xterm terminal path, sentinel-framed JSON output, structured error classification, and — since M7 — a frozen published API surface all exist; since M8 managed assemblies also ship in Webcil form. Source generators, `<Target>`/`<Task>` execution, and general MSBuild parity do not exist.
+Carbide is a client-only C# compile-and-run framework for environments that do not have the .NET SDK installed. It packages a Mono-WASM-hosted .NET runtime, Roslyn, a TypeScript session/project API, a thin Node CLI, a bounded `.csproj` parser (with `Directory.Build.props` and `<Import>` support), a bounded NuGet resolver, and an optional .NET reference-pack sibling. The current implementation is best understood as an M7 + M8 + M9 + M11 + U1–U3 + T1–T3 era system: the core dual-host runtime, multi-document editing, user DLL injection, deterministic PE/PDB emission, CLI build/run/validate/audit/tree commands, `.csproj` ingestion with `Directory.Build.props` and `<Import>`, bounded `PackageReference` resolution, sibling `<ProjectReference>` graph builds, program argv/stdin forwarding, the interactive xterm terminal path, sentinel-framed JSON output, structured error classification, and — since M7 — a frozen published API surface all exist; since M8 managed assemblies also ship in Webcil form; and since M12 Roslyn source generators run as part of compilation. Diagnostic analyzers, `<Target>`/`<Task>` execution, and general MSBuild parity do not exist.
 
 The published packages are at `0.1.0`. From that release onward the exported TypeScript surface, the CLI's flag and exit-code contract, and the JSExport wire payloads are frozen and gated in CI — see [`RELEASING.md`](../../RELEASING.md) and [`api/`](../../api/README.md).
 
@@ -45,9 +45,15 @@ This guide is the current-state companion to the planning documents. The vision 
   - program argv and stdin forwarding, and the interactive xterm terminal path (streaming output, async console input, colors, cursor, resize, Ctrl+C)
   - a frozen published API surface, wire contract, and changelog train at `0.1.0`
   - Webcil packaging: managed assemblies ship as `.wasm`, so no `.dll` content type is served
+  - Roslyn source generators, registered via `session.addAnalyzer` / `project.addAnalyzer` or
+    the CLI's `--analyzer` flag; generated source reaches diagnostics, the emitted assembly,
+    and execution
 - Deliberately not implemented yet:
   - `.sln` parsing (vision §7 caps shape S5 at one-plus-siblings)
-  - source generators and analyzers
+  - diagnostic analyzers (`DiagnosticAnalyzer`) — a DLL carrying only those is refused by
+    `addAnalyzer` with a message naming what it found, rather than accepted and ignored
+  - `<Analyzer>` items and NuGet analyzer assets ingested from a `.csproj`; source generators
+    must be named explicitly through the API or `--analyzer`
   - `<Target>`, `<Task>`, `<UsingTask>`, `<Choose>`, or general MSBuild execution — each is refused with an `MSBLITE0*` code rather than silently ignored
   - `Directory.Build.targets` ingestion (discovered, logged as `MSBLITE027`, then skipped)
   - synchronous console input (`Console.ReadKey(bool)`, `Console.In.ReadLine()`), which throws a pointed `NotSupportedException` pointing at `runInteractive` plus the async APIs

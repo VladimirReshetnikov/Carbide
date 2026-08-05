@@ -1,5 +1,6 @@
 import type { CarbideInteropExports } from "./runtime/dotnet-types.js";
 import type {
+    AnalyzerHandle,
     BuildResult,
     Diagnostic,
     InteractiveRunOptions,
@@ -73,6 +74,30 @@ export class Project {
             );
         }
         this.interop.AttachReference(this.id, handle.id);
+    }
+
+    /**
+     * M12 — attaches a session-registered source generator to this project. Every subsequent
+     * compilation (`getDiagnostics`, `build`, `run`, `runInteractive`) runs the generator and
+     * folds its output in. Idempotent. The handle must belong to this project's session.
+     *
+     * Generators contribute source, not references: the generator assembly's own types are
+     * not visible to the compiled program.
+     */
+    addAnalyzer(handle: AnalyzerHandle): void {
+        if (handle.sessionId !== this.sessionId) {
+            throw new Error(
+                `Analyzer handle '${handle.id}' belongs to session '${handle.sessionId}', ` +
+                    `not this project's session '${this.sessionId}'. ` +
+                    "Analyzers are session-scoped; cross-session attach is not allowed.",
+            );
+        }
+        if (handle.disposed) {
+            throw new Error(
+                `Analyzer handle '${handle.id}' has been disposed (removeAnalyzer or session shutdown).`,
+            );
+        }
+        this.interop.AttachAnalyzer(this.id, handle.id);
     }
 
     async getDiagnostics(): Promise<Diagnostic[]> {

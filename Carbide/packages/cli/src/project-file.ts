@@ -160,6 +160,13 @@ export interface RunProjectGraphPipelineOptions {
      * read via `readSource` (stdin `-` allowed, same as `--source`).
      */
     extraRootSources?: readonly string[];
+    /**
+     * M12 `--analyzer` — source-generator DLL paths to register on the session and attach to
+     * the *root* project. Sub-projects are not affected, matching `--ref`: a CLI flag naming
+     * the root csproj should not silently reconfigure the libraries it happens to reference.
+     * `<Analyzer>` items inside a csproj are not yet ingested; see the msbuild-lite refusals.
+     */
+    analyzerPaths?: readonly string[];
 }
 
 export async function runProjectGraphPipeline(
@@ -203,6 +210,10 @@ export async function runProjectGraphPipeline(
             }
             if (options.extraRootSources && options.extraRootSources.length > 0) {
                 await addExtraRootSources(sub, options.extraRootSources);
+            }
+            if (options.analyzerPaths && options.analyzerPaths.length > 0) {
+                const { attachAnalyzers } = await import("./io.js");
+                await attachAnalyzers(session, sub.project, options.analyzerPaths);
             }
         }
         subprojects.push(sub);

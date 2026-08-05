@@ -8,7 +8,13 @@ import {
     type ProjectOptionsRequest,
     type RunAssemblyOptionsRequest,
 } from "./interop/schema.js";
-import type { ProjectOptions, ReferenceHandle, RunAssemblyOptions, RunResult } from "./types.js";
+import type {
+    AnalyzerHandle,
+    ProjectOptions,
+    ReferenceHandle,
+    RunAssemblyOptions,
+    RunResult,
+} from "./types.js";
 import { Project } from "./project.js";
 
 export interface CarbideOptions {
@@ -44,8 +50,14 @@ interface MutableHandle {
     disposed: boolean;
 }
 
+/** M12 — the same, for source-generator handles. */
+interface MutableAnalyzerHandle extends MutableHandle {
+    readonly kind: "analyzer";
+}
+
 export class CarbideSession {
     private readonly handles = new Set<MutableHandle>();
+    private readonly analyzerHandles = new Set<MutableAnalyzerHandle>();
     private shutdownStarted = false;
     /**
      * core-P1: references loaded via `CarbideOptions.sideload`. Every project created
@@ -158,6 +170,55 @@ export class CarbideSession {
         this.handles.delete(mh);
     }
 
+    /**
+     * M12 — registers a Roslyn source-generator assembly on this session. Returns an opaque
+     * handle for {@link Project.addAnalyzer}.
+     *
+     * The assembly is loaded and its generators are instantiated synchronously, so bytes that
+     * are not a managed PE, or that carry no usable `IIncrementalGenerator` / `ISourceGenerator`,
+     * throw here. That is deliberate: a generator assembly that registers cleanly and then
+     * contributes nothing would surface as compile errors about types the generator was meant
+     * to produce, a long way from the actual mistake.
+     *
+     * Generators run at compile time only. The assembly is never added to the compilation's
+     * references, so its own types stay invisible to user code.
+     */
+    addAnalyzer(bytes: Uint8Array, name?: string): AnalyzerHandle {
+        this.assertAlive();
+        if (!(bytes instanceof Uint8Array)) {
+            throw new TypeError("CarbideSession.addAnalyzer: bytes must be a Uint8Array.");
+        }
+        if (bytes.length === 0) {
+            throw new Error("CarbideSession.addAnalyzer: bytes must be non-empty.");
+        }
+        const base64 = bytesToBase64(bytes);
+        const id = this.interop.AddAnalyzer(this.sessionId, base64, name ?? null);
+        const handle: MutableAnalyzerHandle = {
+            id,
+            name,
+            sessionId: this.sessionId,
+            disposed: false,
+            kind: "analyzer",
+        };
+        this.analyzerHandles.add(handle);
+        return handle;
+    }
+
+    /**
+     * Removes a generator from the session registry and detaches it from every project that
+     * had it attached. The handle becomes invalid. No-op if already disposed.
+     *
+     * The generator assembly itself stays loaded until the session shuts down — assemblies
+     * unload as a context, and one session's generators share one.
+     */
+    removeAnalyzer(handle: AnalyzerHandle): void {
+        const mh = this.findAnalyzerHandle(handle);
+        if (!mh || mh.disposed) return;
+        this.interop.RemoveAnalyzer(this.sessionId, mh.id);
+        mh.disposed = true;
+        this.analyzerHandles.delete(mh);
+    }
+
     async runAssembly(options: RunAssemblyOptions): Promise<RunResult> {
         this.assertAlive();
         if (!options || !(options.pe instanceof Uint8Array)) {
@@ -189,6 +250,10 @@ export class CarbideSession {
             h.disposed = true;
         }
         this.handles.clear();
+        for (const h of this.analyzerHandles) {
+            h.disposed = true;
+        }
+        this.analyzerHandles.clear();
         try {
             this.interop.DisposeSession(this.sessionId);
         } finally {
@@ -200,6 +265,13 @@ export class CarbideSession {
         if (this.shutdownStarted) {
             throw new Error("CarbideSession has been shut down.");
         }
+    }
+
+    private findAnalyzerHandle(handle: AnalyzerHandle): MutableAnalyzerHandle | undefined {
+        for (const h of this.analyzerHandles) {
+            if (h.id === handle.id && h.sessionId === handle.sessionId) return h;
+        }
+        return undefined;
     }
 
     private findHandle(handle: ReferenceHandle): MutableHandle | undefined {

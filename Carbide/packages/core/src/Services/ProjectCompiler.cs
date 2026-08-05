@@ -9,6 +9,7 @@
 //   * Hidden implicit-usings document always present so bare Console.WriteLine compiles.
 // Upstream: https://github.com/JakeYallop/WasmSharp (Apache-2.0).
 
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -29,6 +30,7 @@ internal sealed class ProjectCompiler : IDisposable
 {
     private readonly ILogger<ProjectCompiler> _logger = Host.Services.GetService<ILogger<ProjectCompiler>>();
     private readonly ReferenceRegistry _referenceRegistry;
+    private readonly AnalyzerRegistry? _analyzerRegistry;
     private readonly ProjectId _projectId;
     private readonly string _assemblyName;
     private bool _disposed;
@@ -67,9 +69,14 @@ internal sealed class ProjectCompiler : IDisposable
     /// <summary>Default path used when callers don't supply one (kept for M1 compatibility).</summary>
     public const string DefaultDocumentPath = "Program.cs";
 
-    public ProjectCompiler(ReferenceRegistry referenceRegistry, string? assemblyName = null, DocumentOptions? options = null)
+    public ProjectCompiler(
+        ReferenceRegistry referenceRegistry,
+        string? assemblyName = null,
+        DocumentOptions? options = null,
+        AnalyzerRegistry? analyzerRegistry = null)
     {
         _referenceRegistry = referenceRegistry ?? throw new ArgumentNullException(nameof(referenceRegistry));
+        _analyzerRegistry = analyzerRegistry;
         options ??= DocumentOptions.Default;
         // M5: DocumentOptions.AssemblyName takes precedence over the constructor default so
         // .csproj-derived options override the caller's fallback.
@@ -124,6 +131,11 @@ internal sealed class ProjectCompiler : IDisposable
     // rebuild time — if the registry removes a ref while it's still attached here, the next
     // rebuild silently skips the orphan (architecture §3.1).
     private readonly HashSet<string> _attachedReferenceIds = new(StringComparer.Ordinal);
+
+    // M12 — ids of session-registered generator assemblies driving this project's compilation.
+    // Kept apart from _attachedReferenceIds because generators must never become metadata
+    // references; see AnalyzerRegistry's remarks.
+    private readonly HashSet<string> _attachedAnalyzerIds = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The set of user-visible document paths currently in the project. Includes both
@@ -269,6 +281,39 @@ internal sealed class ProjectCompiler : IDisposable
     }
 
     /// <summary>
+    /// M12 — attaches a session-registered source generator to this project. Idempotent.
+    ///
+    /// <para>Generators are compile-time tools, so unlike <see cref="AttachReference"/> this
+    /// does not touch the compilation's metadata references: attaching a generator must not
+    /// make its types visible to user code.</para>
+    /// </summary>
+    public void AttachAnalyzer(string analyzerId)
+    {
+        if (string.IsNullOrEmpty(analyzerId))
+        {
+            throw new ArgumentException("Analyzer id must be non-empty.", nameof(analyzerId));
+        }
+        if (_analyzerRegistry is null || !_analyzerRegistry.Contains(analyzerId))
+        {
+            throw new InvalidOperationException(
+                $"Unknown analyzer id '{analyzerId}'. Register bytes via AddAnalyzer first.");
+        }
+        if (_attachedAnalyzerIds.Add(analyzerId))
+        {
+            _logger.LogTrace("AttachAnalyzer('{Id}') -> now {Count} attached.", analyzerId, _attachedAnalyzerIds.Count);
+        }
+    }
+
+    /// <summary>Detaches a generator from this project. No-op if not attached.</summary>
+    public void DetachAnalyzer(string analyzerId)
+    {
+        if (_attachedAnalyzerIds.Remove(analyzerId))
+        {
+            _logger.LogTrace("DetachAnalyzer('{Id}') -> now {Count} attached.", analyzerId, _attachedAnalyzerIds.Count);
+        }
+    }
+
+    /// <summary>
     /// Detaches a reference from this project. No-op if not attached. Called by SessionSolutions
     /// when a reference is removed from the session registry, so every affected project's
     /// solution drops the stale reference on the spot.
@@ -350,19 +395,133 @@ internal sealed class ProjectCompiler : IDisposable
     public async Task<Diagnostic[]> GetDiagnosticsAsync()
     {
         using var _ = new Tracer(nameof(GetDiagnosticsAsync));
+        // OutputKind is inferred, matching BuildAsync, so library projects (no top-level
+        // statements, no Main) don't trip CS5001 during validate. Aligns `validate` with
+        // `build` for multi-project graphs where libraries are routine.
+        var generated = await GetGeneratedCompilationAsync(outputKind: null).ConfigureAwait(false);
+        return generated.Compilation.GetDiagnostics()
+            .Concat(generated.GeneratorDiagnostics)
+            .ToCarbideDiagnosticArray();
+    }
+
+    /// <summary>
+    /// A compilation with every attached source generator's output folded in, alongside the
+    /// diagnostics the generator pass itself produced.
+    /// </summary>
+    private readonly record struct GeneratedCompilation(
+        Compilation Compilation,
+        ImmutableArray<Microsoft.CodeAnalysis.Diagnostic> GeneratorDiagnostics);
+
+    /// <summary>
+    /// Fetch the project's compilation, run the attached generators over it, and settle the
+    /// output kind.
+    ///
+    /// <para>Order matters in both directions. Generators run before <see cref="InferOutputKind"/>
+    /// because a generator may be what supplies <c>Main</c> — inferring first would compile
+    /// such a project to a library. And the output kind is applied after generation rather
+    /// than before, so this stays a single generator pass; re-running generators for the
+    /// inference probe would double-report every generator diagnostic.</para>
+    ///
+    /// <para><paramref name="outputKind"/> of <c>null</c> means infer; the run paths pass
+    /// <see cref="OutputKind.ConsoleApplication"/> explicitly because they are about to look
+    /// for an entry point.</para>
+    /// </summary>
+    private async Task<GeneratedCompilation> GetGeneratedCompilationAsync(OutputKind? outputKind)
+    {
         var project = Solution.GetProject(_projectId)
             ?? throw new InvalidOperationException("Project missing from solution.");
         var compilation = await project.GetCompilationAsync().ConfigureAwait(false)
             ?? throw new InvalidOperationException("Roslyn returned no compilation.");
-        // Apply the same OutputKind inference as BuildAsync so library projects (no
-        // top-level statements, no Main) don't trip CS5001 during validate. Aligns
-        // `validate` with `build` for multi-project graphs where libraries are routine.
-        var outputKind = InferOutputKind(compilation);
-        if (compilation.Options is CSharpCompilationOptions csOptions && csOptions.OutputKind != outputKind)
+
+        var (generated, generatorDiagnostics) = RunGenerators(compilation);
+
+        var kind = outputKind ?? InferOutputKind(generated);
+        if (generated.Options is CSharpCompilationOptions csOptions && csOptions.OutputKind != kind)
         {
-            compilation = compilation.WithOptions(csOptions.WithOutputKind(outputKind));
+            generated = generated.WithOptions(csOptions.WithOutputKind(kind));
         }
-        return compilation.GetDiagnostics().ToCarbideDiagnosticArray();
+        return new GeneratedCompilation(generated, generatorDiagnostics);
+    }
+
+    /// <summary>
+    /// M12 — drive the attached source generators over <paramref name="compilation"/> and
+    /// return the augmented compilation.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>RunGeneratorsAndUpdateCompilation</c> already contains a throwing generator and
+    /// reports it as CS8785, so a badly behaved generator degrades to a diagnostic rather than
+    /// taking down the session. The try/catch here covers the driver itself — a failure to
+    /// even construct or start it — and reports it the same way, because returning the
+    /// ungenerated compilation instead would leave the user staring at errors about types
+    /// their generator was supposed to have produced.
+    /// </para>
+    /// <para>
+    /// Carbide does not attempt to pre-screen generators for filesystem or network access.
+    /// There is no reliable static test for it, and a wrong verdict either way is worse than
+    /// none: refusing a well-behaved generator blocks real work, and clearing a misbehaving
+    /// one proves nothing. The browser runtime has no filesystem to reach in the first place,
+    /// so a generator that tries lands as a CS8785 naming the exception.
+    /// </para>
+    /// </remarks>
+    private (Compilation Compilation, ImmutableArray<Microsoft.CodeAnalysis.Diagnostic> Diagnostics) RunGenerators(
+        Compilation compilation)
+    {
+        if (_attachedAnalyzerIds.Count == 0 || _analyzerRegistry is null)
+        {
+            return (compilation, ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty);
+        }
+
+        var generators = new List<ISourceGenerator>();
+        foreach (var id in _attachedAnalyzerIds)
+        {
+            // Orphaned ids (attached, then removed from the session registry) contribute
+            // nothing, matching RebuildMetadataReferences' handling of the same race.
+            generators.AddRange(_analyzerRegistry.GetGenerators(id));
+        }
+        if (generators.Count == 0)
+        {
+            return (compilation, ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty);
+        }
+
+        try
+        {
+            // Parse options are taken from the project so generated source is parsed at the
+            // same LangVersion as user code. Without this the driver falls back to the
+            // default, and a generator emitting modern syntax would fail to parse in a
+            // project pinned to an older language version — an error pointing at generated
+            // code the user never wrote.
+            var parseOptions = Solution.GetProject(_projectId)?.ParseOptions as CSharpParseOptions;
+            var driver = CSharpGeneratorDriver.Create(
+                generators: generators,
+                additionalTexts: null,
+                parseOptions: parseOptions,
+                optionsProvider: null);
+
+            driver.RunGeneratorsAndUpdateCompilation(
+                compilation,
+                out var updated,
+                out var diagnostics,
+                CancellationToken.None);
+            return (updated, diagnostics);
+        }
+#pragma warning disable CA1031 // a broken driver must not take down the session
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger.LogWarning("Source-generator driver failed: {Message}", ex.Message);
+            var descriptor = new DiagnosticDescriptor(
+                id: "CARBIDE_GEN001",
+                title: "Source generator driver failed",
+                messageFormat: "The source-generator driver failed and no generated source was produced: {0}",
+                category: "Carbide",
+                defaultSeverity: DiagnosticSeverity.Error,
+                isEnabledByDefault: true);
+            return (
+                compilation,
+                ImmutableArray.Create(Microsoft.CodeAnalysis.Diagnostic.Create(
+                    descriptor, Location.None, $"{ex.GetType().Name}: {ex.Message}")));
+        }
     }
 
     /// <summary>
@@ -378,12 +537,11 @@ internal sealed class ProjectCompiler : IDisposable
     public async Task<BuildResult> BuildAsync()
     {
         var sw = Stopwatch.StartNew();
-        var project = Solution.GetProject(_projectId)
-            ?? throw new InvalidOperationException("Project missing from solution.");
-        var initial = await project.GetCompilationAsync().ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Roslyn returned no compilation.");
-        var outputKind = InferOutputKind(initial);
-        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(outputKind).ConfigureAwait(false);
+        // `null` = infer the output kind, which now happens inside the single generator pass
+        // rather than from a separate pre-generator compilation. Inferring from the
+        // ungenerated compilation would have compiled a project whose Main comes from a
+        // generator to a library.
+        var (compilation, preEmitDiagnostics) = await TryGetErrorFreeCompilationAsync(outputKind: null).ConfigureAwait(false);
         if (compilation is null)
         {
             sw.Stop();
@@ -557,19 +715,16 @@ internal sealed class ProjectCompiler : IDisposable
     /// <see cref="BuildAsync"/> and <see cref="RunAsync"/> perform, and lets each call
     /// control whether CS5001 "no suitable Main" is an error or not.
     /// </summary>
-    private async Task<(Compilation? Compilation, Diagnostic[] Diagnostics)> TryGetErrorFreeCompilationAsync(OutputKind outputKind)
+    private async Task<(Compilation? Compilation, Diagnostic[] Diagnostics)> TryGetErrorFreeCompilationAsync(
+        OutputKind? outputKind)
     {
-        var project = Solution.GetProject(_projectId)
-            ?? throw new InvalidOperationException("Project missing from solution.");
-        var compilation = await project.GetCompilationAsync().ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Roslyn returned no compilation.");
+        var generated = await GetGeneratedCompilationAsync(outputKind).ConfigureAwait(false);
+        var compilation = generated.Compilation;
 
-        if (compilation.Options is CSharpCompilationOptions csOptions && csOptions.OutputKind != outputKind)
-        {
-            compilation = compilation.WithOptions(csOptions.WithOutputKind(outputKind));
-        }
-
-        var diagnostics = compilation.GetDiagnostics();
+        // Generator diagnostics are folded in with the compiler's own, so a generator that
+        // failed is reported as the reason the build failed rather than showing up only as
+        // the downstream errors its missing output caused.
+        var diagnostics = compilation.GetDiagnostics().Concat(generated.GeneratorDiagnostics).ToList();
         if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
         {
             return (null, diagnostics.ToCarbideDiagnosticArray());

@@ -6,7 +6,7 @@
 import path from "node:path";
 import { CarbideSession, type Diagnostic, type Project, type RunOptions } from "@carbide/core";
 import { type ParsedArgs, lastString, stringList } from "../args.js";
-import { deriveAssemblyName, readReferenceBytes, readSource, readStdinSource } from "../io.js";
+import { attachAnalyzers, deriveAssemblyName, readReferenceBytes, readSource, readStdinSource } from "../io.js";
 import { parseFormat, renderDiagnostic, renderAttributedDiagnostic, writeJson } from "../format.js";
 import {
     runProjectGraphPipeline,
@@ -65,6 +65,7 @@ export const RUN_ARG_SPEC = {
     strings: [
         "source",
         "ref",
+        "analyzer",
         "assembly-name",
         "format",
         "project",
@@ -102,6 +103,9 @@ export async function runRun(args: ParsedArgs): Promise<number> {
     }
 
     const refs = stringList(args, "ref");
+    // M12 — source-generator DLLs. Registered on the session and attached to the project
+    // being compiled; in --project mode that is the root project only, matching --ref.
+    const analyzers = stringList(args, "analyzer");
     const format = parseFormat(lastString(args, "format"));
     const logLevel = resolveLogLevel(args);
 
@@ -126,6 +130,7 @@ export async function runRun(args: ParsedArgs): Promise<number> {
                 runOptions,
                 invocation,
                 extraRootSources: scratch ? sources : [],
+                analyzers,
                 nugetOptions: extractNugetOptions(args, "run"),
             });
         }
@@ -139,6 +144,8 @@ export async function runRun(args: ParsedArgs): Promise<number> {
             const handle = session.addReference(bytes, name);
             project.addReference(handle);
         }
+
+        await attachAnalyzers(session, project, analyzers);
 
         for (const sourceSpec of sources) {
             const { path: docPath, code } = await readSource(sourceSpec);
@@ -221,15 +228,17 @@ interface ProjectModeRunContext {
     runOptions: RunOptions;
     invocation: { args: string[]; stdinBytes: number };
     extraRootSources: readonly string[];
+    analyzers: readonly string[];
     nugetOptions: ReturnType<typeof extractNugetOptions>;
 }
 
 async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
-    const { session, projectPath, refs, format, nugetOptions, runOptions, invocation, extraRootSources } = ctx;
+    const { session, projectPath, refs, format, nugetOptions, runOptions, invocation, extraRootSources, analyzers } = ctx;
     let multi: Awaited<ReturnType<typeof runProjectGraphPipeline>>;
     try {
         multi = await runProjectGraphPipeline(session, projectPath, refs, nugetOptions, {
             extraRootSources,
+            analyzerPaths: analyzers,
         });
     } catch (err) {
         return handleProjectGraphError(err, format);
@@ -360,6 +369,8 @@ Input modes (mutually exclusive):
 
 Options:
   --ref <path>             Reference DLL. Repeatable.
+  --analyzer <path>        Roslyn source-generator DLL. Repeatable. Same scoping as --ref.
+                           Refused if the DLL carries no usable source generator.
   --assembly-name <n>      Assembly name. Rejected when --project is used.
   --stdin <path | ->       U2: feed the program's Console.In from a file or the CLI's
                            own stdin (-). Default: Console.In is disconnected.

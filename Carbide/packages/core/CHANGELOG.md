@@ -7,6 +7,31 @@ surface frozen by this release is recorded in
 
 ## [Unreleased]
 
+### Added
+
+- **Source generators (M12).** `CarbideSession.addAnalyzer(bytes, name?)` registers a Roslyn
+  source-generator assembly and returns an `AnalyzerHandle`; `Project.addAnalyzer(handle)`
+  attaches it, and every subsequent `getDiagnostics`, `build`, `run`, and `runInteractive`
+  runs the generator and folds its output into the compilation. `CarbideSession.removeAnalyzer`
+  detaches it again.
+
+  Both `IIncrementalGenerator` and `ISourceGenerator` are supported, including
+  post-initialization output and syntax providers that consult the semantic model. Generators
+  are compile-time tools: the generator assembly is never added to the compilation's
+  references, so its own types stay invisible to the compiled program, and a generator
+  attached to one project does not affect its siblings.
+
+  A DLL carrying no usable generator is refused at `addAnalyzer` rather than accepted and
+  silently contributing nothing. A generator that throws is reported as CS8785 by Roslyn's own
+  driver; a driver-level failure is reported as `CARBIDE_GEN001`. Carbide does not pre-screen
+  generators for filesystem or network access — there is no reliable static test for it, and
+  the browser runtime has no filesystem to reach, so an offending generator surfaces as a
+  diagnostic naming its exception.
+
+  Not covered yet: diagnostic analyzers (`DiagnosticAnalyzer`), which are counted and named in
+  the refusal message rather than run, and `<Analyzer>` / analyzer assets from `.csproj` and
+  NuGet packages, which still require the explicit API or CLI flag.
+
 ### Fixed
 
 - **Interactive runs after the first wrote into the first run's terminal.** Mono-WASM caches

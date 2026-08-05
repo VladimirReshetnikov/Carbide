@@ -110,6 +110,23 @@ public static partial class CompilationInterop
     public static void AttachReference(string projectId, string referenceId)
         => Host.Dispatch(s => s.AttachReference(projectId, referenceId));
 
+    // --- M12: source-generator surface --------------------------------------------------
+
+    [JSExport]
+    public static string AddAnalyzer(string sessionId, string base64Bytes, string? name)
+    {
+        var bytes = Convert.FromBase64String(base64Bytes);
+        return Host.Dispatch(s => s.AddAnalyzer(sessionId, bytes, name));
+    }
+
+    [JSExport]
+    public static bool RemoveAnalyzer(string sessionId, string analyzerId)
+        => Host.Dispatch(s => s.RemoveAnalyzer(sessionId, analyzerId));
+
+    [JSExport]
+    public static void AttachAnalyzer(string projectId, string analyzerId)
+        => Host.Dispatch(s => s.AttachAnalyzer(projectId, analyzerId));
+
     [JSExport]
     public static async Task<string> GetDiagnosticsAsync(string projectId)
     {

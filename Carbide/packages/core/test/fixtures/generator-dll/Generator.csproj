@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>CarbideTestGenerator</AssemblyName>
+    <RootNamespace>CarbideTestGenerator</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Carbide's source-generator tests read this DLL's bytes and feed them to
+         session.addAnalyzer. netstandard2.0 is the target every Roslyn generator uses, and
+         is what Carbide's generator host has to be able to load. Parent
+         Directory.Build.props is inherited, so we explicitly opt back out of trimming
+         (incompatible with netstandard2.0) and the strict analysis settings, exactly as
+         the sibling helper-dll fixture does. -->
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <AnalysisLevel>none</AnalysisLevel>
+    <AnalysisMode>none</AnalysisMode>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- The Roslyn assemblies are supplied by the host that loads this generator, never
+         shipped beside it. Version must match the Microsoft.CodeAnalysis.CSharp reference
+         in Carbide.Core.csproj: the generator binds against whichever copy the host already
+         has loaded, and a newer compile-time surface would fail at load. -->
+    <EnableDynamicLoading>false</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0"
+                      PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

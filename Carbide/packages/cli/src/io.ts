@@ -2,6 +2,7 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { CarbideSession, Project } from "@carbide/core";
 
 /** Read a source file. `-` means stdin (slurped to EOF as UTF-8). */
 export async function readSource(spec: string): Promise<{ path: string; code: string }> {
@@ -21,6 +22,24 @@ export async function readReferenceBytes(spec: string): Promise<{ name: string; 
     const buf = await readFile(spec);
     const name = path.basename(spec, path.extname(spec));
     return { name, bytes: new Uint8Array(buf) };
+}
+
+/**
+ * M12 — register each `--analyzer <path>` DLL on the session and attach it to `project`.
+ *
+ * A DLL that carries no usable source generator throws out of `addAnalyzer`, which is what
+ * the caller wants: `--analyzer` naming the wrong file has to fail here rather than compile
+ * to source that never appears.
+ */
+export async function attachAnalyzers(
+    session: CarbideSession,
+    project: Project,
+    specs: readonly string[],
+): Promise<void> {
+    for (const spec of specs) {
+        const { name, bytes } = await readReferenceBytes(spec);
+        project.addAnalyzer(session.addAnalyzer(bytes, name));
+    }
 }
 
 /** Write a file, creating the parent directory as needed. */

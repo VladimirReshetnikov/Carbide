@@ -17,6 +17,15 @@ published packages are released in lock-step at a single version.
 
 ## [Unreleased]
 
+### Added
+
+- **Source-generator support (M12).** Roslyn source generators now run as part of Carbide
+  compilation. `session.addAnalyzer` / `project.addAnalyzer` register and attach a generator
+  assembly programmatically, and `carbide build|run|validate --analyzer <path>` does the same
+  from the CLI. Generated source participates in diagnostics, in the emitted assembly, and in
+  execution. Diagnostic analyzers and `.csproj`/NuGet analyzer assets remain out of scope; see
+  the [`@carbide/core` changelog](Carbide/packages/core/CHANGELOG.md) for the exact boundary.
+
 ### Fixed
 
 - Six defects in `@carbide/core`'s browser-interactive path, closing every finding from the

@@ -1,0 +1,199 @@
+// M12 — session-scoped registry of source-generator assemblies.
+//
+// Deliberately separate from ReferenceRegistry rather than a `kind` flag on it. The two are
+// not variations of one thing: a metadata reference is part of the program's API surface and
+// must be resolvable at run time, while a generator is a compile-time tool that must NOT
+// appear in the compilation's references at all. Keeping them apart makes it impossible to
+// attach one where the other belongs.
+
+using System.Collections.Concurrent;
+using System.Reflection;
+using System.Runtime.Loader;
+using Microsoft.CodeAnalysis;
+
+namespace Carbide.Core.Services;
+
+/// <summary>
+/// Holds generator assemblies registered on a session, keyed by a server-assigned id, and
+/// the <see cref="ISourceGenerator"/> instances reflected out of each.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Generators are instantiated once, at registration, rather than per compilation. That is
+/// what a real Roslyn host does — an incremental generator instance is designed to be reused
+/// across compilations, and its caches are the point of the incremental model.
+/// </para>
+/// <para>
+/// Discovery also happens at registration so a DLL that contains no generators is refused on
+/// the spot. Accepting it and contributing nothing would surface far from its cause: the user
+/// would see their code failing to compile against source that never got generated, with no
+/// indication that the assembly they registered was the wrong one.
+/// </para>
+/// </remarks>
+internal sealed class AnalyzerRegistry : IDisposable
+{
+    private readonly ConcurrentDictionary<string, RegisteredAnalyzer> _analyzers =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// One collectible context for every generator assembly in the session. Generators are
+    /// compile-time tools with session lifetime, so there is nothing to gain from a context
+    /// per assembly — and generators that reference each other (a shared helper library) need
+    /// to see one another, which separate contexts would prevent.
+    /// </summary>
+    private readonly AssemblyLoadContext _loadContext =
+        new(name: $"CarbideAnalyzers-{Guid.NewGuid():N}", isCollectible: true);
+
+    private bool _disposed;
+
+    /// <summary>
+    /// Validates, loads, and reflects a generator assembly. Returns a new id.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the bytes are not a managed PE, when the assembly cannot be loaded, or
+    /// when it contains no usable source generator.
+    /// </exception>
+    public string Add(byte[] bytes, string? name)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        var label = name ?? "<unnamed>";
+        if (!WasmMetadataReferenceResolver.HasManagedMetadata(bytes))
+        {
+            throw new InvalidOperationException(
+                $"Analyzer '{label}' ({bytes.Length} bytes) is not a valid managed PE image.");
+        }
+
+        Assembly assembly;
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            assembly = _loadContext.LoadFromStream(stream);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or FileLoadException)
+        {
+            throw new InvalidOperationException(
+                $"Analyzer '{label}' could not be loaded: {ex.Message}", ex);
+        }
+
+        var generators = DiscoverGenerators(assembly, label);
+        var id = Guid.NewGuid().ToString("N");
+        _analyzers[id] = new RegisteredAnalyzer(id, name, generators);
+        return id;
+    }
+
+    private static ISourceGenerator[] DiscoverGenerators(Assembly assembly, string label)
+    {
+        Type[] types;
+        try
+        {
+            types = assembly.GetTypes();
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            // Partial results are still useful — a generator assembly commonly carries helper
+            // types that reference something absent here, and those failures do not matter as
+            // long as the generator type itself loaded.
+            types = ex.Types.Where(t => t is not null).ToArray()!;
+        }
+
+        var generators = new List<ISourceGenerator>();
+        var diagnosticAnalyzerCount = 0;
+        var uninstantiable = new List<string>();
+
+        foreach (var type in types)
+        {
+            if (type.IsAbstract || type.IsInterface || type.ContainsGenericParameters)
+            {
+                continue;
+            }
+
+            var isIncremental = typeof(IIncrementalGenerator).IsAssignableFrom(type);
+            var isSource = typeof(ISourceGenerator).IsAssignableFrom(type);
+            if (!isIncremental && !isSource)
+            {
+                // Counted, not loaded: Carbide runs generators, not diagnostic analyzers (see
+                // the message below). Matching by name avoids taking a dependency on
+                // Microsoft.CodeAnalysis.Workspaces just to reference the base type.
+                if (InheritsFrom(type, "Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer"))
+                {
+                    diagnosticAnalyzerCount++;
+                }
+                continue;
+            }
+
+            try
+            {
+                var instance = Activator.CreateInstance(type);
+                if (isIncremental)
+                {
+                    generators.Add(((IIncrementalGenerator)instance!).AsSourceGenerator());
+                }
+                else
+                {
+                    generators.Add((ISourceGenerator)instance!);
+                }
+            }
+            catch (Exception ex) when (ex is MissingMethodException or TargetInvocationException or MemberAccessException)
+            {
+                // A generator whose constructor throws or that has no parameterless
+                // constructor is reported rather than skipped — silently dropping it would
+                // leave the user's code failing to compile against source that was supposed
+                // to exist.
+                uninstantiable.Add($"{type.FullName} ({ex.GetType().Name}: {ex.Message})");
+            }
+        }
+
+        if (generators.Count > 0)
+        {
+            return [.. generators];
+        }
+
+        var detail = uninstantiable.Count > 0
+            ? $" {uninstantiable.Count} generator type(s) could not be instantiated: {string.Join("; ", uninstantiable)}."
+            : diagnosticAnalyzerCount > 0
+                ? $" It contains {diagnosticAnalyzerCount} DiagnosticAnalyzer type(s); Carbide runs source generators, not diagnostic analyzers."
+                : string.Empty;
+
+        throw new InvalidOperationException(
+            $"Analyzer '{label}' contains no usable source generator " +
+            $"(no public parameterless IIncrementalGenerator or ISourceGenerator implementation).{detail}");
+    }
+
+    private static bool InheritsFrom(Type type, string baseTypeFullName)
+    {
+        for (var t = type.BaseType; t is not null; t = t.BaseType)
+        {
+            if (string.Equals(t.FullName, baseTypeFullName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Removes the analyzer with the given id. Returns <c>true</c> if found.</summary>
+    /// <remarks>
+    /// The assembly stays loaded: an <see cref="AssemblyLoadContext"/> unloads as a unit, and
+    /// other analyzers in the session share this one. The generator instances are dropped, so
+    /// nothing further is generated from it.
+    /// </remarks>
+    public bool Remove(string id) => _analyzers.TryRemove(id, out _);
+
+    public bool Contains(string id) => _analyzers.ContainsKey(id);
+
+    /// <summary>The generators registered under <paramref name="id"/>, or empty if unknown.</summary>
+    public IReadOnlyList<ISourceGenerator> GetGenerators(string id) =>
+        _analyzers.TryGetValue(id, out var entry) ? entry.Generators : [];
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _analyzers.Clear();
+        _loadContext.Unload();
+    }
+
+    private sealed record RegisteredAnalyzer(string Id, string? Name, ISourceGenerator[] Generators);
+}

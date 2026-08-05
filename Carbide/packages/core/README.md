@@ -108,6 +108,43 @@ try {
 Handles are session-scoped. A handle from session A cannot be attached to a project created
 by session B. Removing a reference or shutting down the session disposes the handle.
 
+## Source generators
+
+`CarbideSession.addAnalyzer(bytes)` registers a Roslyn source-generator assembly and returns
+an `AnalyzerHandle`; `project.addAnalyzer(handle)` attaches it. Every subsequent
+`getDiagnostics`, `build`, `run`, and `runInteractive` on that project runs the generator and
+folds its output into the compilation — generated source reaches diagnostics, the emitted
+assembly, and execution alike.
+
+```ts
+const generator = new Uint8Array(readFileSync("./MyGenerator.dll"));
+const project = session.createProject();
+project.addAnalyzer(session.addAnalyzer(generator, "MyGenerator"));
+project.addSource("Program.cs", "Console.WriteLine(new Point { X = 1, Y = 2 });\n…");
+const result = await project.run();
+```
+
+Both `IIncrementalGenerator` and `ISourceGenerator` work, including post-initialization
+output and syntax providers that consult the semantic model.
+
+A generator is a compile-time tool, not a reference: attaching one does **not** make the
+generator assembly's own types visible to the compiled program, and does not affect sibling
+projects in the same session.
+
+Deliberate boundaries:
+
+- **A DLL with no usable generator is refused at `addAnalyzer`**, naming what it did contain.
+  Accepting it would leave the user's code failing to compile against source that was never
+  generated, a long way from the actual mistake.
+- **Diagnostic analyzers (`DiagnosticAnalyzer`) are not run.** They are counted and named in
+  that refusal message rather than silently ignored.
+- **Generators are not pre-screened for filesystem or network access.** There is no reliable
+  static test, and a wrong verdict either way is worse than none. A generator that throws —
+  including one reaching for a filesystem the browser runtime does not have — is reported by
+  Roslyn's driver as `CS8785` naming the exception; a driver-level failure is `CARBIDE_GEN001`.
+- **`<Analyzer>` items and NuGet analyzer assets are not ingested from `.csproj` yet.** Use
+  the API above or the CLI's `--analyzer` flag.
+
 ## API reference
 
 ### `CarbideSession.initializeAsync(options?)`
@@ -141,6 +178,7 @@ When omitted, Carbide auto-picks a host adapter:
 - `updateSource(path, code)`
 - `removeSource(path)` (no-op if not present)
 - `addReference(handle)`
+- `addAnalyzer(handle)` (source generators; see "Source generators")
 - `getDiagnostics()`
 - `build()` -> `{ success, pe?, pdb?, diagnostics, durationMs }`
 - `run()` -> `{ success, stdOut, stdErr, exitCode?, diagnostics, durationMs, ... }`

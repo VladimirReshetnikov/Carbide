@@ -103,6 +103,14 @@ export interface CarbideInteropExports {
     AddReference(sessionId: string, base64Bytes: string, name: string | null): string;
     RemoveReference(sessionId: string, referenceId: string): boolean;
     AttachReference(projectId: string, referenceId: string): void;
+    /**
+     * M12 — registers a source-generator assembly. Loads it and instantiates its generators
+     * synchronously, so bytes carrying no usable generator throw here rather than compiling
+     * to nothing later.
+     */
+    AddAnalyzer(sessionId: string, base64Bytes: string, name: string | null): string;
+    RemoveAnalyzer(sessionId: string, analyzerId: string): boolean;
+    AttachAnalyzer(projectId: string, analyzerId: string): void;
     GetDiagnosticsAsync(projectId: string): Promise<string>;
     BuildAsync(projectId: string): Promise<string>;
     /**

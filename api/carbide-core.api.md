@@ -9,6 +9,14 @@ Frozen at version `0.1.0`.
 ## `@carbide/core`
 
 ```ts
+export interface AnalyzerHandle {
+    readonly id: string;
+    readonly name?: string;
+    readonly sessionId: string;
+    readonly disposed: boolean;
+    readonly kind: "analyzer";
+}
+
 export interface BrowserAdapterOptions {
     frameworkAssetsBaseUrl?: string;
     moduleUrl?: string;
@@ -63,6 +71,8 @@ export declare class CarbideSession {
     createProject(options?: ProjectOptions): Project;
     addReference(bytes: Uint8Array, name?: string): ReferenceHandle;
     removeReference(handle: ReferenceHandle): void;
+    addAnalyzer(bytes: Uint8Array, name?: string): AnalyzerHandle;
+    removeAnalyzer(handle: AnalyzerHandle): void;
     runAssembly(options: RunAssemblyOptions): Promise<RunResult>;
     shutdown(): Promise<void>;
 }
@@ -107,6 +117,7 @@ export declare class Project {
     updateSource(path: string, code: string): void;
     removeSource(path: string): void;
     addReference(handle: ReferenceHandle): void;
+    addAnalyzer(handle: AnalyzerHandle): void;
     getDiagnostics(): Promise<Diagnostic[]>;
     build(): Promise<BuildResult>;
     run(options?: RunOptions): Promise<RunResult>;
