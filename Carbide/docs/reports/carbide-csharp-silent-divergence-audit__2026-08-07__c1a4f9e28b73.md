@@ -3,7 +3,7 @@
 Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
 
 - Created (UTC): 2026-08-07
-- Status: Informational; findings 1–3 are fixed, 4–9 are open
+- Status: Informational; all nine findings are fixed and pinned by tests
 - Scope: the C# half of `@carbide/core` — `Services/`, `Terminal/`, `CompilationInterop.cs`, and the forked `core-bcl/System.Console`
 
 ## Why this audit exists
@@ -77,12 +77,15 @@ to `KeyParser`'s SCO-style single-letter branch where `Z` maps to F2. Reverse-ta
 navigation in a user's TUI silently fired whatever F2 was bound to — a wrong key rather than
 an unrecognised one.
 
-## Open
+## Fixed in the follow-up pass
 
-These survived refutation but are not yet fixed. All six live in the browser-interactive
-path, where verifying a change needs browser-level coverage that does not exist yet for the
-specific scenarios below. They are recorded here with reproduction steps so the work is
-triageable rather than lost.
+The six below all live in the browser-interactive path, which is why they were deferred:
+verifying any of them needs browser-level coverage that did not exist for these specific
+scenarios. Each now has a fixture under `test/browser/`, and each fixture was checked in both
+directions — confirmed failing against the unfixed code, then passing against the fix. That
+step earned its keep twice. It caught a fixture that could not have distinguished the two
+states, and it caught a first attempt at finding 9 that was wrong in a way the "fixed" output
+still looked plausible under.
 
 ### 4. Every interactive run after the first writes into the first run's terminal (high)
 
@@ -104,24 +107,20 @@ each terminal right after its own run (the natural way to write such a test) als
 
 *Impact:* a browser IDE shows a working first tab and permanently silent ones after it.
 
-*Attempted fix, and why it is not committed:* replacing the per-run functions with stable
-trampolines installed once at boot, delegating to a swappable sink, made the routing correct —
-a three-run fixture went green, with each program's output in its own terminal.
+*Fixed* with the trampoline approach the first attempt had reached and then reverted: the
+`Carbide.Terminal` members are module-level functions installed once, whose identities never
+change, and `installBridge`/`uninstallBridge` swap a module-level `activeSink` behind them.
 
-It was reverted for a reason that did not survive scrutiny, and the honest version matters for
-whoever picks this up. During that testing the browser suite slowed sharply (the ten-line
-`interactive-hello` fixture went from ~7 s to 21–84 s) and `interactive-beep` failed once, so
-the change looked like a regression on the per-write hot path. But after reverting, the same
-fixtures still took 28 s and 56 s on the same machine — so the slowdown was environmental
-(sustained load from a long session), **not** attributable to the fix, and the single beep
-failure did not reproduce. The trampoline approach may well be correct.
+The earlier revert was recorded as provisional, on the grounds that the suite had slowed
+sharply during that testing (the ten-line `interactive-hello` fixture went from ~7 s to
+21–84 s) while `interactive-beep` failed once — but that the same fixtures stayed slow *after*
+reverting, so the evidence was confounded rather than damning. Re-measured on a quiet machine,
+that reading holds: the full 24-test browser suite runs in 1.7 minutes with the trampolines in,
+`interactive-hello` at 8.2 s, and `interactive-beep` passes. The slowdown was environmental.
 
-It is left out of the tree only because a change to the runtime bridge's hot path should be
-merged on evidence, and the evidence available here was confounded. Re-attempt on a quiet
-machine: verify the three-run routing, then compare `interactive-hello` timing against a
-baseline measured in the same session. Worth checking first whether Mono can be made to
-re-resolve a JSImport binding per run, or whether the sink swap belongs on the C# side of the
-boundary — either would avoid the extra JS indirection entirely.
+`test/browser/interactive-multi-run-routing.{html,spec.mjs}` runs three programs in sequence,
+each with its own terminal, and reads every terminal only at the end. Against the unfixed
+bridge it reports all three labels in terminal A and empty strings for B and C.
 
 ### 5. `DisposeSession` does not tear down an in-flight interactive run (high)
 
@@ -131,16 +130,19 @@ boundary — either would avoid the extra JS indirection entirely.
 only disposes the Roslyn workspace. It never touches the run's `TerminalInputState`, so a
 program parked in `await Console.In.ReadLineAsync()` is never released.
 
-*Repro:* take `test/browser/interactive-dispose-midrun.html` and replace
-`handle.dispose()` with `session.shutdown()`, keeping the `await handle.exitPromise`.
-
 *Impact:* in a browser IDE, Reset/Close while a program sits at a prompt appears to succeed,
 but anything keyed off `exitPromise` — a spinner, a "stopped" badge, a queued next run —
 hangs forever with no error. Repeating the cycle grows `TerminalInputState.s_registry` and
 keeps every abandoned run's state alive.
 
-*Note:* `handle.dispose()` (the documented teardown) works correctly; this is the
+*Note:* `handle.dispose()` (the documented teardown) worked correctly; this was the
 `session.shutdown()` path only.
+
+*Fixed* by routing each of the session's projects through `DisposeInteractive` before
+dropping it — the same call `handle.dispose()` already made. Shutting a session down has to do
+at least as much as disposing one handle.
+`test/browser/interactive-shutdown-midrun.{html,spec.mjs}` pins it; unfixed, the fixture never
+reaches a terminal state at all.
 
 ### 6. EOF is discarded in key mode, so `ReadKeyAsync` hot-spins after dispose (high)
 
@@ -155,6 +157,17 @@ starves the JS event loop entirely — xterm stops rendering, the page stops res
 clicks, and `dispose()`'s own `await exitPromise` can never resolve. The user sees a frozen
 tab, not an error.
 
+*Fixed* by giving the reader an `IsClosed` surface and having `ReadKeyAsync`'s loop end the
+read when the buffer is drained and no further byte can arrive. `ReadLineAsync` signals the
+same condition by returning null; `ConsoleKeyInfo` has no such value, and a default key would
+hand user code a keystroke nobody pressed — so it throws instead, reporting
+`OperationCanceledException` when the run token has tripped (every teardown path cancels
+before completing the reader) and `InvalidOperationException` when input merely ran out, which
+is what stock `Console.ReadKey` reports.
+`test/browser/interactive-readkey-dispose.{html,spec.mjs}` disposes a run parked in
+`ReadKeyAsync` and then runs a second program on the same page — reaching that second run at
+all is the liveness proof, since a spinning loop would have pinned the only thread.
+
 ### 7. Only `Console.Out` is flushed before an input suspension (medium)
 
 `Terminal/BrowserTerminalReader.cs:185`
@@ -167,6 +180,12 @@ stays buffered while the program blocks on input.
 blind works, and the prompt then appears retroactively on the next stderr write — so output
 arrives out of order relative to the input that answered it.
 
+*Fixed* by flushing both streams from one helper, used by both suspension points.
+`test/browser/interactive-stderr-prompt-flush.{html,spec.mjs}` writes
+`Console.Error.WriteLine` immediately before the prompt so the prompt is definitely inside the
+writer's 32 ms window — without that the window has usually already elapsed and the write
+flushes by luck, which would have made the fixture pass either way.
+
 ### 8. `Console.CancelKeyPress` handlers are never unregistered between runs (high)
 
 `core-bcl/System.Console/src/Console.cs:440`
@@ -176,13 +195,16 @@ teardown. A second `runInteractive` on the same page inherits the first run's ha
 
 *Impact:* a previous run's handler can set `e.Cancel = true`, so Ctrl+C silently stops
 working in later runs — the program keeps going and `RunCancellationToken` never trips.
-Demonstrated: a two-run fixture where run A registers a vetoing handler and run B is sent
-Ctrl+C never terminates, so the page hangs rather than merely misbehaving. The fixture is not
-committed precisely because it hangs; fixing this needs an internal reset entry point on the
-fork, called from `RunInteractiveAsync`'s finally alongside the existing
-`AppContext.SetData("Carbide.InteractiveBridge", false)`.
-Output from a program the user already finished with also appears in an unrelated run's
-terminal and in its `RunResult.stdOut`.
+
+*Fixed* with an internal `Console.ResetCancelKeyPress()` on the fork, reached by reflection
+from `TerminalInputState` (which already owns the reflection into the fork for
+`HandleCancelKeyPress`) and called from the finally of all three run paths — the
+non-interactive ones register handlers into the same static chain, so resetting only the
+interactive one would have left the leak reachable.
+`test/browser/interactive-cancelkeypress-reset.{html,spec.mjs}` pins it. The earlier attempt
+at this fixture was left out because it hung; this one gives run B a bounded
+`DelayAsync(5000)`, so the unfixed behaviour surfaces as `cancelled=False` after the delay
+rather than as a hung page.
 
 ### 9. Handle-level writes corrupt multi-byte characters split across calls (medium)
 
@@ -196,8 +218,24 @@ split `é` (`C3 A9`).
 
 *Impact:* non-ASCII characters become replacement glyphs at predictable offsets in long
 output. Ordinary `Console.Write` goes through the `StreamWriter` path and is unaffected,
-which makes the corruption look like a data problem rather than an encoding one. A stateful
-`Decoder` fixes it.
+which makes the corruption look like a data problem rather than an encoding one.
+
+*Fixed* with a stateful `Decoder` held on the stream, plus a `flush: true` pass at `Dispose`
+so a dangling partial sequence surfaces as U+FFFD instead of vanishing. `Flush()` deliberately
+does *not* flush the decoder: a caller may flush after every write, and forcing it there would
+corrupt a legitimately split sequence.
+
+The first attempt at this fix was subtly wrong in a way worth recording, because its output
+looked like a plausible bug rather than like a broken fix. It returned early when
+`GetCharCount` reported zero characters — but `GetCharCount` only *reports*; `GetChars` is
+what consumes the bytes and updates the carry-over state. Skipping `GetChars` discarded the
+lead bytes, so the byte completing each sequence arrived alone and decoded as U+FFFD: exactly
+`n-1` replacement characters per `n`-byte character, which reads as "the decoder isn't
+stateful" rather than "the fix drops bytes". A probe fixture that printed the actual decoded
+bytes, not just a pass/fail, is what separated the two.
+
+`test/browser/interactive-split-utf8.{html,spec.mjs}` writes a payload mixing 2-, 3- and
+4-byte sequences one byte per call, so every sequence is split at every boundary.
 
 ## Method note
 

@@ -95,7 +95,7 @@ internal sealed class BrowserTerminalReader : TextReader
                 "BrowserTerminalReader: a previous key-mode wait is still pending.");
         }
         // T2.1 — flush stdout before suspending (see ReadLineAsync for the rationale).
-        try { Console.Out.Flush(); } catch { /* best-effort */ }
+        FlushOutputBeforeSuspending();
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.None);
         _keyWaiter = tcs;
         if (ct.CanBeCanceled)
@@ -136,6 +136,32 @@ internal sealed class BrowserTerminalReader : TextReader
 
     /// <summary>Whether any raw byte is available from the key-mode buffer.</summary>
     internal bool HasPartialBytes => _partialLineBuffer.Length > 0;
+
+    /// <summary>
+    /// Whether <see cref="Complete"/> has run — no further input can arrive. Once set,
+    /// <see cref="ReadLineAsync(CancellationToken)"/> returns <c>null</c> and
+    /// <see cref="WaitForBytesAsync"/> completes immediately. Key-mode consumers must
+    /// consult this to distinguish "a byte arrived" from "input ended"; without that check
+    /// a key-mode read loop spins on the already-completed wait, and Mono-WASM browser
+    /// being single-threaded, a synchronous spin starves the JS event loop entirely.
+    /// </summary>
+    internal bool IsClosed => _closed;
+
+    /// <summary>
+    /// Drain both console streams before parking on input.
+    ///
+    /// <para>Both <c>Console.Out</c> and <c>Console.Error</c> are time-windowed buffered
+    /// writers over the same terminal. Flushing only stdout left a newline-less prompt
+    /// written to <c>Console.Error</c> sitting in its buffer while the program blocked, so
+    /// the terminal looked idle when it was in fact waiting for a line, and the prompt then
+    /// appeared retroactively on the next stderr write — after the input that answered it.
+    /// </para>
+    /// </summary>
+    private static void FlushOutputBeforeSuspending()
+    {
+        try { Console.Out.Flush(); } catch { /* best-effort */ }
+        try { Console.Error.Flush(); } catch { /* best-effort */ }
+    }
 
     /// <summary>
     /// Signal end of input. Any pending <see cref="ReadLineAsync"/> or
@@ -182,7 +208,7 @@ internal sealed class BrowserTerminalReader : TextReader
         // on `\n`) but interactive prompts like `Console.Write("name? ")` end without a newline.
         // Without this flush, the prompt stays in the buffer and the JS terminal never sees it
         // before the user is expected to respond — the line editor blinks at a blank screen.
-        try { Console.Out.Flush(); } catch { /* best-effort */ }
+        FlushOutputBeforeSuspending();
         var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.None);
         _pendingRead = tcs;
         if (ct.CanBeCanceled)

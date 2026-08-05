@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: a stderr prompt is visible before the program blocks on input</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Regression fixture: a newline-less prompt written to `Console.Error` must reach the
+    // terminal before the program suspends on input.
+    //
+    // Both streams share a time-windowed buffered writer that only flushes from inside a
+    // Write call — there is no timer. The pre-suspension flush covered `Console.Out` only, so
+    // a stderr prompt written inside the window stayed buffered while the program blocked:
+    // the terminal looked idle when it was in fact waiting for a line, and the prompt then
+    // appeared retroactively on the next stderr write — after the input that answered it.
+    //
+    // `Console.Error.WriteLine("stderr-open")` immediately before the prompt is what makes
+    // this deterministic: it resets the writer's flush window, so the prompt that follows a
+    // statement later is definitely still inside it.
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function waitForText(terminal, needle, timeoutMs) {
+      const start = Date.now();
+      while (!terminal.getFullText().includes(needle)) {
+        if (Date.now() - start > timeoutMs) return false;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return true;
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          'using System;\n' +
+            'Console.Error.WriteLine("stderr-open");\n' +
+            'Console.Error.Write("pw? ");\n' +
+            'string? line = await Console.In.ReadLineAsync();\n' +
+            'Console.WriteLine($"line=[{line}]");\n',
+        );
+
+        const handle = project.runInteractive({ terminal });
+
+        // "stderr-open\n" flushes on its newline, so it marks the moment the program reached
+        // the prompt.
+        if (!(await waitForText(terminal, "stderr-open", 30_000))) {
+          throw new Error("timeout waiting for stderr-open");
+        }
+
+        // Give the prompt a generous window to appear. With only stdout flushed before the
+        // suspension it never does — the program is already blocked and nothing else writes.
+        const promptVisibleBeforeInput = await waitForText(terminal, "pw? ", 5_000);
+        const textBeforeInput = terminal.getFullText();
+
+        terminal.deliverKeys("secret\r");
+        const runResult = await handle.exitPromise;
+
+        return {
+          runResult,
+          promptVisibleBeforeInput,
+          textBeforeInput,
+          fullText: terminal.getFullText(),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

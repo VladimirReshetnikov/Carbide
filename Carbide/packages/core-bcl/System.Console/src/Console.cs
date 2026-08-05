@@ -463,6 +463,27 @@ namespace System
             return args.Cancel;
         }
 
+        /// <summary>
+        /// Internal entry point the Carbide run path calls (via reflection from Carbide.Core)
+        /// when a run finishes, to drop every handler the finished program registered.
+        ///
+        /// <para>Upstream this event is process-global and that is correct: the process and
+        /// the program have the same lifetime. Here one page runs many programs against one
+        /// loaded copy of this assembly, so without an explicit reset a later run inherits an
+        /// earlier one's handlers — and a handler that sets <c>e.Cancel = true</c> makes
+        /// Ctrl+C silently stop working for every run after it: the program keeps going and
+        /// the run's cancellation token never trips. The run's own handlers are collectible
+        /// with its <c>AssemblyLoadContext</c>; this static chain is the one thing that
+        /// outlives it.</para>
+        /// </summary>
+        internal static void ResetCancelKeyPress()
+        {
+            lock (s_syncObject)
+            {
+                s_cancelCallbacks = null;
+            }
+        }
+
         // ---- OpenStandard* -----------------------------------------------------------
 
         public static Stream OpenStandardInput() => ConsolePal.OpenStandardInput();

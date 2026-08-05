@@ -450,6 +450,20 @@ namespace System
     {
         private readonly bool _isError;
 
+        /// <summary>
+        /// Stateful UTF-8 decoder, carried across <see cref="Write(ReadOnlySpan{byte})"/>
+        /// calls. A caller writing through the raw handle chooses its own chunk boundaries,
+        /// and nothing stops one from falling inside a multi-byte sequence — writing the
+        /// bytes of "café" in two calls that split the `C3 A9` is enough. Decoding each call
+        /// with a stateless <c>Encoding.UTF8.GetString</c> turned that into two invalid
+        /// fragments, so non-ASCII characters became replacement glyphs at chunk boundaries.
+        /// A <see cref="Decoder"/> holds the trailing partial sequence until the rest
+        /// arrives. Ordinary <c>Console.Write</c> goes through the <c>StreamWriter</c> path
+        /// and never had the problem, which is what made the corruption look like a data
+        /// problem rather than an encoding one.
+        /// </summary>
+        private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+
         public CarbideStdWriteStream(bool isError) { _isError = isError; }
 
         public override bool CanRead => false;
@@ -458,7 +472,14 @@ namespace System
         public override long Length => throw new NotSupportedException();
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
 
-        public override void Flush() { /* JS bridge is fire-and-forget; nothing to flush. */ }
+        /// <remarks>
+        /// The JS bridge is fire-and-forget, so there is nothing buffered to push. Note this
+        /// deliberately does NOT flush <see cref="_decoder"/>: a caller may well flush after
+        /// every write, and forcing the decoder would turn the first half of a legitimately
+        /// split sequence into a replacement character. A dangling partial sequence is
+        /// resolved at <see cref="Dispose(bool)"/>, when the stream is genuinely finished.
+        /// </remarks>
+        public override void Flush() { }
         public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
@@ -469,7 +490,43 @@ namespace System
         public override void Write(ReadOnlySpan<byte> buffer)
         {
             if (buffer.IsEmpty) return;
-            var text = Encoding.UTF8.GetString(buffer);
+            // `flush: false` — a trailing partial sequence stays in the decoder for the next
+            // call rather than being emitted as U+FFFD. A write that is *entirely* the head
+            // of a multi-byte sequence therefore produces no characters and sends nothing;
+            // the bytes are not lost, they land with the write that completes them.
+            //
+            // GetChars is called unconditionally, even when the count is zero: GetCharCount
+            // only *reports*, and it is GetChars that consumes the bytes and updates the
+            // carry-over state. Returning early on a zero count silently discarded the lead
+            // bytes, so the byte that completed the sequence arrived alone and decoded as
+            // U+FFFD — one replacement character per multi-byte character, which looks like
+            // a decoder that is not stateful at all.
+            int charCount = _decoder.GetCharCount(buffer, flush: false);
+            char[] chars = charCount == 0 ? Array.Empty<char>() : new char[charCount];
+            int written = _decoder.GetChars(buffer, chars, flush: false);
+            if (written == 0) return;
+            EmitDecoded(new string(chars, 0, written));
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            // End of stream: resolve any dangling partial sequence. `flush: true` emits the
+            // replacement character the incomplete bytes decode to, rather than swallowing
+            // them — a caller that wrote invalid UTF-8 should see that, not silence.
+            if (disposing)
+            {
+                char[] chars = new char[_decoder.GetCharCount(Array.Empty<byte>(), 0, 0, flush: true)];
+                int written = _decoder.GetChars(Array.Empty<byte>(), 0, 0, chars, 0, flush: true);
+                if (written > 0)
+                {
+                    EmitDecoded(new string(chars, 0, written));
+                }
+            }
+            base.Dispose(disposing);
+        }
+
+        private void EmitDecoded(string text)
+        {
             if (_isError) CarbideBridge.WriteStdErr(text);
             else CarbideBridge.WriteStdOut(text);
         }

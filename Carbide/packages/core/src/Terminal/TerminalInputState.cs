@@ -194,6 +194,61 @@ internal sealed class TerminalInputState
         }
     }
 
+    /// <summary>
+    /// Drop every handler registered on the static <see cref="Console.CancelKeyPress"/>
+    /// chain. Called from <c>ProjectCompiler.RunInteractiveAsync</c>'s finally, alongside
+    /// clearing the <c>Carbide.InteractiveBridge</c> flag.
+    ///
+    /// <para>The forked <c>System.Console.dll</c> keeps that chain in a static field, which
+    /// upstream is right — one process, one program. A Carbide page runs many programs
+    /// against one loaded copy, so the chain outlives the run that filled it. A handler left
+    /// behind from an earlier run that sets <c>e.Cancel = true</c> vetoes Ctrl+C for every
+    /// later run: the program keeps going and <see cref="CancellationTokenSource"/> never
+    /// trips, so the page hangs rather than merely misbehaving.</para>
+    ///
+    /// <para>No-op when the fork is not the loaded <c>System.Console</c> — stock BCL has no
+    /// such method and the reflected <see cref="MethodInfo"/> stays null.</para>
+    /// </summary>
+    internal static void ResetForkedConsoleCancelKeyPress()
+    {
+        if (!s_forkedResetProbed)
+        {
+            try
+            {
+                s_forkedResetCancelKeyPress = typeof(Console).GetMethod(
+                    "ResetCancelKeyPress",
+                    BindingFlags.Static | BindingFlags.NonPublic,
+                    binder: null,
+                    types: [],
+                    modifiers: null);
+            }
+#pragma warning disable CA1031
+            catch
+#pragma warning restore CA1031
+            {
+                s_forkedResetCancelKeyPress = null;
+            }
+            s_forkedResetProbed = true;
+        }
+        if (s_forkedResetCancelKeyPress is null)
+        {
+            return;
+        }
+        try
+        {
+            s_forkedResetCancelKeyPress.Invoke(null, null);
+        }
+#pragma warning disable CA1031
+        catch
+#pragma warning restore CA1031
+        {
+            // Teardown is best-effort; a reflection failure here must not fail the run.
+        }
+    }
+
+    private static MethodInfo? s_forkedResetCancelKeyPress;
+    private static bool s_forkedResetProbed;
+
     private static MethodInfo? s_forkedHandleCancelKeyPress;
     private static bool s_forkedHandleProbed;
 

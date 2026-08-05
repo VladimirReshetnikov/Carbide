@@ -17,6 +17,18 @@ published packages are released in lock-step at a single version.
 
 ## [Unreleased]
 
+### Fixed
+
+- Six defects in `@carbide/core`'s browser-interactive path, closing every finding from the
+  [C# silent-divergence audit](Carbide/docs/reports/carbide-csharp-silent-divergence-audit__2026-08-07__c1a4f9e28b73.md):
+  output from runs after the first was routed to the first run's terminal; `session.shutdown()`
+  never released a program parked at a prompt; disposing a run suspended in `ReadKeyAsync`
+  froze the page; a newline-less `Console.Error` prompt stayed invisible while the program
+  waited for input; `Console.CancelKeyPress` handlers leaked across runs and silently vetoed
+  Ctrl+C; and handle-level writes corrupted multi-byte characters split across calls. Each is
+  pinned by a new browser fixture, verified failing before the fix and passing after. See the
+  [`@carbide/core` changelog](Carbide/packages/core/CHANGELOG.md) for detail.
+
 ## [0.1.0] - 2026-08-04
 
 First published release: Band A complete, Band B partial (shapes S1–S3 firm, S4 behind the

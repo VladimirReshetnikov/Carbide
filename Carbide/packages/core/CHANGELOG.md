@@ -7,6 +7,36 @@ surface frozen by this release is recorded in
 
 ## [Unreleased]
 
+### Fixed
+
+- **Interactive runs after the first wrote into the first run's terminal.** Mono-WASM caches
+  the function object a `[JSImport]` resolves to, and the bridge published a fresh
+  `Carbide.Terminal.write` per run, so the C# side kept calling the first run's closure. A
+  host showed a working first terminal and permanently silent ones after it, while every
+  `RunResult.stdOut` stayed correct. The bridge members are now installed once with stable
+  identities, and `runInteractive` swaps the sink behind them.
+- **`CarbideSession.shutdown()` mid-run left a program parked at a prompt.** Session teardown
+  dropped the project entries and disposed the Roslyn workspace without releasing the run, so
+  `exitPromise` never resolved. It now performs the same interactive teardown
+  `TerminalSession.dispose()` already did. `dispose()` itself was unaffected.
+- **Disposing a run suspended in `CarbideConsole.ReadKeyAsync` froze the page.** The key-mode
+  wait completes immediately once input closes, and the read loop had no end-of-input check,
+  so it spun — which on single-threaded Mono-WASM starves the JS event loop entirely. The read
+  now ends: `OperationCanceledException` when the run is being torn down,
+  `InvalidOperationException` when input merely ran out.
+- **A newline-less prompt on `Console.Error` stayed invisible while the program waited for
+  input.** Only `Console.Out` was flushed before an input suspension, so the prompt appeared
+  retroactively — after the input that answered it. Both streams are flushed now.
+- **`Console.CancelKeyPress` handlers leaked between runs.** The forked `System.Console` holds
+  the handler chain in a static field that outlives a run's collectible `AssemblyLoadContext`,
+  so a handler left behind that set `e.Cancel = true` silently vetoed Ctrl+C for every later
+  run on the page. Every run path now clears the chain at teardown.
+- **`Console.OpenStandardOutput()` corrupted multi-byte characters split across writes.** Each
+  write was decoded with a stateless `Encoding.UTF8.GetString`, so a UTF-8 sequence spanning
+  two calls became two invalid fragments. The stream now carries a stateful `Decoder`, and
+  resolves any dangling partial sequence when it is disposed. `Console.Write` goes through the
+  `StreamWriter` path and was never affected.
+
 ## [0.1.0] - 2026-08-04
 
 First published release.

@@ -194,9 +194,22 @@ Options:
   rejects; crashes surface as `success: false` with populated `stdErr`.
 - `dispose(): Promise<void>` — idempotent teardown; safe to call mid-run.
 
+Mid-run teardown releases a program suspended on input, whether it comes from
+`dispose()` or from `CarbideSession.shutdown()`. A pending `ReadLineAsync` resolves to
+`null` (EOF); a pending `ReadKeyAsync` has no such value to return, so it throws
+`OperationCanceledException`. Either way the program unwinds and `exitPromise` resolves —
+callers keying a spinner or a queued next run off it are not left waiting.
+
+Runs are independent: each `runInteractive` writes only to the terminal it was given, and
+per-run state (`Console.CancelKeyPress` handlers included) does not carry into the next run
+on the same page.
+
 Supported in T1: streaming stdout/stderr, ANSI passthrough, SGR stderr wrap,
-`Console.OpenStandardOutput()` routes to the terminal via the `print` overlay
-(previously went to the browser devtools console — see the T1 drift entry).
+`Console.OpenStandardOutput()` / `OpenStandardError()` route to the terminal
+(previously went to the browser devtools console — see the T1 drift entry). Under T3 those
+handles are the forked `System.Console`'s own stream, which writes straight to the terminal
+bridge; it decodes with a stateful UTF-8 `Decoder`, so a multi-byte character split across
+two writes still arrives intact.
 
 **T2** — `CarbideConsole` cooperative-async input + SGR/cursor/clear API. Available on
 code Carbide compiles from source; pre-compiled NuGet libraries that call `Console.ReadKey`

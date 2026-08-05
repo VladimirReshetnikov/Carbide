@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: CancelKeyPress handlers do not leak between runs</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Regression fixture: two runs on one page. Run A registers a stock
+    // `Console.CancelKeyPress` handler that vetoes cancellation (`e.Cancel = true`) and then
+    // exits. Run B must still be cancellable with Ctrl+C.
+    //
+    // The forked System.Console keeps that handler chain in a static field — correct upstream,
+    // where a process runs one program, but here one page runs many programs against one
+    // loaded copy of the assembly. Run A's handler survived it, so Ctrl+C silently stopped
+    // working from run B onward: the program kept going and the run cancellation token never
+    // tripped.
+    //
+    // Run B's delay is bounded rather than infinite so the pre-fix behaviour shows up as a
+    // failed assertion (`cancelled=False` after the full delay) instead of a hung page.
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function waitForText(terminal, needle, timeoutMs = 30000) {
+      const start = Date.now();
+      while (!terminal.getFullText().includes(needle)) {
+        if (Date.now() - start > timeoutMs) throw new Error(`timeout waiting for ${JSON.stringify(needle)}`);
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        // --- Run A: register a vetoing handler, then exit. ---------------------------
+        const terminalA = makeInteractiveTerminal();
+        const projectA = session.createProject();
+        projectA.addSource(
+          "Program.cs",
+          'using System;\n' +
+            'Console.CancelKeyPress += (s, e) => { e.Cancel = true; };\n' +
+            'Console.WriteLine("a-registered");\n',
+        );
+        const resultA = await projectA.runInteractive({ terminal: terminalA }).exitPromise;
+        if (!resultA.success) throw new Error("run A failed: " + resultA.stdErr);
+
+        // --- Run B: a fresh program that expects Ctrl+C to cancel it. -----------------
+        const terminalB = makeInteractiveTerminal();
+        const projectB = session.createProject();
+        projectB.addSource(
+          "Program.cs",
+          'using System;\n' +
+            'using Carbide.Terminal;\n' +
+            'Console.WriteLine("ready");\n' +
+            'try { await CarbideConsole.DelayAsync(5000, CarbideConsole.RunCancellationToken); }\n' +
+            'catch (OperationCanceledException) { }\n' +
+            'Console.WriteLine($"cancelled={CarbideConsole.RunCancellationToken.IsCancellationRequested}");\n',
+        );
+        const handleB = projectB.runInteractive({ terminal: terminalB });
+        await waitForText(terminalB, "ready\n");
+
+        const t0 = Date.now();
+        terminalB.deliverKeys("\x03");
+        const resultB = await handleB.exitPromise;
+        const ctrlCWaitMs = Date.now() - t0;
+
+        return {
+          resultA,
+          resultB,
+          ctrlCWaitMs,
+          textA: terminalA.getFullText(),
+          textB: terminalB.getFullText(),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.resultB.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

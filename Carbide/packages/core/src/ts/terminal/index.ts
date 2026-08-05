@@ -3,7 +3,7 @@
 // advanced callers (test harnesses, custom Project subclasses).
 
 export { startInteractiveSession } from "./session.js";
-export { installBridge, uninstallBridge, isBridgeInstalled } from "./bridge.js";
+export { installBridge, uninstallBridge, isBridgeInstalled, isInteractiveSinkAttached } from "./bridge.js";
 export type { TerminalBridgeSink, LineEditorHandle } from "./bridge.js";
 export { attachLineEditor } from "./line-editor.js";
 export type { LineEditorOptions, LineEditorController } from "./line-editor.js";

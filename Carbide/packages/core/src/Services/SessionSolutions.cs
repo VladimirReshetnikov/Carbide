@@ -69,6 +69,14 @@ internal sealed class SessionSolutions(ILogger<SessionSolutions> logger)
 
         foreach (var projectId in state.ProjectIds)
         {
+            // Release any interactive run still parked on input before dropping the project.
+            // Disposing the compiler only tears down the Roslyn workspace; a program sitting
+            // in `Console.In.ReadLineAsync()` was left blocked, so `exitPromise` never
+            // resolved and the run's TerminalInputState stayed in the registry — a browser
+            // IDE's Reset/Close appeared to succeed while every spinner and queued run behind
+            // it hung with no error. Shutting a session down has to do at least as much as
+            // disposing a single handle, which is what `DisposeInteractive` already does.
+            DisposeInteractive(projectId);
             if (_projects.TryRemove(projectId, out var entry))
             {
                 // Review R1 M6 — dispose the underlying AdhocWorkspace so Roslyn caches

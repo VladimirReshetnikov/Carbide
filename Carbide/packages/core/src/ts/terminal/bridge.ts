@@ -144,49 +144,124 @@ export interface LineEditorHandle {
 }
 
 /**
- * Boot-time default. Installs a `globalThis.Carbide.Terminal` with write/writeErr sinks
- * that route to the host's default output (Node: `process.stdout`/`process.stderr`;
- * browser: `console.log`/`console.error`) so code paths that resolve the JSImport at
- * runtime (`CarbideBridge.WriteStdOut` in the forked System.Console's
+ * The interactive sink currently attached, or null when no interactive run is live.
+ * Swapped by `installBridge` / `uninstallBridge`; read by the trampolines below on every
+ * call.
+ *
+ * This indirection is load-bearing, not stylistic. Mono-WASM resolves a
+ * `[JSImport("globalThis.Carbide.Terminal.write")]` binding once and caches the *function
+ * object* it found. Publishing a fresh function per run — which is what `installBridge`
+ * used to do — left the C# side calling the first run's closure forever, so every
+ * interactive run after the first wrote into the first run's terminal. `RunResult.stdOut`
+ * stayed correct throughout, because the C# side tees output into a `StringBuilder`
+ * independently of the bridge, so nothing failed loudly: a browser IDE showed a working
+ * first tab and permanently silent ones after it. Reading each terminal right after its
+ * own run — the natural way to write such a test — hides it too; it takes running several
+ * programs and then reading every terminal.
+ *
+ * The fix is to make the function identities permanent and move the per-run part behind
+ * them.
+ */
+let activeSink: TerminalBridgeSink | null = null;
+
+/** Lazily-built host-default sinks, used whenever no interactive sink is attached. */
+let defaultWriteStdOut: ((text: string) => void) | null = null;
+let defaultWriteStdErr: ((text: string) => void) | null = null;
+
+function writeStdOutTrampoline(text: string): void {
+    if (activeSink) { activeSink.writeStdOut(text); return; }
+    (defaultWriteStdOut ??= defaultStdoutSink())(text);
+}
+
+function writeStdErrTrampoline(text: string): void {
+    if (activeSink) { activeSink.writeStdErr(text); return; }
+    (defaultWriteStdErr ??= defaultStderrSink())(text);
+}
+
+function setKeyModeTrampoline(enabled: boolean): void {
+    // No line editor outside an interactive run — nothing to toggle.
+    activeSink?.setKeyMode(enabled);
+}
+
+function setTreatControlCAsInputTrampoline(value: boolean): void {
+    activeSink?.setTreatControlCAsInput(value);
+}
+
+function getColsTrampoline(): number {
+    return activeSink ? activeSink.getCols() : 80;
+}
+
+function getRowsTrampoline(): number {
+    return activeSink ? activeSink.getRows() : 24;
+}
+
+// T2.1 — Callback-based delay. Earlier T2 exposed a Promise-returning `delay`; Mono-WASM's
+// JSImport Promise-to-Task marshaler wraps such results in a TCS with
+// `TaskCreationOptions.RunContinuationsAsynchronously`, which forces every
+// await-continuation through the ThreadPool — which on single-threaded browser-wasm falls
+// back to `Monitor.Wait(INFINITE)` and trips "Cannot wait on monitors". The callback
+// variant hands the completion through a local TCS the C# side constructs with
+// `TaskCreationOptions.None`, so continuations run synchronously inline on the main thread
+// when setTimeout fires.
+function delayCallbackTrampoline(ms: number, callback: () => void): void {
+    setTimeout(() => { try { callback(); } catch { /* swallow */ } }, Math.max(0, ms));
+}
+
+// T2.1 — CarbideSyncContext's Post path enqueues via `setTimeout(cb, 0)` to actually yield
+// to the JS event loop between continuations. Previously CarbideSyncContext.Post ran
+// inline, which meant `Task.Yield()` + other micro-yield patterns never yielded control and
+// any setTimeout-backed await (DelayAsync, Promise-based JSImports) never got a chance to
+// fire. With macrotask-based Post we pay one microtask queue hop per continuation but the
+// browser event loop actually advances.
+function scheduleMacrotaskTrampoline(callback: () => void): void {
+    setTimeout(() => { try { callback(); } catch { /* swallow */ } }, 0);
+}
+
+/**
+ * Install the stable `globalThis.Carbide.Terminal` surface if it isn't there yet, and
+ * return it. Every member is a module-level function whose identity never changes for the
+ * lifetime of the page, so a JSImport binding resolved at any point stays valid across any
+ * number of install/uninstall cycles.
+ */
+function ensureTerminalSurface(): Record<string, unknown> {
+    const carbide = ((globalThis as Record<string, unknown>).Carbide ??= {}) as Record<string, unknown>;
+    const existing = carbide.Terminal as Record<string, unknown> | undefined;
+    if (existing?.write === writeStdOutTrampoline) {
+        return existing;
+    }
+    const surface: Record<string, unknown> = {
+        write: writeStdOutTrampoline,
+        writeErr: writeStdErrTrampoline,
+        setKeyMode: setKeyModeTrampoline,
+        setTreatControlCAsInput: setTreatControlCAsInputTrampoline,
+        getCols: getColsTrampoline,
+        getRows: getRowsTrampoline,
+        delayCallback: delayCallbackTrampoline,
+        scheduleMacrotask: scheduleMacrotaskTrampoline,
+        // T3.1 — single-tone beep via Web Audio. See the module-level `beep` for the full
+        // story. Callback-based to dovetail with the same Mono-WASM marshaler caveat that
+        // drove `delayCallback`.
+        beep,
+    };
+    carbide.Terminal = surface;
+    return surface;
+}
+
+/**
+ * Boot-time default. Installs `globalThis.Carbide.Terminal` so code paths that resolve the
+ * JSImport at runtime (`CarbideBridge.WriteStdOut` in the forked System.Console's
  * `CarbideStdWriteStream`) always have something to call, whether or not an interactive
- * session is live. `installBridge` below overrides these sinks during an interactive
- * run; `uninstallBridge` restores them.
+ * session is live. With no interactive sink attached, writes route to the host's default
+ * output (Node: `process.stdout`/`process.stderr`; browser: `console.log`/`console.error`).
+ * `installBridge` below attaches a sink for the duration of an interactive run;
+ * `uninstallBridge` detaches it — neither replaces the surface.
  *
  * Without this, calling `Console.OpenStandardOutput().Write(...)` outside
  * `runInteractive` raised `Carbide not found while looking up
  * globalThis.Carbide.Terminal.write` — see R2-followup / `cli/test/advanced-usage`.
  */
 export function installDefaultBridge(): void {
-    const carbide = ((globalThis as Record<string, unknown>).Carbide ??= {}) as Record<string, unknown>;
-    // If something's already there (idempotent boot, or an earlier installBridge), leave
-    // it. `installBridge` overrides these fields in place; `uninstallBridge` restores.
-    if (carbide.Terminal) return;
-    carbide.Terminal = buildDefaultTerminalBridge();
-}
-
-/**
- * Construct the default Carbide.Terminal surface. Shared between `installDefaultBridge`
- * and `uninstallBridge` (the latter must restore defaults rather than delete the
- * Terminal object entirely, so deferred JSImports don't tear down mid-flight).
- */
-function buildDefaultTerminalBridge(): Record<string, unknown> {
-    const writeOut = defaultStdoutSink();
-    const writeErr = defaultStderrSink();
-    return {
-        write: writeOut,
-        writeErr: writeErr,
-        setKeyMode: (_enabled: boolean) => { /* no line editor outside interactive runs */ },
-        setTreatControlCAsInput: (_value: boolean) => { /* no editor outside interactive runs */ },
-        getCols: () => 80,
-        getRows: () => 24,
-        delayCallback: (ms: number, callback: () => void) => {
-            setTimeout(() => { try { callback(); } catch { /* swallow */ } }, Math.max(0, ms));
-        },
-        scheduleMacrotask: (callback: () => void) => {
-            setTimeout(() => { try { callback(); } catch { /* swallow */ } }, 0);
-        },
-        beep,
-    };
+    ensureTerminalSurface();
 }
 
 function defaultStdoutSink(): (text: string) => void {
@@ -212,8 +287,11 @@ function defaultStderrSink(): (text: string) => void {
 }
 
 /**
- * Route Carbide-side writes to the given xterm instance. Installs the `{write, writeErr,
- * setKeyMode, setTreatControlCAsInput}` globals the C# JSImports resolve against.
+ * Route Carbide-side writes to the given xterm instance. Attaches a sink behind the stable
+ * `{write, writeErr, setKeyMode, setTreatControlCAsInput, ...}` globals the C# JSImports
+ * resolve against — the globals themselves are installed once (see `ensureTerminalSurface`)
+ * and never replaced, because Mono-WASM caches the function object it resolved and would
+ * otherwise keep calling a finished run's closure.
  */
 export function installBridge(
     terminal: XtermTerminalLike,
@@ -248,73 +326,49 @@ export function installBridge(
         },
         dispose() {
             // T2 editor disposal is handled by the session shell which owns the editor's
-            // lifecycle; the bridge just holds the pointer.
+            // lifecycle; the bridge just holds the pointer. Detaching the sink is
+            // `uninstallBridge`'s job — a sink that outlived its own uninstall would keep
+            // writing into a terminal the host has already let go of.
         },
     };
 
-    const carbide = ((globalThis as Record<string, unknown>).Carbide ??= {}) as Record<string, unknown>;
-    carbide.Terminal = {
-        write: sink.writeStdOut,
-        writeErr: sink.writeStdErr,
-        setKeyMode: sink.setKeyMode,
-        setTreatControlCAsInput: sink.setTreatControlCAsInput,
-        getCols: sink.getCols,
-        getRows: sink.getRows,
-        // T2.1 — Callback-based delay. Earlier T2 exposed a Promise-returning `delay`;
-        // Mono-WASM's JSImport Promise-to-Task marshaler wraps such results in a TCS
-        // with `TaskCreationOptions.RunContinuationsAsynchronously`, which forces every
-        // await-continuation through the ThreadPool — which on single-threaded browser-
-        // wasm falls back to `Monitor.Wait(INFINITE)` and trips "Cannot wait on monitors".
-        // The callback variant hands the completion through a local TCS the C# side
-        // constructs with `TaskCreationOptions.None`, so continuations run synchronously
-        // inline on the main thread when setTimeout fires.
-        delayCallback: (ms: number, callback: () => void) => {
-            setTimeout(() => {
-                try { callback(); } catch { /* swallow */ }
-            }, Math.max(0, ms));
-        },
-        // T2.1 — CarbideSyncContext's Post path enqueues via `setTimeout(cb, 0)` to actually
-        // yield to the JS event loop between continuations. Previously CarbideSyncContext.Post
-        // ran inline, which meant `Task.Yield()` + other micro-yield patterns never yielded
-        // control and any setTimeout-backed await (DelayAsync, Promise-based JSImports) never
-        // got a chance to fire. With macrotask-based Post we pay one microtask queue hop per
-        // continuation but browser event loop actually advances.
-        scheduleMacrotask: (callback: () => void) => {
-            setTimeout(() => {
-                try { callback(); } catch { /* swallow */ }
-            }, 0);
-        },
-        // T3.1 — single-tone beep via Web Audio. See the module-level `beep` for the
-        // full story. Callback-based to dovetail with the same Mono-WASM marshaler
-        // caveat that drove `delayCallback` (Promise-to-Task forces continuations
-        // through the ThreadPool → Monitor.Wait trap on single-threaded browser-wasm).
-        beep,
-    };
+    ensureTerminalSurface();
+    activeSink = sink;
     return sink;
 }
 
 /**
- * Restore the boot-time default Carbide.Terminal. Matches `installBridge`. Idempotent.
+ * Detach the interactive sink, so writes fall back to the host's default output. Matches
+ * `installBridge`. Idempotent.
  *
- * Note: does NOT delete `globalThis.Carbide.Terminal` — the forked System.Console's
- * `CarbideStdWriteStream` (and any other late-binding JSImport consumer) expects the
- * surface to remain resolvable whether or not an interactive session is active.
- * Pre-bridge behaviour (delete-on-teardown) caused non-interactive `project.run()`
- * calls that touched `Console.OpenStandardOutput()` to throw with
- * `Carbide not found while looking up globalThis.Carbide.Terminal.write`.
+ * Note: does NOT delete or replace `globalThis.Carbide.Terminal` — the forked
+ * System.Console's `CarbideStdWriteStream` (and any other late-binding JSImport consumer)
+ * expects the surface to remain resolvable whether or not an interactive session is active.
+ * Pre-bridge behaviour (delete-on-teardown) caused non-interactive `project.run()` calls
+ * that touched `Console.OpenStandardOutput()` to throw with `Carbide not found while
+ * looking up globalThis.Carbide.Terminal.write`. Replacing the surface was no better: a
+ * JSImport binding already resolved against the old functions kept using them.
  */
 export function uninstallBridge(): void {
-    const carbide = (globalThis as Record<string, unknown>).Carbide as Record<string, unknown> | undefined;
-    if (!carbide) return;
-    carbide.Terminal = buildDefaultTerminalBridge();
+    activeSink = null;
 }
 
 /**
- * Whether a terminal bridge is currently installed. Consulted before activating the
- * emscripten print/printErr overlay (which falls back to `console.log` when no bridge is
- * live).
+ * Whether `globalThis.Carbide.Terminal` is resolvable — i.e. whether a JSImport pointed at
+ * it will bind. True from boot onward once `installDefaultBridge` has run, and unaffected
+ * by install/uninstall cycles, which now swap the sink behind a permanent surface rather
+ * than replacing the surface. Use {@link isInteractiveSinkAttached} to ask the different
+ * question of whether a live interactive run currently owns the output.
  */
 export function isBridgeInstalled(): boolean {
     const carbide = (globalThis as Record<string, unknown>).Carbide as Record<string, unknown> | undefined;
     return !!carbide && "Terminal" in carbide;
+}
+
+/**
+ * Whether an interactive run currently owns terminal output. False outside
+ * `installBridge`/`uninstallBridge`, when writes fall back to the host's default streams.
+ */
+export function isInteractiveSinkAttached(): boolean {
+    return activeSink !== null;
 }

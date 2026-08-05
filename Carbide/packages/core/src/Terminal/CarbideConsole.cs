@@ -7,6 +7,7 @@
 // emission goes through Console.Out (which T1's RunInteractiveAsync already pointed at a
 // StreamingStdOutWriter), so byte-level flushing and xterm routing are reused.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Threading;
@@ -80,6 +81,20 @@ public static class CarbideConsole
                         Console.Out.Write(key.KeyChar);
                     }
                     return key;
+                }
+
+                // Nothing parsed and nothing left to parse from: the reader is closed, so no
+                // further byte can arrive. `WaitForBytesAsync` completes immediately once
+                // closed, so falling through here would spin — and Mono-WASM browser being
+                // single-threaded, a synchronous spin starves the JS event loop: xterm stops
+                // rendering, the page stops responding, and the host's own `await
+                // exitPromise` can never resolve. A frozen tab is worse than a hang, so end
+                // the read instead. `ReadLineAsync` signals the same condition by returning
+                // null; `ConsoleKeyInfo` has no such value, and inventing a default key would
+                // hand user code a keystroke nobody pressed.
+                if (!state.Reader.HasPartialBytes && state.Reader.IsClosed)
+                {
+                    ThrowInputEnded(state, bufferEnd);
                 }
 
                 // Nothing parsed yet. Wait for the next delivery. Do NOT ConfigureAwait(false)
@@ -519,6 +534,34 @@ public static class CarbideConsole
         }
         bufferEnd = remaining;
         return true;
+    }
+
+    /// <summary>
+    /// Terminate a key-mode read whose input source has closed. Teardown —
+    /// <c>handle.dispose()</c>, <c>session.shutdown()</c>, or an unvetoed Ctrl+C — trips the
+    /// run's cancellation token before completing the reader, so report that case as
+    /// cancellation: it is the same signal user code would observe from any other await that
+    /// honours <see cref="RunCancellationToken"/>. A close with no cancellation means input
+    /// genuinely ran out, which is what stock <c>Console.ReadKey</c> reports as an invalid
+    /// operation.
+    /// </summary>
+    [DoesNotReturn]
+    private static void ThrowInputEnded(TerminalInputState state, int unparsedBytes)
+    {
+        var trailing = unparsedBytes > 0
+            ? $" {unparsedBytes} byte(s) of an incomplete escape sequence were discarded."
+            : string.Empty;
+
+        // `IsCancellationRequested` — not `.Token` — because the source may already have been
+        // disposed by the run's finally, and only the latter throws once disposed.
+        if (state.CancellationTokenSource.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(
+                $"{nameof(ReadKeyAsync)} was terminated: the interactive run is shutting down.{trailing}");
+        }
+
+        throw new InvalidOperationException(
+            $"{nameof(ReadKeyAsync)} cannot read a key: terminal input has ended.{trailing}");
     }
 
     private static Task WaitForByteAsync(TerminalInputState state, CancellationToken ct)

@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: each run writes to its own terminal</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Regression fixture: run three programs in sequence on one session, each with its own
+    // terminal, and read EVERY terminal only at the end.
+    //
+    // Mono-WASM resolves a `[JSImport("globalThis.Carbide.Terminal.write")]` binding once and
+    // caches the function object it found. `installBridge` used to publish a fresh function
+    // per run, so the C# side kept calling the first run's closure forever: all three lines
+    // landed in terminal A, and B and C stayed empty. Nothing failed loudly, because the C#
+    // side tees output into a StringBuilder independently of the bridge, so every
+    // RunResult.stdOut stayed correct. Reading each terminal right after its own run — the
+    // natural way to write this test — hides it too, which is why the reads happen at the end.
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    // Deliberately NOT 80x24: that pair is also the geometry fallback, so a fixture built at
+    // those values cannot tell "delivered" from "dropped".
+    function makeMockTerminal() {
+      const chunks = [];
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const labels = ["alpha", "bravo", "charlie"];
+        const terminals = labels.map(() => makeMockTerminal());
+        const stdOuts = [];
+
+        for (let i = 0; i < labels.length; i++) {
+          const project = session.createProject();
+          project.addSource("Program.cs", `Console.WriteLine("${labels[i]}");\n`);
+          const handle = project.runInteractive({ terminal: terminals[i] });
+          const runResult = await handle.exitPromise;
+          if (!runResult.success) {
+            throw new Error(`run ${labels[i]} failed: ${runResult.stdErr}`);
+          }
+          stdOuts.push(runResult.stdOut);
+        }
+
+        // Read every terminal only now that all three runs are done.
+        return {
+          success: true,
+          labels,
+          stdOuts,
+          terminalTexts: terminals.map((t) => t.getFullText()),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

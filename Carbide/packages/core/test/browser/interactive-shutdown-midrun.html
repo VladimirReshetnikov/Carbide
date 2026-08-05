@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: session.shutdown() mid-run resolves exitPromise</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Companion to interactive-dispose-midrun: the same mid-run teardown, but through
+    // `session.shutdown()` instead of `handle.dispose()`.
+    //
+    // `DisposeSession` used to drop the project entries and dispose the Roslyn workspace
+    // without ever touching the run's TerminalInputState, so a program parked in
+    // `Console.In.ReadLineAsync()` was never released. In a browser IDE, Reset/Close while a
+    // program sits at a prompt appeared to succeed, but anything keyed off `exitPromise` — a
+    // spinner, a "stopped" badge, a queued next run — hung forever with no error, and every
+    // abandoned run's state stayed in the registry.
+    //
+    // Note the assertions read `runResult.stdOut`, not the terminal: shutdown() detaches the
+    // bridge as soon as it has signalled the C# side, so the program's last line is written
+    // after the terminal is gone. The tee in RunResult is the durable record.
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+
+      const project = session.createProject();
+      project.addSource("Program.cs", [
+        'using System;',
+        'using System.Threading.Tasks;',
+        'Console.WriteLine("ready");',
+        'string? line = await Console.In.ReadLineAsync();',
+        'if (line is null) {',
+        '    Console.WriteLine("shut-down");',
+        '} else {',
+        '    Console.WriteLine("got: " + line);',
+        '}',
+        '',
+      ].join("\n"));
+
+      const handle = project.runInteractive({ terminal });
+
+      // Wait for "ready\n" so the program has definitely reached the ReadLineAsync await.
+      const start = Date.now();
+      while (!terminal.getFullText().includes("ready\n")) {
+        if (Date.now() - start > 30_000) throw new Error("timeout waiting for ready");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      // Tear the whole session down without delivering a line and without calling
+      // handle.dispose(). exitPromise must still resolve.
+      const t0 = Date.now();
+      await session.shutdown();
+      const runResult = await handle.exitPromise;
+      const shutdownWaitMs = Date.now() - t0;
+
+      return { runResult, shutdownWaitMs };
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

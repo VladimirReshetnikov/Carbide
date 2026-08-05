@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: handle-level writes survive split multi-byte characters</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Regression fixture: write a non-ASCII payload through `Console.OpenStandardOutput()`
+    // one byte at a time, so every multi-byte UTF-8 sequence is split across calls.
+    //
+    // `CarbideStdWriteStream` decoded each Write with a stateless `Encoding.UTF8.GetString`,
+    // so a sequence spanning two calls became two invalid fragments and the character came
+    // out as replacement glyphs. Ordinary `Console.Write` goes through the StreamWriter path
+    // and was never affected, which made the corruption look like a data problem rather than
+    // an encoding one — hence a fixture that drives the raw handle specifically.
+    //
+    // The payload deliberately mixes 2-, 3- and 4-byte sequences, including one outside the
+    // BMP (𝄞, a surrogate pair on the JS side).
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+    const PAYLOAD = "café ☕ 𝄞 naïve";
+
+    function makeMockTerminal() {
+      const chunks = [];
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeMockTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        project.addSource(
+          "Program.cs",
+          'using System.Text;\n' +
+            'var payload = "caf\\u00e9 \\u2615 \\ud834\\udd1e na\\u00efve";\n' +
+            'var bytes = Encoding.UTF8.GetBytes(payload);\n' +
+            'using var raw = Console.OpenStandardOutput();\n' +
+            '// One byte per call: every multi-byte sequence is split at every boundary.\n' +
+            'foreach (var b in bytes) { raw.Write(new byte[] { b }, 0, 1); }\n' +
+            'raw.Flush();\n',
+        );
+        const handle = project.runInteractive({ terminal });
+        const runResult = await handle.exitPromise;
+        return { runResult, fullText: terminal.getFullText(), payload: PAYLOAD };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide interactive: dispose() releases a pending ReadKeyAsync</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Regression fixture: dispose a run parked in `CarbideConsole.ReadKeyAsync()`.
+    //
+    // `WaitForBytesAsync` completes immediately once the reader is closed, and the key-mode
+    // loop had no EOF check — so after dispose it spun. Mono-WASM browser is single-threaded,
+    // so a synchronous C# spin starves the JS event loop entirely: xterm stops rendering, the
+    // page stops responding to clicks, and dispose()'s own `await exitPromise` can never
+    // resolve. The user saw a frozen tab rather than an error, which is worse than a hang.
+    //
+    // Two things stand in for "the page did not freeze". `exitPromise` resolving at all is
+    // the first: a spinning C# loop pins the only thread, so the fixture would never reach a
+    // terminal state and the spec times out. The second is the follow-up run below — a page
+    // that survived teardown can still compile and run another program, which is the actual
+    // IDE scenario (close a program sitting at a prompt, start the next one).
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    function makeInteractiveTerminal() {
+      const chunks = [];
+      const listeners = new Set();
+      return {
+        cols: 100, rows: 30,
+        write(data) { chunks.push(typeof data === "string" ? data : new TextDecoder().decode(data)); },
+        onData(cb) { listeners.add(cb); return { dispose() { listeners.delete(cb); } }; },
+        deliverKeys(s) { for (const cb of Array.from(listeners)) cb(s); },
+        getFullText() { return chunks.join(""); },
+      };
+    }
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const terminal = makeInteractiveTerminal();
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const project = session.createProject();
+        // ReadKeyAsync with no cancellation token — the case that spun. Teardown cancels the
+        // run token before completing the reader, so the read reports cancellation.
+        project.addSource(
+          "Program.cs",
+          'using System;\n' +
+            'using Carbide.Terminal;\n' +
+            'Console.WriteLine("ready");\n' +
+            'try {\n' +
+            '    var key = await CarbideConsole.ReadKeyAsync(intercept: true);\n' +
+            '    Console.WriteLine("got: " + key.Key);\n' +
+            '} catch (OperationCanceledException) {\n' +
+            '    Console.WriteLine("released");\n' +
+            '}\n',
+        );
+
+        const handle = project.runInteractive({ terminal });
+
+        const start = Date.now();
+        while (!terminal.getFullText().includes("ready\n")) {
+          if (Date.now() - start > 30_000) throw new Error("timeout waiting for ready");
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        const t0 = Date.now();
+        const disposePromise = handle.dispose();
+        const runResult = await handle.exitPromise;
+        const disposeWaitMs = Date.now() - t0;
+        await disposePromise;
+
+        // Follow-up run on the same page. Reaching this at all proves the JS event loop
+        // survived the teardown of the parked read.
+        const terminal2 = makeInteractiveTerminal();
+        const project2 = session.createProject();
+        project2.addSource("Program.cs", 'Console.WriteLine("next-run-ok");\n');
+        const runResult2 = await project2.runInteractive({ terminal: terminal2 }).exitPromise;
+
+        return {
+          runResult,
+          runResult2,
+          disposeWaitMs,
+          fullText: terminal.getFullText(),
+          fullText2: terminal2.getFullText(),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.runResult.success && payload.runResult2.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

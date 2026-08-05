@@ -128,6 +128,10 @@ internal static class AssemblyRunner
                     Console.SetOut(oldOut);
                     Console.SetError(oldError);
                     SetConsoleInField(oldIn);
+                    // Drop this program's Console.CancelKeyPress handlers — the fork holds
+                    // them in a static field that outlives the run's collectible ALC, and a
+                    // handler registered here would go on vetoing Ctrl+C in later runs.
+                    Carbide.Terminal.TerminalInputState.ResetForkedConsoleCancelKeyPress();
                 }
             }
 #pragma warning disable CA1031

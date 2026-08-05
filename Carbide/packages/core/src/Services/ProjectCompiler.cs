@@ -767,6 +767,10 @@ internal sealed class ProjectCompiler : IDisposable
                     // initialised" state on Mono-WASM).
                     SetConsoleInField(oldIn);
                 }
+                // Drop this program's Console.CancelKeyPress handlers — the fork holds them
+                // in a static field that outlives the run's collectible ALC, and a handler
+                // registered here would go on vetoing Ctrl+C in later interactive runs.
+                TerminalInputState.ResetForkedConsoleCancelKeyPress();
             }
         }
         finally
@@ -992,8 +996,12 @@ internal sealed class ProjectCompiler : IDisposable
             return RunResult.CompileFailure(emitDiagnostics, sw.Elapsed.TotalMilliseconds);
         }
 
-        // P0.1 — output-side rule suppressed here: the interactive path's emscripten
-        // print/printErr multiplexers do route handle-level writes into the terminal bridge.
+        // P0.1 — output-side rule suppressed here: on the interactive path handle-level
+        // writes do reach the terminal. `Console.OpenStandardOutput()` resolves to the T3
+        // forked System.Console's own `CarbideStdWriteStream`, which writes straight to the
+        // terminal bridge (confirmed by reflecting the returned stream's type in a browser
+        // fixture — it is that stream, not the emscripten print/printErr overlay, that
+        // carries these bytes once the fork is loaded).
         var bypassDiagnostics = DetectCaptureBypasses(compilation, interactive: true);
 
         var entryPoint = compilation.GetEntryPoint(CancellationToken.None)
@@ -1186,6 +1194,11 @@ internal sealed class ProjectCompiler : IDisposable
                 SetConsoleInField(oldIn);
                 // T3 — clear the flag so subsequent non-interactive runs see PNS again.
                 AppContext.SetData("Carbide.InteractiveBridge", false);
+                // Drop the finished program's Console.CancelKeyPress handlers. The forked
+                // System.Console keeps that chain in a static field, so it outlives the run's
+                // collectible ALC; a handler left behind that sets `e.Cancel = true` vetoes
+                // Ctrl+C for every later run on the page.
+                TerminalInputState.ResetForkedConsoleCancelKeyPress();
                 SynchronizationContext.SetSynchronizationContext(oldSyncContext);
             }
         }
