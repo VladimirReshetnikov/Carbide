@@ -569,6 +569,30 @@ Milestones are ordered by dependency. Each milestone has a crisp acceptance test
 
 **Acceptance.** A program that uses `System.IO.File` (mounted to a host directory by wasmtime policy) builds in `@carbide/core` and runs in `@carbide/core-wasi`.
 
+> **Scope correction (2026-08-04).** The first bullet is not a packaging change, and anyone
+> costing M10 from the three bullets above will underestimate it badly.
+>
+> `Carbide.Core.csproj` hard-sets `RuntimeIdentifier=browser-wasm`, and the host boundary is
+> built entirely on `System.Runtime.InteropServices.JavaScript` — 81 `[JSExport]`/`[JSImport]`
+> call sites across 12 files, including the whole public API surface (`CompilationInterop.cs`),
+> the terminal bridge (`CarbideTerminalInterop.cs`), and `WebAssemblyConsoleLogger`. That
+> assembly exists only on `browser-wasm`; there is no JavaScript host under WASI, so
+> `Carbide.Core` cannot currently be compiled for `wasi-wasm` at all.
+>
+> M10 therefore requires designing a *second host interface* for every boundary that is
+> JSExport-shaped today — the session/project API, the interactive terminal, logging, and
+> asset loading — behind an abstraction both hosts implement. That is an architectural
+> workstream on the scale of a milestone in its own right, not a build-target flag, which is
+> consistent with §2.3 already calling the WASI path "optional and explicitly out of the
+> critical path".
+>
+> Nothing in [`RELEASING.md`](../../../RELEASING.md) or the frozen `0.1.0` contracts depends on
+> M10; it is additive whenever it happens. Two things gate starting it: a `wasi-experimental`
+> workload install (available for .NET 10 — verified via `dotnet workload search`), and a
+> wasmtime runtime to validate against, without which the execution half cannot be tested at
+> all. Adding `@carbide/core-wasi` also takes the release train from five lock-step packages to
+> six, which is a release-shape decision rather than an implementation detail.
+
 ### M11 — Partial MSBuild evaluator (Band C, stretch)
 
 - Grow `@carbide/msbuild-lite` into `@carbide/msbuild` with Directory.Build.props layering and a documented subset of imports.

@@ -58,6 +58,11 @@ This guide is the current-state companion to the planning documents. The vision 
   - compiling a Roslyn source generator *with Carbide* — that needs the `Microsoft.CodeAnalysis`
     reference assemblies, which Carbide does not supply to compilations. Generators are built
     by the .NET SDK and consumed as DLLs (`<Analyzer Include>`, `--analyzer`, or a package)
+  - a WASI execution target (plan M10). `Carbide.Core` is `browser-wasm` only: its entire host
+    boundary is `[JSExport]`/`[JSImport]`, which does not exist under WASI, so this needs a
+    second host interface rather than an extra build target. See the scope correction on M10 in
+    the [architecture plan](planning/carbide-architecture-and-implementation-plan__2026-04-17__16-16-47-000000.md).
+    Nothing in the frozen `0.1.0` contracts depends on it
   - `<Target>`, `<Task>`, `<UsingTask>`, `<Choose>`, or general MSBuild execution — each is refused with an `MSBLITE0*` code rather than silently ignored
   - `Directory.Build.targets` ingestion (discovered, logged as `MSBLITE027`, then skipped)
   - synchronous console input (`Console.ReadKey(bool)`, `Console.In.ReadLine()`), which throws a pointed `NotSupportedException` pointing at `runInteractive` plus the async APIs
