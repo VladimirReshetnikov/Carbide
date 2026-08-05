@@ -31,4 +31,33 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.1" />
     <PackageReference Include="Avalonia.Markup.Xaml.Loader" Version="12.0.1" />
   </ItemGroup>
+
+  <!--
+    Webcil conversion is on by default under this SDK, and the SDK reuses the converted
+    `obj/<config>/<tfm>/webcil/*.wasm` whenever it is newer than the assembly it came from.
+    That check is on timestamps, so a NuGet package restored at some earlier date looks up to
+    date: moving one of the Avalonia pins above to a different *version* would leave the
+    previous version's converted images in place and bundle them, silently and with no change
+    in asset names. For this project that would break the triple-pin invariant outright — the
+    runtime bundle would carry a different Avalonia than @carbide-ui/refs-avalonia compiles
+    against, which is exactly the mismatch the pinning exists to prevent.
+
+    Restore rewrites project.assets.json whenever the resolved package graph changes, so use it
+    as the invalidation signal. Same guard as @carbide/core's Carbide.Core.csproj, where this
+    was first found; see the 2026-08-05 drift report. Conditioned on `!= 'false'` because this
+    project relies on the SDK default rather than setting WasmEnableWebcil itself — gating on
+    `== 'true'` would make the guard a silent no-op if the default ever stops materialising as
+    a property.
+  -->
+  <Target Name="CarbideInvalidateWebcilOnPackageGraphChange"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(WasmEnableWebcil)' != 'false' And Exists('$(ProjectAssetsFile)')"
+          Inputs="$(ProjectAssetsFile)"
+          Outputs="$(IntermediateOutputPath)carbide-webcil-graph.stamp">
+    <RemoveDir Directories="$(IntermediateOutputPath)webcil" />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Touch Files="$(IntermediateOutputPath)carbide-webcil-graph.stamp" AlwaysCreate="true" />
+    <Message Text="Carbide.UI: package graph changed; dropped the Webcil conversion cache so the bundle cannot carry assemblies from the previous graph."
+             Importance="high" />
+  </Target>
 </Project>
