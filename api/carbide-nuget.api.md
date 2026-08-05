@@ -31,8 +31,8 @@ export interface AnalyzerAssetSelection {
 }
 
 export declare const CARBIDE_ROSLYN_VERSION: {
-    readonly major: 4;
-    readonly minor: 14;
+    readonly major: 5;
+    readonly minor: 3;
 };
 
 export interface Cache {

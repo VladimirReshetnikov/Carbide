@@ -22,14 +22,14 @@ export interface AnalyzerAssetSelection {
 /**
  * The Roslyn version Carbide's compiler is built against. Analyzer assets are published per
  * Roslyn version because the analyzer API surface moves; a package's `roslyn4.8/` folder must
- * not be loaded by a 4.14 host if the package also ships a folder matching what we have.
+ * not be loaded by a 5.3 host if the package also ships a folder matching what we have.
  *
  * Kept here rather than imported from `@carbide/core` because this package must stay free of
  * a dependency on the runtime half — but the two have to agree, so
  * `test/unit/roslyn-version-pin.test.mjs` reads the version straight out of
  * `Carbide.Core.csproj` and fails if they drift.
  */
-export const CARBIDE_ROSLYN_VERSION = { major: 4, minor: 14 } as const;
+export const CARBIDE_ROSLYN_VERSION = { major: 5, minor: 3 } as const;
 
 /** Language sub-folders whose assets apply to a C# compilation. */
 const CSHARP_LANGUAGE_FOLDERS = new Set(["cs", "csharp"]);

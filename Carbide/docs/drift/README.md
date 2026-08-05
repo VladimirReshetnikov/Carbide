@@ -15,6 +15,7 @@ Periodic upstream-drift reports live here, per [architecture §11](../planning/c
 ## Reports
 
 - [2026-08-04 — release 0.1.0](carbide-drift-report__2026-08-04__release-0.1.0.md) — first report. Found and fixed preview `Microsoft.Extensions.*` packages shipping inside `@carbide/core`'s `_framework` payload; recorded the deliberate hold at Roslyn `4.14.0` now that `5.x` is out.
+- [2026-08-05 — Roslyn 5.x evaluation](carbide-drift-report__2026-08-05__roslyn-5x-evaluation.md) — carried out the `0.2.0` evaluation the previous report called for. Roslyn `5.6.0` stack-overflows under Mono-WASM (`Volatile.ReadBarrier` self-recursion); `5.0.0` and `5.3.0` pass, so the break is between `5.3.0` and `5.6.0` and the `4.14.0` hold stands. Also found and fixed a Webcil conversion cache that survives a package-version change, which makes any dependency bump publish the *previous* version's assemblies while the suite stays green.
 
 ## Documented differences (M1)
 

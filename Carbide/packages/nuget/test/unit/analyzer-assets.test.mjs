@@ -170,11 +170,12 @@ test("a package with no analyzers selects nothing and reports nothing", () => {
 });
 
 test("the default host version is Carbide's own Roslyn version", () => {
-    assert.deepEqual({ ...CARBIDE_ROSLYN_VERSION }, HOST);
-    assert.deepEqual(
-        selectAnalyzerAssets(["analyzers/dotnet/roslyn4.14/cs/Pkg.dll"]).entries,
-        ["analyzers/dotnet/roslyn4.14/cs/Pkg.dll"],
-    );
+    // Derived from the constant rather than hard-coded so a Roslyn upgrade cannot strand
+    // this test; the csproj ↔ constant agreement is pinned by roslyn-version-pin.test.mjs.
+    const { major, minor } = CARBIDE_ROSLYN_VERSION;
+    const own = `analyzers/dotnet/roslyn${major}.${minor}/cs/Pkg.dll`;
+    const newer = `analyzers/dotnet/roslyn${major}.${minor + 1}/cs/Pkg.dll`;
+    assert.deepEqual(selectAnalyzerAssets([own, newer]).entries, [own]);
 });
 
 test("a bare roslyn<major> folder parses as <major>.0", () => {
