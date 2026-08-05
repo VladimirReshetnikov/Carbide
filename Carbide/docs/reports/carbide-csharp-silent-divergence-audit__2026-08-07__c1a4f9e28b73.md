@@ -3,7 +3,7 @@
 Documentation in this directory is licensed under the repository's [Apache License 2.0](../../../LICENSE), with copyright held collectively by Carbide Contributors.
 
 - Created (UTC): 2026-08-07
-- Status: Informational; findings 1–3 are fixed, 4–8 are open
+- Status: Informational; findings 1–3 are fixed, 4–9 are open
 - Scope: the C# half of `@carbide/core` — `Services/`, `Terminal/`, `CompilationInterop.cs`, and the forked `core-bcl/System.Console`
 
 ## Why this audit exists
@@ -15,7 +15,8 @@ This pass audited six surfaces in parallel and then had every candidate finding
 adversarially refuted by an independent reader.
 
 **27 candidates → 16 refuted → 11 survived**, which deduplicate to **8 distinct defects**
-(three were reported twice, from two files each).
+(three were reported twice, from two files each). A ninth defect — finding 3 — was found
+while building a fixture for one of the others.
 
 The refutation step earned its keep. Among the 16 killed: a claim that `build` discards
 compiler warnings (it matches the documented contract), a claim that `Environment.ExitCode`
@@ -78,12 +79,51 @@ an unrecognised one.
 
 ## Open
 
-These survived refutation but are not yet fixed. All five live in the browser-interactive
+These survived refutation but are not yet fixed. All six live in the browser-interactive
 path, where verifying a change needs browser-level coverage that does not exist yet for the
 specific scenarios below. They are recorded here with reproduction steps so the work is
 triageable rather than lost.
 
-### 4. `DisposeSession` does not tear down an in-flight interactive run (high)
+### 4. Every interactive run after the first writes into the first run's terminal (high)
+
+`src/ts/terminal/bridge.ts`
+
+Found while building a fixture for finding 8, not by the audit itself; the two-run setup that
+finding needed exposed it immediately. **Diagnosed precisely, attempted, and reverted** — the
+diagnosis is solid, the fix is not.
+
+Mono-WASM resolves a `[JSImport("globalThis.Carbide.Terminal.write")]` binding once and
+caches the *function object*. `installBridge` publishes a fresh function per run, so the C#
+side keeps calling the first run's closure forever.
+
+*Demonstrated:* three programs run in sequence on one session, each with its own terminal,
+reading every terminal at the end. All three lines land in terminal A; B and C stay empty.
+Every `RunResult.stdOut` is correct throughout, because the C# side tees output into a
+`StringBuilder` independently of the bridge — which is why no existing test notices. Reading
+each terminal right after its own run (the natural way to write such a test) also hides it.
+
+*Impact:* a browser IDE shows a working first tab and permanently silent ones after it.
+
+*Attempted fix, and why it is not committed:* replacing the per-run functions with stable
+trampolines installed once at boot, delegating to a swappable sink, made the routing correct —
+a three-run fixture went green, with each program's output in its own terminal.
+
+It was reverted for a reason that did not survive scrutiny, and the honest version matters for
+whoever picks this up. During that testing the browser suite slowed sharply (the ten-line
+`interactive-hello` fixture went from ~7 s to 21–84 s) and `interactive-beep` failed once, so
+the change looked like a regression on the per-write hot path. But after reverting, the same
+fixtures still took 28 s and 56 s on the same machine — so the slowdown was environmental
+(sustained load from a long session), **not** attributable to the fix, and the single beep
+failure did not reproduce. The trampoline approach may well be correct.
+
+It is left out of the tree only because a change to the runtime bridge's hot path should be
+merged on evidence, and the evidence available here was confounded. Re-attempt on a quiet
+machine: verify the three-run routing, then compare `interactive-hello` timing against a
+baseline measured in the same session. Worth checking first whether Mono can be made to
+re-resolve a JSImport binding per run, or whether the sink swap belongs on the C# side of the
+boundary — either would avoid the extra JS indirection entirely.
+
+### 5. `DisposeSession` does not tear down an in-flight interactive run (high)
 
 `Services/SessionSolutions.cs:63`
 
@@ -102,7 +142,7 @@ keeps every abandoned run's state alive.
 *Note:* `handle.dispose()` (the documented teardown) works correctly; this is the
 `session.shutdown()` path only.
 
-### 5. EOF is discarded in key mode, so `ReadKeyAsync` hot-spins after dispose (high)
+### 6. EOF is discarded in key mode, so `ReadKeyAsync` hot-spins after dispose (high)
 
 `Terminal/BrowserTerminalReader.cs:86`
 
@@ -115,7 +155,7 @@ starves the JS event loop entirely — xterm stops rendering, the page stops res
 clicks, and `dispose()`'s own `await exitPromise` can never resolve. The user sees a frozen
 tab, not an error.
 
-### 6. Only `Console.Out` is flushed before an input suspension (medium)
+### 7. Only `Console.Out` is flushed before an input suspension (medium)
 
 `Terminal/BrowserTerminalReader.cs:185`
 
@@ -127,7 +167,7 @@ stays buffered while the program blocks on input.
 blind works, and the prompt then appears retroactively on the next stderr write — so output
 arrives out of order relative to the input that answered it.
 
-### 7. `Console.CancelKeyPress` handlers are never unregistered between runs (high)
+### 8. `Console.CancelKeyPress` handlers are never unregistered between runs (high)
 
 `core-bcl/System.Console/src/Console.cs:440`
 
@@ -136,10 +176,15 @@ teardown. A second `runInteractive` on the same page inherits the first run's ha
 
 *Impact:* a previous run's handler can set `e.Cancel = true`, so Ctrl+C silently stops
 working in later runs — the program keeps going and `RunCancellationToken` never trips.
+Demonstrated: a two-run fixture where run A registers a vetoing handler and run B is sent
+Ctrl+C never terminates, so the page hangs rather than merely misbehaving. The fixture is not
+committed precisely because it hangs; fixing this needs an internal reset entry point on the
+fork, called from `RunInteractiveAsync`'s finally alongside the existing
+`AppContext.SetData("Carbide.InteractiveBridge", false)`.
 Output from a program the user already finished with also appears in an unrelated run's
 terminal and in its `RunResult.stdOut`.
 
-### 8. Handle-level writes corrupt multi-byte characters split across calls (medium)
+### 9. Handle-level writes corrupt multi-byte characters split across calls (medium)
 
 `core-bcl/System.Console/src/ConsolePal.Browser.cs:472`
 
