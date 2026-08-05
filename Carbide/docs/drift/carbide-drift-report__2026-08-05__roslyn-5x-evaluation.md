@@ -58,11 +58,13 @@ that enabled the test:
   republishing makes the identical test file pass all four of its cases. `5.0.0` and `5.3.0`
   likewise pass. The crash tracks the Roslyn version and nothing else.
 - **Payload control.** Diffing the published `_framework/` between `4.14.0` and `5.6.0` shows
-  the same 217 assemblies, with size changes confined to the six `Microsoft.CodeAnalysis.*`
-  assemblies and four transitive libraries (`System.Composition.Convention`,
-  `System.Configuration.ConfigurationManager`, `System.Diagnostics.EventLog`,
-  `System.Security.Cryptography.ProtectedData`). No runtime assembly changes, so this is not
-  a case of the package graph swapping the Mono-WASM runtime out from under the test.
+  the same asset set — 194 converted managed assemblies plus `dotnet.native.wasm`, which is
+  copied verbatim from the runtime pack rather than converted — with size changes confined to
+  the six `Microsoft.CodeAnalysis.*` assemblies and four transitive libraries
+  (`System.Composition.Convention`, `System.Configuration.ConfigurationManager`,
+  `System.Diagnostics.EventLog`, `System.Security.Cryptography.ProtectedData`). No runtime
+  assembly changes, so this is not a case of the package graph swapping the Mono-WASM runtime
+  out from under the test.
 
 This is precisely the exposure the 0.1.0 report predicted when it declined to bump Roslyn in
 the release: Carbide runs Roslyn on Mono-WASM, which upstream does not test.
