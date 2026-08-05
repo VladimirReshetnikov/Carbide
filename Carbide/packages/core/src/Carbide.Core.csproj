@@ -69,6 +69,32 @@
   </ItemGroup>
 
   <!--
+    The SDK's Webcil conversion is incremental on file timestamps: it keeps the converted
+    `obj/<config>/<tfm>/webcil/*.wasm` whenever it is newer than the assembly it came from.
+    A NuGet package restored months ago carries an old timestamp, so moving a PackageReference
+    to a *different* package version leaves the previous version's Webcil in place, and that is
+    what gets published — a freshly built Carbide.Core shipped on top of the previous compiler,
+    with no error anywhere and no size or name change to notice. The Roslyn 4.14.0 -> 5.6.0 bump
+    hit exactly this: the payload still carried 4.14.0 after a full `rm -rf publish/` rebuild,
+    because the staleness lives in obj/, not in the output directory.
+
+    Restore rewrites project.assets.json whenever the resolved package graph changes, so use it
+    as the invalidation signal and drop the converted output whenever it moves. Steady-state
+    builds skip this target, so the full reconversion cost is paid only when it is warranted.
+  -->
+  <Target Name="CarbideInvalidateWebcilOnPackageGraphChange"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(WasmEnableWebcil)' == 'true' And Exists('$(ProjectAssetsFile)')"
+          Inputs="$(ProjectAssetsFile)"
+          Outputs="$(IntermediateOutputPath)carbide-webcil-graph.stamp">
+    <RemoveDir Directories="$(IntermediateOutputPath)webcil" />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Touch Files="$(IntermediateOutputPath)carbide-webcil-graph.stamp" AlwaysCreate="true" />
+    <Message Text="Carbide: package graph changed; dropped the Webcil conversion cache so the publish cannot carry assemblies from the previous graph."
+             Importance="high" />
+  </Target>
+
+  <!--
     T3 — overlay Carbide's forked System.Console.dll on top of the stock one that the
     Mono-WASM publish pipeline drops into `_framework/`. Runs after Publish so the file we
     copy into survives; the loader picks up the fork (same assembly name, same TFM) at

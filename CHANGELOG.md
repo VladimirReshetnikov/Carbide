@@ -40,6 +40,28 @@ published packages are released in lock-step at a single version.
 
 ### Fixed
 
+- **A dependency-version bump could publish the previous version's assemblies.** With Webcil
+  packaging on, the SDK converts each assembly under `obj/<config>/<tfm>/webcil/` and reuses
+  the converted image whenever it is newer than its source. A NuGet package restored earlier
+  carries an earlier timestamp, so changing a `PackageReference` to a different *version* left
+  the old converted image in place and shipped it — a freshly built `Carbide.Core` on top of
+  the previous compiler, with no error and no change in asset names. `rm -rf publish/` does not
+  help, because the staleness lives in `obj/`. `Carbide.Core.csproj` now drops the converted
+  output whenever `project.assets.json` moves, which is exactly when the resolved package graph
+  changes. Found while evaluating Roslyn `5.x`, where it made the first attempt report success
+  while still running `4.14.0`. See the
+  [drift report](Carbide/docs/drift/carbide-drift-report__2026-08-05__roslyn-5x-evaluation.md).
+
+### Changed
+
+- **The Roslyn `4.14.0` pin is confirmed, not merely inherited.** The `0.1.0` drift report
+  asked for the `4.x` → `5.x` jump to be evaluated for `0.2.0`. It was: Roslyn `5.6.0` does not
+  run on Carbide's Mono-WASM configuration at all — the first compilation dies with a
+  `StackOverflowException` in `System.Threading.Volatile.ReadBarrier` recursing into itself —
+  while `5.0.0` and `5.3.0` pass. `5.3.0` validates across the whole matrix and is recorded as
+  a viable target, but adopting it would buy compiler currency without an upgrade path, so the
+  hold stands and the decision is left open.
+
 - Six defects in `@carbide/core`'s browser-interactive path, closing every finding from the
   [C# silent-divergence audit](Carbide/docs/reports/carbide-csharp-silent-divergence-audit__2026-08-07__c1a4f9e28b73.md):
   output from runs after the first was routed to the first run's terminal; `session.shutdown()`
