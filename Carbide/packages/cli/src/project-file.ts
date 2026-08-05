@@ -552,6 +552,29 @@ async function configureSubproject(
             project.addReference(handle);
         }
 
+        // M12 — source generators shipped inside resolved packages. Unlike `--analyzer`, where
+        // the user named a specific file and a mistake should stop the build, an asset picked
+        // out of a dependency may legitimately be a diagnostic analyzer, which Carbide does
+        // not run. That is a warning, not a failure — but it is never silent, because a
+        // generator that did not run surfaces downstream as an error about a type nobody
+        // wrote.
+        for (const analyzer of nugetGraph.analyzers) {
+            try {
+                project.addAnalyzer(session.addAnalyzer(analyzer.bytes, analyzer.name));
+            } catch (err) {
+                warnings.push({
+                    code: "MSNUGET018",
+                    message:
+                        `Analyzer '${analyzer.entry}' from '${analyzer.packageId}' ` +
+                        `${analyzer.packageVersion} was not applied: ` +
+                        `${err instanceof Error ? err.message : String(err)}`,
+                    severity: "warning",
+                    category: "nuget",
+                    project: node.csprojPath,
+                });
+            }
+        }
+
         for (const w of nugetGraph.warnings) {
             warnings.push({
                 code: w.code,

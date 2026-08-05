@@ -46,6 +46,23 @@ export interface ResolvedReference {
     packageVersion: string;
 }
 
+/**
+ * M12 — a Roslyn analyzer asset selected from a package, ready for `session.addAnalyzer`.
+ * Distinct from {@link ResolvedReference} because an analyzer is a compile-time tool: it must
+ * not become a metadata reference, so the two lists are never interchangeable.
+ */
+export interface ResolvedAnalyzer {
+    /** Assembly name (the DLL file without extension). */
+    name: string;
+    /** Raw PE bytes ready to feed to @carbide/core's session.addAnalyzer. */
+    bytes: Uint8Array;
+    /** Originating package. */
+    packageId: string;
+    packageVersion: string;
+    /** The zip entry the bytes came from, for diagnostics that need to name the asset. */
+    entry: string;
+}
+
 export interface ResolvedPackage {
     id: string;
     version: string;
@@ -75,6 +92,8 @@ export interface ResolveLock {
 export interface ResolvedGraph {
     packages: ResolvedPackage[];
     references: ResolvedReference[];
+    /** M12 — source-generator assets contributed by the resolved packages. */
+    analyzers: ResolvedAnalyzer[];
     warnings: Warning[];
     lock: ResolveLock;
 }

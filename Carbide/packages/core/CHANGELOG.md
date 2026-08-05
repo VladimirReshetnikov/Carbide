@@ -29,8 +29,8 @@ surface frozen by this release is recorded in
   diagnostic naming its exception.
 
   Not covered yet: diagnostic analyzers (`DiagnosticAnalyzer`), which are counted and named in
-  the refusal message rather than run, and `<Analyzer>` / analyzer assets from `.csproj` and
-  NuGet packages, which still require the explicit API or CLI flag.
+  the refusal message rather than run, and `<Analyzer>` items declared in a `.csproj`.
+  Generators shipped inside NuGet packages *are* covered — see the `@carbide/nuget` changelog.
 
 ### Fixed
 

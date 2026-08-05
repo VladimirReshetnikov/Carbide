@@ -45,15 +45,16 @@ This guide is the current-state companion to the planning documents. The vision 
   - program argv and stdin forwarding, and the interactive xterm terminal path (streaming output, async console input, colors, cursor, resize, Ctrl+C)
   - a frozen published API surface, wire contract, and changelog train at `0.1.0`
   - Webcil packaging: managed assemblies ship as `.wasm`, so no `.dll` content type is served
-  - Roslyn source generators, registered via `session.addAnalyzer` / `project.addAnalyzer` or
-    the CLI's `--analyzer` flag; generated source reaches diagnostics, the emitted assembly,
-    and execution
+  - Roslyn source generators, registered via `session.addAnalyzer` / `project.addAnalyzer`,
+    the CLI's `--analyzer` flag, or the `analyzers/` assets of a resolved NuGet package;
+    generated source reaches diagnostics, the emitted assembly, and execution
 - Deliberately not implemented yet:
   - `.sln` parsing (vision §7 caps shape S5 at one-plus-siblings)
   - diagnostic analyzers (`DiagnosticAnalyzer`) — a DLL carrying only those is refused by
     `addAnalyzer` with a message naming what it found, rather than accepted and ignored
-  - `<Analyzer>` items and NuGet analyzer assets ingested from a `.csproj`; source generators
-    must be named explicitly through the API or `--analyzer`
+  - `<Analyzer>` items declared directly in a `.csproj` (generators from `<PackageReference>`
+    packages are applied; a locally-built generator must be named through the API or
+    `--analyzer`)
   - `<Target>`, `<Task>`, `<UsingTask>`, `<Choose>`, or general MSBuild execution — each is refused with an `MSBLITE0*` code rather than silently ignored
   - `Directory.Build.targets` ingestion (discovered, logged as `MSBLITE027`, then skipped)
   - synchronous console input (`Console.ReadKey(bool)`, `Console.In.ReadLine()`), which throws a pointed `NotSupportedException` pointing at `runInteractive` plus the async APIs

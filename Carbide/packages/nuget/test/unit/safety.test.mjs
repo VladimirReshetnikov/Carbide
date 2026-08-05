@@ -42,14 +42,15 @@ test("checkSafety: refuses MSBuild buildTransitive/<id>.props", () => {
     assert.equal(result.code, MSNUGET_CODES.SAFETY_TARGETS);
 });
 
-test("checkSafety: refuses analyzers/", () => {
+test("checkSafety: no longer refuses analyzers/ — M12 consumes them as assets", () => {
+    // Before M12 this refused the whole package, which made every mainstream package that
+    // ships a source generator unusable. Selection now happens in `selectAnalyzerAssets`;
+    // what it cannot place is an MSNUGET017 warning, not a refusal.
     const result = checkSafety("Pkg", "1.0.0", [
         "lib/net10.0/Pkg.dll",
         "analyzers/dotnet/cs/Pkg.Analyzers.dll",
     ]);
-    assert.equal(result.kind, "refused");
-    assert.equal(result.code, MSNUGET_CODES.SAFETY_ANALYZERS);
-    assert.match(result.message, /Roslyn analyzer/);
+    assert.equal(result.kind, "ok");
 });
 
 test("checkSafety: normalises backslashes before matching", () => {
@@ -78,7 +79,7 @@ test("checkSafety: benign build/ entries that aren't .targets/.props pass", () =
     assert.equal(result.kind, "ok");
 });
 
-test("checkSafety: stops at first offender (native beats analyzer in iteration order)", () => {
+test("checkSafety: a native binary still refuses even beside a usable analyzer", () => {
     const result = checkSafety("Pkg", "1.0.0", [
         "runtimes/win-x64/native/a.dll",
         "analyzers/dotnet/cs/b.dll",

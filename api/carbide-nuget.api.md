@@ -25,6 +25,16 @@ export declare class AllowListRefusedError extends Error {
     constructor(packageId: string);
 }
 
+export interface AnalyzerAssetSelection {
+    entries: string[];
+    unrecognised: string[];
+}
+
+export declare const CARBIDE_ROSLYN_VERSION: {
+    readonly major: 4;
+    readonly minor: 14;
+};
+
 export interface Cache {
     readonly rootDir: string;
     getNupkg(id: string, version: string): Promise<{
@@ -78,6 +88,7 @@ export declare const MSNUGET_CODES: {
     readonly SAFETY_NATIVE: "MSNUGET015";
     readonly SAFETY_TARGETS: "MSNUGET016";
     readonly SAFETY_ANALYZERS: "MSNUGET017";
+    readonly ANALYZER_NO_GENERATOR: "MSNUGET018";
     readonly SAFETY_UNKNOWN: "MSNUGET019";
     readonly ALLOWLIST_ADVISORY: "MSNUGET020";
     readonly ALLOWLIST_REFUSED: "MSNUGET021";
@@ -139,9 +150,18 @@ export interface ResolveOptions {
     flatContainer?: import("./flat-container.js").FlatContainer;
 }
 
+export interface ResolvedAnalyzer {
+    name: string;
+    bytes: Uint8Array;
+    packageId: string;
+    packageVersion: string;
+    entry: string;
+}
+
 export interface ResolvedGraph {
     packages: ResolvedPackage[];
     references: ResolvedReference[];
+    analyzers: ResolvedAnalyzer[];
     warnings: Warning[];
     lock: ResolveLock;
 }
@@ -274,6 +294,11 @@ export declare function readLock(lockPath: string): Promise<ResolveLock>;
 export declare function readNuspec(nupkg: Uint8Array): Promise<NuspecInfo>;
 
 export declare function resolve(packages: readonly PackageReference[], opts?: ResolveOptions): Promise<ResolvedGraph>;
+
+export declare function selectAnalyzerAssets(entryNames: readonly string[], roslynVersion?: {
+    major: number;
+    minor: number;
+}): AnalyzerAssetSelection;
 
 export declare function sha256Hex(bytes: Uint8Array): string;
 

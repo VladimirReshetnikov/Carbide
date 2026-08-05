@@ -28,12 +28,24 @@ export const MSNUGET_CODES = {
     NO_COMPATIBLE_DEPENDENCY_GROUP: "MSNUGET012",
     SAFETY_NATIVE: "MSNUGET015",
     SAFETY_TARGETS: "MSNUGET016",
+    /**
+     * A package carries an analyzer Carbide could not place: a layout outside NuGet's
+     * `analyzers/dotnet/[roslyn<X.Y>/][<lang>/]` convention, or only `roslyn<X.Y>` folders
+     * newer than the Roslyn version Carbide compiles with.
+     *
+     * Before M12 this was a refusal that took the whole package down. Now the package's
+     * `lib/` assets are used as normal and only the unplaceable analyzer is reported — but it
+     * *is* reported, because a generator that never runs otherwise surfaces as a compile error
+     * about a type that was supposed to be generated, with nothing pointing at the package.
+     */
     SAFETY_ANALYZERS: "MSNUGET017",
-    // MSNUGET018 (SAFETY_GENERATORS) was reserved for a finer-grained refusal that told
-    // generators apart from other analyzers. Carbide currently rejects `/^analyzers\//`
-    // wholesale under MSNUGET017, so the 018 distinction isn't observable — removed
-    // rather than kept as a promised but unfulfilled warning (review R1 M3). When
-    // analyzer execution lands (T4+), restore this code with real generator detection.
+    /**
+     * A package's analyzer asset was selected and loaded, but carries no source generator —
+     * typically a diagnostic-analyzer-only package, which Carbide does not run. Reported
+     * rather than swallowed for the same reason as MSNUGET017: "loaded and contributed
+     * nothing" has to be visible.
+     */
+    ANALYZER_NO_GENERATOR: "MSNUGET018",
     SAFETY_UNKNOWN: "MSNUGET019",
     ALLOWLIST_ADVISORY: "MSNUGET020",
     ALLOWLIST_REFUSED: "MSNUGET021",

@@ -6,6 +6,11 @@ export { openDefaultCache, openCache, defaultCacheDir, sha256Hex, type Cache, ty
 export { ALLOW_LIST, isAllowed, getEntry, type AllowListEntry } from "./allowlist.js";
 export { checkSafety, type SafetyResult } from "./safety.js";
 export {
+    selectAnalyzerAssets,
+    CARBIDE_ROSLYN_VERSION,
+    type AnalyzerAssetSelection,
+} from "./analyzer-assets.js";
+export {
     parseVersion,
     parseRange,
     compareVersion,
@@ -33,6 +38,7 @@ export type {
     ResolvedGraph,
     ResolvedPackage,
     ResolvedReference,
+    ResolvedAnalyzer,
     ResolveLock,
     AllowListMode,
     Warning,

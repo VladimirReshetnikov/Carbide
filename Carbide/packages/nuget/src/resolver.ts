@@ -7,6 +7,7 @@ import { openDefaultCache, openCache } from "./cache.js";
 import { buildLock } from "./lock.js";
 import { readNuspec, type NuspecDependencyGroup } from "./nuspec.js";
 import { checkSafety } from "./safety.js";
+import { selectAnalyzerAssets } from "./analyzer-assets.js";
 import {
     collectLibFolders,
     compatibleLibFolders,
@@ -18,6 +19,7 @@ import {
 import type {
     PackageReference,
     ResolveOptions,
+    ResolvedAnalyzer,
     ResolvedGraph,
     ResolvedPackage,
     ResolvedReference,
@@ -177,6 +179,10 @@ export async function resolve(
             });
         }
 
+        // M12 — analyzer assets are selected, not refused. `unrecognised` carries whatever the
+        // selector could not place; it becomes an MSNUGET017 warning when the bytes are read.
+        const analyzerSelection = selectAnalyzerAssets(entryNames);
+
         const pkgEntry: ResolvedEntry = {
             depth: next.depth,
             bytes,
@@ -184,6 +190,8 @@ export async function resolve(
             sha256,
             libFolder: picked,
             libDllEntries: libDlls,
+            analyzerEntries: analyzerSelection.entries,
+            unplaceableAnalyzers: analyzerSelection.unrecognised,
             package: {
                 id: nuspec.id,
                 version: nuspec.version,
@@ -221,6 +229,7 @@ export async function resolve(
 
     // Materialise ResolvedReference list — read each package's lib DLL bytes once.
     const references: ResolvedReference[] = [];
+    const analyzers: ResolvedAnalyzer[] = [];
     for (const entry of resolved.values()) {
         for (const dllName of entry.libDllEntries) {
             const zipEntry = entry.nuspec.entries.find((e) => e.name === dllName);
@@ -234,12 +243,16 @@ export async function resolve(
                 packageVersion: entry.nuspec.version,
             });
         }
+        analyzers.push(
+            ...(await materialiseAnalyzers(entry.bytes, entry.nuspec, entry.analyzerEntries)),
+        );
+        pushUnplaceableAnalyzerWarnings(warnings, entry.nuspec, entry.unplaceableAnalyzers);
     }
 
     const packagesOut = [...resolved.values()].map((e) => e.package);
     const lock = buildLock(packagesOut, warnings);
 
-    return { packages: packagesOut, references, warnings, lock };
+    return { packages: packagesOut, references, analyzers, warnings, lock };
 }
 
 export class AllowListRefusedError extends Error {
@@ -272,7 +285,56 @@ interface ResolvedEntry {
     sha256: string;
     libFolder: string | null;
     libDllEntries: string[];
+    /** M12 — analyzer zip entries selected for this host, in ordinal order. */
+    analyzerEntries: string[];
+    /** M12 — analyzer entries the selector could not place; reported as MSNUGET017. */
+    unplaceableAnalyzers: string[];
     package: ResolvedPackage;
+}
+
+/** Read the bytes of each selected analyzer asset out of a package. */
+async function materialiseAnalyzers(
+    packageBytes: Uint8Array,
+    nuspec: Awaited<ReturnType<typeof readNuspec>>,
+    analyzerEntries: readonly string[],
+): Promise<ResolvedAnalyzer[]> {
+    const out: ResolvedAnalyzer[] = [];
+    for (const assetName of analyzerEntries) {
+        const zipEntry = nuspec.entries.find((e) => e.name === assetName);
+        if (!zipEntry) continue;
+        const dllBytes = await readEntry(packageBytes, zipEntry);
+        out.push({
+            name: assetName.substring(assetName.lastIndexOf("/") + 1).replace(/\.dll$/i, ""),
+            bytes: dllBytes,
+            packageId: nuspec.id,
+            packageVersion: nuspec.version,
+            entry: assetName,
+        });
+    }
+    return out;
+}
+
+/**
+ * Report analyzer assets the selector could not place. One warning per package rather than
+ * per entry: a package that ships a whole unrecognised analyzer tree would otherwise bury
+ * every other warning.
+ */
+function pushUnplaceableAnalyzerWarnings(
+    warnings: Warning[],
+    nuspec: Awaited<ReturnType<typeof readNuspec>>,
+    unplaceable: readonly string[],
+): void {
+    if (unplaceable.length === 0) return;
+    warnings.push({
+        code: MSNUGET_CODES.SAFETY_ANALYZERS,
+        message:
+            `Package '${nuspec.id}' ${nuspec.version} carries ${unplaceable.length} analyzer ` +
+            `asset(s) Carbide could not place and did not apply: ${unplaceable.join(", ")}. ` +
+            "Carbide selects analyzers under NuGet's analyzers/dotnet/[roslyn<X.Y>/][<lang>/] " +
+            "layout, and only roslyn folders its own Roslyn version can load. The package's " +
+            "lib/ references are unaffected.",
+        severity: "warning",
+    });
 }
 
 function applyAllowList(id: string, mode: ResolveOptions["allowListMode"], warnings: Warning[]): "ok" | "refused" {
@@ -385,6 +447,7 @@ async function replayLock(
 ): Promise<ResolvedGraph> {
     const packages: ResolvedPackage[] = [];
     const references: ResolvedReference[] = [];
+    const analyzers: ResolvedAnalyzer[] = [];
 
     for (const p of lock.packages) {
         // Review R1 M1 / R2 §8 — policy gates also apply to lock replay. A stale/malicious
@@ -410,6 +473,13 @@ async function replayLock(
         const picked = pickBestLibFolder(tfm, libFolders);
         packages.push({ ...p, libFolder: picked });
 
+        // M12 — analyzer selection is derived from package contents and this host's Roslyn
+        // version, both of which the lock already pins (contents by sha256). Nothing extra is
+        // recorded in the lock, so old locks keep restoring without a format migration.
+        const analyzerSelection = selectAnalyzerAssets(entryNames);
+        analyzers.push(...(await materialiseAnalyzers(bytes, nuspec, analyzerSelection.entries)));
+        pushUnplaceableAnalyzerWarnings(warnings, nuspec, analyzerSelection.unrecognised);
+
         if (picked) {
             const libDlls = entryNames.filter(
                 (e) => e.toLowerCase().startsWith(`lib/${picked.toLowerCase()}/`) && e.toLowerCase().endsWith(".dll"),
@@ -430,5 +500,5 @@ async function replayLock(
     }
 
     warnings.push(...lock.warnings);
-    return { packages, references, warnings, lock };
+    return { packages, references, analyzers, warnings, lock };
 }

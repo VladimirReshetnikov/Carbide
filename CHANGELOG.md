@@ -23,8 +23,13 @@ published packages are released in lock-step at a single version.
   compilation. `session.addAnalyzer` / `project.addAnalyzer` register and attach a generator
   assembly programmatically, and `carbide build|run|validate --analyzer <path>` does the same
   from the CLI. Generated source participates in diagnostics, in the emitted assembly, and in
-  execution. Diagnostic analyzers and `.csproj`/NuGet analyzer assets remain out of scope; see
-  the [`@carbide/core` changelog](Carbide/packages/core/CHANGELOG.md) for the exact boundary.
+  execution. Diagnostic analyzers remain out of scope; see the
+  [`@carbide/core` changelog](Carbide/packages/core/CHANGELOG.md) for the exact boundary.
+- **Source generators shipped inside NuGet packages now run.** A package carrying `analyzers/`
+  used to be refused outright, which made every mainstream package that ships a generator
+  unusable. `@carbide/nuget` now selects the assets that apply and `carbide build|run|validate`
+  attaches them, so a `<PackageReference>` to such a package works end to end. What could not
+  be applied is reported (`MSNUGET017` / `MSNUGET018`) rather than dropped.
 
 ### Fixed
 

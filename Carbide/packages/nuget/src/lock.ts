@@ -3,6 +3,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { ResolveLock, ResolvedPackage, Warning } from "./types.js";
+import { compareOrdinal } from "./ordinal.js";
 
 export const LOCK_SCHEMA_VERSION = 1 as const;
 
@@ -11,11 +12,6 @@ export class LockReadError extends Error {
         super(message);
         this.name = "LockReadError";
     }
-}
-
-/** Ordinal comparison. See the note in {@link buildLock} on why `localeCompare` is unusable. */
-function compareOrdinal(a: string, b: string): number {
-    return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /**

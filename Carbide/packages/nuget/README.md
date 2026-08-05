@@ -49,7 +49,36 @@ Packages carrying any of the following are rejected with `SafetyRefusalError`:
 - `runtimes/<rid>/native/` — `MSNUGET015` (Mono-WASM can't load native binaries).
 - `build/*.targets`, `build/*.props`, `buildTransitive/*.targets`, `buildTransitive/*.props`
   — `MSNUGET016` (Carbide does not execute MSBuild tasks).
-- `analyzers/` — `MSNUGET017` (analyzer execution is a later milestone).
+
+`analyzers/` used to be a refusal too, which made every mainstream package that ships a
+source generator unusable. Since M12 those assets are selected and run — see below.
+
+## Analyzer assets
+
+`selectAnalyzerAssets(entries)` picks the Roslyn analyzer assets that apply to a C#
+compilation on this host, following NuGet's
+`analyzers/dotnet/[roslyn<X.Y>/][<lang>/]` layout:
+
+- among the `roslyn<X.Y>` folders, the highest one Carbide's own Roslyn
+  (`CARBIDE_ROSLYN_VERSION`) can load wins, and **only** that folder's assets are used —
+  loading two would run the same generator twice;
+- with no qualifying versioned folder, the unversioned `analyzers/dotnet/[cs/]` layout is
+  used;
+- VB and F# assets are skipped silently: they were never ours to run.
+
+`resolve()` returns the selected assets as `ResolvedGraph.analyzers`, ready for
+`@carbide/core`'s `session.addAnalyzer`. They are deliberately a separate list from
+`references`: an analyzer is a compile-time tool and must never become a metadata reference.
+
+Two outcomes are reported rather than swallowed, because a generator that never ran shows up
+downstream as a compile error about a type nobody wrote, with nothing pointing back at the
+package:
+
+- an asset outside the recognised layout, or one available only in `roslyn` folders newer
+  than this host — `MSNUGET017`, now a warning rather than a refusal, since the package's
+  `lib/` references remain perfectly usable;
+- an asset that loads but carries no source generator (a diagnostic-analyzer-only package,
+  which Carbide does not run) — `MSNUGET018`, raised by the consumer that attaches it.
 
 ## Caching
 
@@ -85,8 +114,8 @@ file's integrity check rejects tampered cache entries with `MSNUGET040`.
 | MSNUGET010  | Nearest-wins conflict (same-depth tie).              |
 | MSNUGET015  | Safety refusal: native binaries.                     |
 | MSNUGET016  | Safety refusal: MSBuild .targets/.props.             |
-| MSNUGET017  | Safety refusal: Roslyn analyzers.                    |
-| MSNUGET018  | Safety refusal: source generators.                   |
+| MSNUGET017  | Analyzer asset Carbide could not place; not applied. |
+| MSNUGET018  | Analyzer asset loaded but carries no source generator. |
 | MSNUGET019  | Safety refusal: other recognised hazard.             |
 | MSNUGET020  | Allow-list advisory (unlisted, resolved anyway).     |
 | MSNUGET021  | Allow-list refused (thrown as `AllowListRefusedError`). |

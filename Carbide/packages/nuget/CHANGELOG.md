@@ -7,6 +7,31 @@ surface frozen by this release is recorded in
 
 ## [Unreleased]
 
+### Added
+
+- **Analyzer asset selection.** `selectAnalyzerAssets(entries)` picks the Roslyn analyzer
+  assets that apply to a C# compilation, following NuGet's
+  `analyzers/dotnet/[roslyn<X.Y>/][<lang>/]` layout: the highest `roslyn` folder
+  `CARBIDE_ROSLYN_VERSION` can load wins and is used alone, otherwise the unversioned layout,
+  with VB and F# assets skipped. `resolve()` returns them as `ResolvedGraph.analyzers`
+  (`ResolvedAnalyzer[]`), kept separate from `references` because an analyzer must never
+  become a metadata reference.
+- `MSNUGET_CODES.ANALYZER_NO_GENERATOR` (`MSNUGET018`), for an asset that loads but carries
+  no source generator.
+
+### Changed
+
+- **A package carrying `analyzers/` is no longer refused.** `MSNUGET017` used to reject the
+  whole package, which made every mainstream package shipping a source generator unusable.
+  The assets are now consumed; `MSNUGET017` remains, narrowed to a **warning** for assets
+  Carbide could not place — an unrecognised layout, or one available only in `roslyn` folders
+  newer than this host. The package's `lib/` references are unaffected either way. The
+  warning is not optional: a generator that never ran otherwise surfaces as a compile error
+  about a type nobody wrote.
+- `compareOrdinal` moved to a shared `ordinal.ts` rather than being redefined per module.
+  Locale-sensitive comparison has slipped into this package four times across three audits;
+  one canonical helper is one place for it to be right.
+
 ## [0.1.0] - 2026-08-04
 
 First published release.

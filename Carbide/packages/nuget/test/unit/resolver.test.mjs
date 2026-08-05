@@ -282,6 +282,81 @@ test("resolve: safety refusal on native binaries", async () => {
     );
 });
 
+test("resolve: a package carrying analyzers resolves and surfaces the asset", async () => {
+    // Before M12 this whole package was refused (MSNUGET017), which made every mainstream
+    // package that ships a source generator unusable.
+    const fc = new MockFlatContainer();
+    fc.add("A", "1.0.0", {
+        extraEntries: [
+            { name: "analyzers/dotnet/cs/A.Generators.dll", content: Buffer.from("fake-generator", "utf-8") },
+        ],
+    });
+    const graph = await resolve([{ id: "A", versionRange: "1.0.0" }], {
+        allowListMode: "off",
+        flatContainer: fc,
+        cacheDir: nextCacheDir(),
+    });
+    // The lib/ reference is still there — an analyzer is an addition, not a replacement.
+    assert.equal(graph.references.length, 1);
+    assert.equal(graph.analyzers.length, 1);
+    assert.equal(graph.analyzers[0].name, "A.Generators");
+    assert.equal(graph.analyzers[0].packageId, "A");
+    assert.equal(graph.analyzers[0].packageVersion, "1.0.0");
+    assert.equal(graph.analyzers[0].entry, "analyzers/dotnet/cs/A.Generators.dll");
+    assert.deepEqual(
+        Buffer.from(graph.analyzers[0].bytes).toString("utf-8"),
+        "fake-generator",
+    );
+    assert.equal(graph.warnings.length, 0);
+});
+
+test("resolve: an analyzer Carbide cannot place is a warning, not a refusal", async () => {
+    const fc = new MockFlatContainer();
+    fc.add("A", "1.0.0", {
+        extraEntries: [
+            // Only a roslyn folder newer than Carbide's compiler: nothing to load, but the
+            // package's lib/ reference is still perfectly usable.
+            { name: "analyzers/dotnet/roslyn99.0/cs/A.Generators.dll", content: Buffer.from("x", "utf-8") },
+        ],
+    });
+    const graph = await resolve([{ id: "A", versionRange: "1.0.0" }], {
+        allowListMode: "off",
+        flatContainer: fc,
+        cacheDir: nextCacheDir(),
+    });
+    assert.equal(graph.references.length, 1, "the package still contributes its reference");
+    assert.equal(graph.analyzers.length, 0);
+    const warning = graph.warnings.find((w) => w.code === MSNUGET_CODES.SAFETY_ANALYZERS);
+    assert.ok(warning, `expected MSNUGET017, got ${JSON.stringify(graph.warnings)}`);
+    assert.match(warning.message, /roslyn99\.0/);
+});
+
+test("resolve: lock replay surfaces analyzer assets too", async () => {
+    // Selection is derived from package contents, which the lock pins by sha256 — so the
+    // replay path must reach the same answer without the lock recording anything extra.
+    const fc = new MockFlatContainer();
+    fc.add("A", "1.0.0", {
+        extraEntries: [
+            { name: "analyzers/dotnet/cs/A.Generators.dll", content: Buffer.from("fake-generator", "utf-8") },
+        ],
+    });
+    const fresh = await resolve([{ id: "A", versionRange: "1.0.0" }], {
+        allowListMode: "off",
+        flatContainer: fc,
+        cacheDir: nextCacheDir(),
+    });
+    const replayed = await resolve([{ id: "A", versionRange: "1.0.0" }], {
+        allowListMode: "off",
+        flatContainer: fc,
+        cacheDir: nextCacheDir(),
+        lock: fresh.lock,
+    });
+    assert.deepEqual(
+        replayed.analyzers.map((a) => a.entry),
+        fresh.analyzers.map((a) => a.entry),
+    );
+});
+
 test("resolve: picks the best lib folder across net10.0 / net6.0 / netstandard2.0", async () => {
     const fc = new MockFlatContainer();
     const nuspec = makeNuspec("MultiLib.Pkg", "1.0.0");

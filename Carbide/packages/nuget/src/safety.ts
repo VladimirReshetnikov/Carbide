@@ -1,6 +1,9 @@
-// Safety refusals — reject packages carrying contents Carbide's runtime cannot safely consume
-// (native binaries, MSBuild .targets, analyzers, source generators). Applied at resolve time
-// so bad bytes never reach the Roslyn reference registry.
+// Safety refusals — reject packages carrying contents Carbide's runtime cannot consume
+// (native binaries, MSBuild .targets). Applied at resolve time so bad bytes never reach the
+// Roslyn reference registry.
+//
+// Roslyn analyzers used to be refused here too; since M12 they are selected as assets
+// instead. See `analyzer-assets.ts`.
 
 import { MSNUGET_CODES } from "./warnings.js";
 
@@ -31,14 +34,12 @@ export function checkSafety(
                 raw,
             );
         }
-        // Roslyn analyzers.
-        if (/^analyzers\//.test(entry)) {
-            return refused(
-                MSNUGET_CODES.SAFETY_ANALYZERS,
-                `Package '${id}' (${version}) contains a Roslyn analyzer at '${raw}'. Analyzer execution lands in a later milestone.`,
-                raw,
-            );
-        }
+        // Roslyn analyzers are no longer a refusal — Carbide runs source generators (M12), so
+        // the assets are selected by `selectAnalyzerAssets` and attached to the compilation.
+        // What that selector cannot place is reported as an MSNUGET017 warning by the caller
+        // rather than taking the whole package down: the package's `lib/` assets are still
+        // perfectly usable, and refusing them over an analyzer we did not recognise blocks
+        // work that would otherwise succeed.
     }
     return { kind: "ok" };
 }

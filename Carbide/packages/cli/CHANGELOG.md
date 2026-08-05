@@ -15,6 +15,10 @@ flag, exit-code, and error-category surface frozen by this release is recorded i
   root csproj does not silently reconfigure the libraries it references. A DLL carrying no
   usable source generator is refused rather than compiled against as if it had contributed
   nothing.
+- **Source generators from resolved NuGet packages are attached automatically.** Unlike
+  `--analyzer`, where the user named a file and a mistake should stop the build, an asset
+  picked out of a dependency may legitimately be a diagnostic analyzer, which Carbide does not
+  run — that is reported as an `MSNUGET018` warning and the build continues.
 
 ## [0.1.0] - 2026-08-04
 
