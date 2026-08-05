@@ -108,13 +108,19 @@ try {
 Handles are session-scoped. A handle from session A cannot be attached to a project created
 by session B. Removing a reference or shutting down the session disposes the handle.
 
-## Source generators
+## Source generators and analyzers
 
-`CarbideSession.addAnalyzer(bytes)` registers a Roslyn source-generator assembly and returns
-an `AnalyzerHandle`; `project.addAnalyzer(handle)` attaches it. Every subsequent
-`getDiagnostics`, `build`, `run`, and `runInteractive` on that project runs the generator and
-folds its output into the compilation — generated source reaches diagnostics, the emitted
-assembly, and execution alike.
+`CarbideSession.addAnalyzer(bytes)` registers a Roslyn analyzer assembly and returns an
+`AnalyzerHandle`; `project.addAnalyzer(handle)` attaches it. One call covers both kinds —
+Carbide tells them apart by what the assembly contains, and an assembly may carry both.
+
+**Source generators** run on every subsequent `getDiagnostics`, `build`, `run`, and
+`runInteractive`, and their output is folded into the compilation: generated source reaches
+diagnostics, the emitted assembly, and execution alike.
+
+**Diagnostic analyzers** run over the generated compilation and their diagnostics join the
+compiler's own, so an analyzer rule at error severity fails a `build` exactly as a compiler
+error does.
 
 ```ts
 const generator = new Uint8Array(readFileSync("./MyGenerator.dll"));
@@ -133,17 +139,24 @@ projects in the same session.
 
 Deliberate boundaries:
 
-- **A DLL with no usable generator is refused at `addAnalyzer`**, naming what it did contain.
-  Accepting it would leave the user's code failing to compile against source that was never
-  generated, a long way from the actual mistake.
-- **Diagnostic analyzers (`DiagnosticAnalyzer`) are not run.** They are counted and named in
-  that refusal message rather than silently ignored.
-- **Generators are not pre-screened for filesystem or network access.** There is no reliable
+- **A DLL carrying neither a generator nor an analyzer is refused at `addAnalyzer`**, naming
+  what it did contain. Accepting it would leave the user's code failing to compile against
+  source that was never generated — or passing a rule that never ran — a long way from the
+  actual mistake.
+- **Code-fix providers are not run.** Carbide has no editor to apply a fix in.
+- **Neither kind is pre-screened for filesystem or network access.** There is no reliable
   static test, and a wrong verdict either way is worse than none. A generator that throws —
   including one reaching for a filesystem the browser runtime does not have — is reported by
   Roslyn's driver as `CS8785` naming the exception; a driver-level failure is `CARBIDE_GEN001`.
-- **`<Analyzer>` items and NuGet analyzer assets are not ingested from `.csproj` yet.** Use
-  the API above or the CLI's `--analyzer` flag.
+  An analyzer that throws is `CARBIDE_GEN002`, and a failure of the analyzer driver itself is
+  `CARBIDE_GEN003` — both warnings, so one broken rule costs its own results rather than the
+  build.
+- **Analyzers run non-concurrently.** A single-threaded runtime has no parallelism to win.
+  (Measured both ways, on Node and in headless Chromium; both work. This is a conservative
+  default, not a workaround.)
+- **`<Analyzer>` items are not ingested from `.csproj` yet.** Analyzers arriving through
+  `<PackageReference>` are applied automatically; a locally-built one needs the API above or
+  the CLI's `--analyzer` flag.
 
 ## API reference
 

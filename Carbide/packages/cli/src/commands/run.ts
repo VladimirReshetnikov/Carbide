@@ -244,6 +244,14 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
         return handleProjectGraphError(err, format);
     }
 
+    // Build every producer (skip the root). Each producer's PE registers on the session
+    // so the root's compile-and-run sees it.
+    //
+    // Warnings are collected *after* this step, not before: attaching producers can raise its
+    // own (an OutputItemType="Analyzer" producer that carries no analyzer, say), and reading
+    // `multi.warnings` first would drop exactly those.
+    const outcomes = await compileGraphInOrder(session, multi, { skipRoot: true, warnings: multi.warnings });
+
     const csprojWarnings = multi.warnings.map((w) => ({
         code: w.code,
         message: w.message,
@@ -262,10 +270,6 @@ async function runProjectModeRun(ctx: ProjectModeRunContext): Promise<number> {
             }
         }
     }
-
-    // Build every producer (skip the root). Each producer's PE registers on the session
-    // so the root's compile-and-run sees it.
-    const outcomes = await compileGraphInOrder(session, multi, { skipRoot: true });
     const rootAssembly = multi.root.assemblyName;
     const attributed = attributeDiagnostics(outcomes);
 
@@ -369,8 +373,8 @@ Input modes (mutually exclusive):
 
 Options:
   --ref <path>             Reference DLL. Repeatable.
-  --analyzer <path>        Roslyn source-generator DLL. Repeatable. Same scoping as --ref.
-                           Refused if the DLL carries no usable source generator.
+  --analyzer <path>        Roslyn source-generator or diagnostic-analyzer DLL. Repeatable.
+                           Same scoping as --ref. Refused if the DLL carries neither.
   --assembly-name <n>      Assembly name. Rejected when --project is used.
   --stdin <path | ->       U2: feed the program's Console.In from a file or the CLI's
                            own stdin (-). Default: Console.In is disconnected.

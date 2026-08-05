@@ -1,4 +1,4 @@
-// M12 — session-scoped registry of source-generator assemblies.
+// M12 — session-scoped registry of source-generator and diagnostic-analyzer assemblies.
 //
 // Deliberately separate from ReferenceRegistry rather than a `kind` flag on it. The two are
 // not variations of one thing: a metadata reference is part of the program's API surface and
@@ -10,6 +10,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Carbide.Core.Services;
 
@@ -77,13 +78,15 @@ internal sealed class AnalyzerRegistry : IDisposable
                 $"Analyzer '{label}' could not be loaded: {ex.Message}", ex);
         }
 
-        var generators = DiscoverGenerators(assembly, label);
+        var (generators, diagnosticAnalyzers) = Discover(assembly, label);
         var id = Guid.NewGuid().ToString("N");
-        _analyzers[id] = new RegisteredAnalyzer(id, name, generators);
+        _analyzers[id] = new RegisteredAnalyzer(id, name, generators, diagnosticAnalyzers);
         return id;
     }
 
-    private static ISourceGenerator[] DiscoverGenerators(Assembly assembly, string label)
+    private static (ISourceGenerator[] Generators, DiagnosticAnalyzer[] Analyzers) Discover(
+        Assembly assembly,
+        string label)
     {
         Type[] types;
         try
@@ -99,7 +102,7 @@ internal sealed class AnalyzerRegistry : IDisposable
         }
 
         var generators = new List<ISourceGenerator>();
-        var diagnosticAnalyzerCount = 0;
+        var diagnosticAnalyzers = new List<DiagnosticAnalyzer>();
         var uninstantiable = new List<string>();
 
         foreach (var type in types)
@@ -111,15 +114,9 @@ internal sealed class AnalyzerRegistry : IDisposable
 
             var isIncremental = typeof(IIncrementalGenerator).IsAssignableFrom(type);
             var isSource = typeof(ISourceGenerator).IsAssignableFrom(type);
-            if (!isIncremental && !isSource)
+            var isDiagnosticAnalyzer = typeof(DiagnosticAnalyzer).IsAssignableFrom(type);
+            if (!isIncremental && !isSource && !isDiagnosticAnalyzer)
             {
-                // Counted, not loaded: Carbide runs generators, not diagnostic analyzers (see
-                // the message below). Matching by name avoids taking a dependency on
-                // Microsoft.CodeAnalysis.Workspaces just to reference the base type.
-                if (InheritsFrom(type, "Microsoft.CodeAnalysis.Diagnostics.DiagnosticAnalyzer"))
-                {
-                    diagnosticAnalyzerCount++;
-                }
                 continue;
             }
 
@@ -130,47 +127,38 @@ internal sealed class AnalyzerRegistry : IDisposable
                 {
                     generators.Add(((IIncrementalGenerator)instance!).AsSourceGenerator());
                 }
-                else
+                else if (isSource)
                 {
                     generators.Add((ISourceGenerator)instance!);
+                }
+                else
+                {
+                    diagnosticAnalyzers.Add((DiagnosticAnalyzer)instance!);
                 }
             }
             catch (Exception ex) when (ex is MissingMethodException or TargetInvocationException or MemberAccessException)
             {
-                // A generator whose constructor throws or that has no parameterless
-                // constructor is reported rather than skipped — silently dropping it would
-                // leave the user's code failing to compile against source that was supposed
-                // to exist.
+                // A type whose constructor throws, or that has no parameterless constructor,
+                // is reported rather than skipped — silently dropping it would leave the
+                // user's code failing to compile against source that was supposed to exist,
+                // or passing a rule that was supposed to run.
                 uninstantiable.Add($"{type.FullName} ({ex.GetType().Name}: {ex.Message})");
             }
         }
 
-        if (generators.Count > 0)
+        if (generators.Count > 0 || diagnosticAnalyzers.Count > 0)
         {
-            return [.. generators];
+            return ([.. generators], [.. diagnosticAnalyzers]);
         }
 
         var detail = uninstantiable.Count > 0
-            ? $" {uninstantiable.Count} generator type(s) could not be instantiated: {string.Join("; ", uninstantiable)}."
-            : diagnosticAnalyzerCount > 0
-                ? $" It contains {diagnosticAnalyzerCount} DiagnosticAnalyzer type(s); Carbide runs source generators, not diagnostic analyzers."
-                : string.Empty;
+            ? $" {uninstantiable.Count} type(s) could not be instantiated: {string.Join("; ", uninstantiable)}."
+            : string.Empty;
 
         throw new InvalidOperationException(
-            $"Analyzer '{label}' contains no usable source generator " +
-            $"(no public parameterless IIncrementalGenerator or ISourceGenerator implementation).{detail}");
-    }
-
-    private static bool InheritsFrom(Type type, string baseTypeFullName)
-    {
-        for (var t = type.BaseType; t is not null; t = t.BaseType)
-        {
-            if (string.Equals(t.FullName, baseTypeFullName, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-        return false;
+            $"Analyzer '{label}' contains no usable source generator or diagnostic analyzer " +
+            "(no public parameterless IIncrementalGenerator, ISourceGenerator, or " +
+            $"DiagnosticAnalyzer implementation).{detail}");
     }
 
     /// <summary>Removes the analyzer with the given id. Returns <c>true</c> if found.</summary>
@@ -187,6 +175,10 @@ internal sealed class AnalyzerRegistry : IDisposable
     public IReadOnlyList<ISourceGenerator> GetGenerators(string id) =>
         _analyzers.TryGetValue(id, out var entry) ? entry.Generators : [];
 
+    /// <summary>The diagnostic analyzers registered under <paramref name="id"/>, or empty.</summary>
+    public IReadOnlyList<DiagnosticAnalyzer> GetDiagnosticAnalyzers(string id) =>
+        _analyzers.TryGetValue(id, out var entry) ? entry.DiagnosticAnalyzers : [];
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -195,5 +187,9 @@ internal sealed class AnalyzerRegistry : IDisposable
         _loadContext.Unload();
     }
 
-    private sealed record RegisteredAnalyzer(string Id, string? Name, ISourceGenerator[] Generators);
+    private sealed record RegisteredAnalyzer(
+        string Id,
+        string? Name,
+        ISourceGenerator[] Generators,
+        DiagnosticAnalyzer[] DiagnosticAnalyzers);
 }

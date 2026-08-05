@@ -23,8 +23,15 @@ published packages are released in lock-step at a single version.
   compilation. `session.addAnalyzer` / `project.addAnalyzer` register and attach a generator
   assembly programmatically, and `carbide build|run|validate --analyzer <path>` does the same
   from the CLI. Generated source participates in diagnostics, in the emitted assembly, and in
-  execution. Diagnostic analyzers remain out of scope; see the
+  execution.
+- **Diagnostic analyzers run too.** The same surface runs `DiagnosticAnalyzer` implementations;
+  their diagnostics join the compiler's own, so an analyzer error fails a build. Code-fix
+  providers stay out of scope. See the
   [`@carbide/core` changelog](Carbide/packages/core/CHANGELOG.md) for the exact boundary.
+- **`.csproj` analyzer declarations are honoured**: `<Analyzer Include="..."/>` items, and
+  `<ProjectReference>` carrying `OutputItemType="Analyzer"` / `ReferenceOutputAssembly="false"`.
+  This adds three additive fields to `@carbide/msbuild-lite`'s `ProjectModel` that
+  `cs_kit.msbuild_lite` does not carry — see that package's changelog for the divergence.
 - **Source generators shipped inside NuGet packages now run.** A package carrying `analyzers/`
   used to be refused outright, which made every mainstream package that ships a generator
   unusable. `@carbide/nuget` now selects the assets that apply and `carbide build|run|validate`

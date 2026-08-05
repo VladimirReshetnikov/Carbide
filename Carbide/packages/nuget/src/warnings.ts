@@ -40,10 +40,11 @@ export const MSNUGET_CODES = {
      */
     SAFETY_ANALYZERS: "MSNUGET017",
     /**
-     * A package's analyzer asset was selected and loaded, but carries no source generator —
-     * typically a diagnostic-analyzer-only package, which Carbide does not run. Reported
-     * rather than swallowed for the same reason as MSNUGET017: "loaded and contributed
-     * nothing" has to be visible.
+     * A package's analyzer assets were selected and loaded, but carry neither a source
+     * generator nor a diagnostic analyzer — a code-fix-only assembly, say. Reported rather
+     * than swallowed for the same reason as MSNUGET017: "loaded and contributed nothing" has
+     * to be visible. Raised per package, not per asset: shipping a code-fix assembly beside
+     * the generator is the normal layout, and warning on each would fire every build.
      */
     ANALYZER_NO_GENERATOR: "MSNUGET018",
     SAFETY_UNKNOWN: "MSNUGET019",

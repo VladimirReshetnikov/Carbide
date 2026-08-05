@@ -37,6 +37,9 @@ export interface EvaluationContext {
     tfms: string[];
     pkgRefs: PackageReference[];
     projRefs: string[];
+    analyzerRefs: string[];
+    analyzerProjRefs: string[];
+    noRefProjRefs: string[];
     compileOperations: CompileOperation[];
     warnings: Warning[];
     conditionTrace: ConditionTraceEntry[];
@@ -96,6 +99,9 @@ export interface ProjectModel {
     sourceFiles: string[];
     warnings: Warning[];
     evaluationTrace: EvaluationTrace;
+    analyzerReferences: string[];
+    analyzerProjectReferences: string[];
+    noReferenceProjectReferences: string[];
 }
 
 export interface ProjectProperties {

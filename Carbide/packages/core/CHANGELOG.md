@@ -28,9 +28,21 @@ surface frozen by this release is recorded in
   the browser runtime has no filesystem to reach, so an offending generator surfaces as a
   diagnostic naming its exception.
 
-  Not covered yet: diagnostic analyzers (`DiagnosticAnalyzer`), which are counted and named in
-  the refusal message rather than run, and `<Analyzer>` items declared in a `.csproj`.
-  Generators shipped inside NuGet packages *are* covered — see the `@carbide/nuget` changelog.
+- **Diagnostic analyzers (M12).** The same `addAnalyzer` surface runs `DiagnosticAnalyzer`
+  implementations: Carbide tells generators and analyzers apart by what the assembly contains,
+  and an assembly may carry both. Analyzers run over the generated compilation and their
+  diagnostics join the compiler's own, so an analyzer rule at error severity fails a `build`
+  exactly as a compiler error does.
+
+  An analyzer that throws is reported as `CARBIDE_GEN002` and a failure of the driver itself
+  as `CARBIDE_GEN003` — both warnings, so one broken rule costs its own results rather than
+  the build. Analyzers run with `concurrentAnalysis: false`: a single-threaded runtime has no
+  parallelism to win. Both settings were measured on Node and in headless Chromium and both
+  work, so that is a conservative default rather than a workaround.
+
+  Not covered: code-fix providers (Carbide has no editor to apply a fix in) and `<Analyzer>`
+  items declared in a `.csproj`. Generators and analyzers shipped inside NuGet packages *are*
+  covered — see the `@carbide/nuget` changelog.
 
 ### Fixed
 

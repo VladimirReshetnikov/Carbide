@@ -50,6 +50,12 @@ export interface EvaluationContext {
     /** Output accumulators. */
     pkgRefs: PackageReference[];
     projRefs: string[];
+    /** M12 — resolved `<Analyzer Include="..."/>` paths. */
+    analyzerRefs: string[];
+    /** M12 — the subset of `projRefs` carrying `OutputItemType="Analyzer"`. */
+    analyzerProjRefs: string[];
+    /** M12 — the subset of `projRefs` carrying `ReferenceOutputAssembly="false"`. */
+    noRefProjRefs: string[];
     compileOperations: CompileOperation[];
     warnings: Warning[];
     conditionTrace: ConditionTraceEntry[];
@@ -72,6 +78,9 @@ export function createEvaluationContext(
         tfms: [],
         pkgRefs: [],
         projRefs: [],
+        analyzerRefs: [],
+        analyzerProjRefs: [],
+        noRefProjRefs: [],
         compileOperations: [],
         warnings: [],
         conditionTrace: [],
@@ -325,6 +334,23 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
             if (include) {
                 const resolved = path.resolve(projectDir, normaliseSlashes(include));
                 ctx.projRefs.push(resolved);
+                // M12 — `OutputItemType="Analyzer"` and `ReferenceOutputAssembly="false"` are
+                // how a project consumes a source generator built beside it. Both are recorded
+                // as subsets rather than removing the entry from `projRefs`: the graph still
+                // has to build the project, only the attachment changes. Metadata may be
+                // written as an attribute or a child element, and MSBuild compares both
+                // case-insensitively.
+                const outputItemType =
+                    sub(item.attributes.OutputItemType) ?? sub(getChildText(item, "OutputItemType"));
+                if (outputItemType && outputItemType.trim().toLowerCase() === "analyzer") {
+                    ctx.analyzerProjRefs.push(resolved);
+                }
+                const referenceOutputAssembly =
+                    sub(item.attributes.ReferenceOutputAssembly)
+                    ?? sub(getChildText(item, "ReferenceOutputAssembly"));
+                if (referenceOutputAssembly && referenceOutputAssembly.trim().toLowerCase() === "false") {
+                    ctx.noRefProjRefs.push(resolved);
+                }
                 addWarning(
                     ctx,
                     "MSBLITE014",
@@ -334,6 +360,17 @@ function walkItemGroup(ig: XmlElement, filePath: string, ctx: EvaluationContext)
                     "project-reference",
                     filePath,
                 );
+            }
+        } else if (tag === "Analyzer") {
+            // M12 — a direct analyzer/source-generator assembly. Unlike Compile items these
+            // are literal paths, not globs: MSBuild's own analyzer items come from package
+            // and project machinery, and a wildcard here would silently pick up whatever
+            // happened to be in the folder.
+            const include = sub(item.attributes.Include);
+            if (include) {
+                for (const spec of include.split(";").map((p) => p.trim()).filter(Boolean)) {
+                    ctx.analyzerRefs.push(path.resolve(projectDir, normaliseSlashes(spec)));
+                }
             }
         } else if (tag === "Compile") {
             const include = sub(item.attributes.Include);

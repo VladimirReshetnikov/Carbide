@@ -7,6 +7,26 @@ surface frozen by this release is recorded in
 
 ## [Unreleased]
 
+### Added
+
+- **`<Analyzer Include="..."/>` items** are captured on `ProjectModel.analyzerReferences` as
+  resolved absolute paths. Semicolon-separated lists and property substitution work as they do
+  for every other item attribute. Deliberately literal paths, not globs: MSBuild's own analyzer
+  items come from package and project machinery, and a wildcard here would silently pick up
+  whatever happened to be in the folder.
+- **Analyzer-related `<ProjectReference>` metadata**, as
+  `ProjectModel.analyzerProjectReferences` (`OutputItemType="Analyzer"`) and
+  `ProjectModel.noReferenceProjectReferences` (`ReferenceOutputAssembly="false"`). Both are
+  *subsets* of `projectReferences` rather than removals from it — the graph still has to build
+  those projects; only how the consumer attaches the result changes. Both forms MSBuild accepts
+  are honoured (attribute and child element) and matched case-insensitively.
+
+  **Divergence:** these three fields are a Carbide extension; `cs_kit.msbuild_lite` does not
+  carry them, so the two parsers no longer produce identical output for a project that uses
+  this metadata. They are purely additive, so the parity fixtures — which project onto the
+  fields their `expected.json` declares — are unaffected, and a consumer that ignores them
+  behaves exactly as before.
+
 ## [0.1.0] - 2026-08-04
 
 First published release.

@@ -1,6 +1,6 @@
 # @carbide/msbuild-lite
 
-Bounded `.csproj` parser for Carbide. Produces a structured `ProjectModel` from an MSBuild-style project file, covering the subset Carbide cares about: target framework, common properties, `PackageReference` / `ProjectReference` capture, and `Compile` item globs.
+Bounded `.csproj` parser for Carbide. Produces a structured `ProjectModel` from an MSBuild-style project file, covering the subset Carbide cares about: target framework, common properties, `PackageReference` / `ProjectReference` / `Analyzer` capture, and `Compile` item globs.
 
 ## Scope
 
@@ -18,6 +18,10 @@ This is a semantic port of `src/cs-agent-tools/src/cs_kit/msbuild_lite.py` — t
 - **M11:** `<Import Project="…"/>` with `Condition`, variable substitution (`$(MSBuildThisFileDirectory)`, `$(MSBuildProjectDirectory)`, and the rest of the `$(MSBuildThis*)` / `$(MSBuildProject*)` family), nested imports, and cycle detection.
 - **M11:** Implicit `Directory.Build.props` discovery — walks up from the csproj's directory; the closest one found is imported at the head of evaluation (same semantics as upstream MSBuild).
 - **M11:** `Directory.Build.targets` discovery — found, logged (`MSBLITE027`), and explicitly NOT ingested (targets files hold target definitions Carbide can't execute).
+- **M12:** `<Analyzer Include="…"/>` items (captured on `analyzerReferences` as absolute paths; semicolon lists and `$(Property)` substitution apply, but not globs).
+- **M12:** `OutputItemType="Analyzer"` and `ReferenceOutputAssembly="false"` metadata on `<ProjectReference>`, captured on `analyzerProjectReferences` and `noReferenceProjectReferences`. Both are subsets of `projectReferences`, not removals — the graph still builds those projects; only how a consumer attaches the result changes.
+
+  These three fields are a **Carbide extension**: `cs_kit.msbuild_lite` does not carry them, so the two parsers diverge for a project that uses this metadata. They are additive, so consumers that ignore them are unaffected.
 
 ### Not supported (warning codes are emitted)
 

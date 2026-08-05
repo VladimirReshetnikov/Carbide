@@ -100,6 +100,31 @@ export interface ProjectModel {
     sourceFiles: string[];
     warnings: Warning[];
     evaluationTrace: EvaluationTrace;
+    /**
+     * Resolved absolute paths from `<Analyzer Include="..."/>` — analyzer or source-generator
+     * assemblies the project supplies directly.
+     *
+     * Carbide-only extension; `cs_kit.msbuild_lite` does not carry it. Additive, so a consumer
+     * that ignores it behaves exactly as before.
+     */
+    analyzerReferences: string[];
+    /**
+     * The subset of {@link projectReferences} declared with `OutputItemType="Analyzer"` — the
+     * standard idiom for a source generator built alongside the project that uses it. These
+     * stay in `projectReferences` as well, because the graph still has to build them; what
+     * changes is how the consumer attaches the result.
+     *
+     * Carbide-only extension; see {@link analyzerReferences}.
+     */
+    analyzerProjectReferences: string[];
+    /**
+     * The subset of {@link projectReferences} declared with `ReferenceOutputAssembly="false"`.
+     * Paired with `OutputItemType="Analyzer"` this is the full generator idiom: build it, run
+     * it as an analyzer, and do *not* put its types on the referencing project's API surface.
+     *
+     * Carbide-only extension; see {@link analyzerReferences}.
+     */
+    noReferenceProjectReferences: string[];
 }
 
 export interface ProjectProperties {

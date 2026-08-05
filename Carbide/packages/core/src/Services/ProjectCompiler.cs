@@ -20,6 +20,7 @@ using Carbide.Core.Hosting;
 using Carbide.Terminal;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.Extensions.Logging;
@@ -440,8 +441,102 @@ internal sealed class ProjectCompiler : IDisposable
         {
             generated = generated.WithOptions(csOptions.WithOutputKind(kind));
         }
-        return new GeneratedCompilation(generated, generatorDiagnostics);
+
+        // Analyzers run after generation and after the output kind is settled, so a rule that
+        // inspects generated code or the compilation's kind sees the final picture — which is
+        // what it would see under the SDK.
+        var analyzerDiagnostics = await RunDiagnosticAnalyzersAsync(generated).ConfigureAwait(false);
+        return new GeneratedCompilation(generated, generatorDiagnostics.AddRange(analyzerDiagnostics));
     }
+
+    /// <summary>
+    /// Run the attached diagnostic analyzers over <paramref name="compilation"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>concurrentAnalysis: false</c> because a single-threaded runtime has no parallelism to
+    /// win and asking for it only widens what the driver may schedule. To be precise about what
+    /// that is and is not: it was *not* required to make analyzers work. Both settings were
+    /// measured, on Node and in headless Chromium, and both passed — so this is a deliberately
+    /// conservative default, not a workaround for a failure anyone has seen. Analyzers that call
+    /// <c>EnableConcurrentExecution()</c> (most real ones do) are unaffected either way; the
+    /// host's setting is what decides.
+    /// </para>
+    /// <para>
+    /// An analyzer that throws is reported through <c>onAnalyzerException</c> as a diagnostic
+    /// rather than taking the compilation down; a rule that crashes should cost its own
+    /// results, not the build.
+    /// </para>
+    /// </remarks>
+    private async Task<ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>> RunDiagnosticAnalyzersAsync(
+        Compilation compilation)
+    {
+        if (_attachedAnalyzerIds.Count == 0 || _analyzerRegistry is null)
+        {
+            return ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty;
+        }
+
+        var analyzers = new List<DiagnosticAnalyzer>();
+        foreach (var id in _attachedAnalyzerIds)
+        {
+            analyzers.AddRange(_analyzerRegistry.GetDiagnosticAnalyzers(id));
+        }
+        if (analyzers.Count == 0)
+        {
+            return ImmutableArray<Microsoft.CodeAnalysis.Diagnostic>.Empty;
+        }
+
+        var failures = ImmutableArray.CreateBuilder<Microsoft.CodeAnalysis.Diagnostic>();
+        try
+        {
+            var options = new CompilationWithAnalyzersOptions(
+                options: new AnalyzerOptions(ImmutableArray<AdditionalText>.Empty),
+                onAnalyzerException: (ex, analyzer, diagnostic) =>
+                {
+                    _logger.LogWarning(
+                        "Analyzer '{Analyzer}' threw: {Message}", analyzer.GetType().FullName, ex.Message);
+                    failures.Add(Microsoft.CodeAnalysis.Diagnostic.Create(
+                        AnalyzerFailedDescriptor,
+                        Location.None,
+                        analyzer.GetType().FullName,
+                        $"{ex.GetType().Name}: {ex.Message}"));
+                },
+                concurrentAnalysis: false,
+                logAnalyzerExecutionTime: false);
+
+            var withAnalyzers = compilation.WithAnalyzers([.. analyzers], options);
+            var diagnostics = await withAnalyzers
+                .GetAnalyzerDiagnosticsAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+            return diagnostics.AddRange(failures);
+        }
+#pragma warning disable CA1031 // a broken driver must not take down the session
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger.LogWarning("Diagnostic-analyzer driver failed: {Message}", ex.Message);
+            return failures.ToImmutable().Add(Microsoft.CodeAnalysis.Diagnostic.Create(
+                AnalyzerDriverFailedDescriptor,
+                Location.None,
+                $"{ex.GetType().Name}: {ex.Message}"));
+        }
+    }
+
+    private static readonly DiagnosticDescriptor AnalyzerFailedDescriptor = new(
+        id: "CARBIDE_GEN002",
+        title: "Diagnostic analyzer threw",
+        messageFormat: "Analyzer '{0}' threw and its results were discarded: {1}",
+        category: "Carbide",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor AnalyzerDriverFailedDescriptor = new(
+        id: "CARBIDE_GEN003",
+        title: "Diagnostic analyzer driver failed",
+        messageFormat: "The diagnostic-analyzer driver failed, so no analyzer ran: {0}",
+        category: "Carbide",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
 
     /// <summary>
     /// M12 — drive the attached source generators over <paramref name="compilation"/> and

@@ -152,6 +152,12 @@ export async function parseCsprojString(
     const uniqueTfms = [...new Set(ctx.tfms)];
     const packageReferences = deduplicatePackageRefs(ctx.pkgRefs);
     const projectReferences = [...new Set(ctx.projRefs)].sort();
+    // Ordinal sort, matching projectReferences: these paths end up in diagnostics and, for the
+    // analyzer subsets, decide the order generators run in. Both have to be identical on
+    // every machine.
+    const analyzerReferences = [...new Set(ctx.analyzerRefs)].sort();
+    const analyzerProjectReferences = [...new Set(ctx.analyzerProjRefs)].sort();
+    const noReferenceProjectReferences = [...new Set(ctx.noRefProjRefs)].sort();
 
     return {
         projectPath: absPath,
@@ -160,6 +166,9 @@ export async function parseCsprojString(
         properties: ctx.props,
         packageReferences,
         projectReferences,
+        analyzerReferences,
+        analyzerProjectReferences,
+        noReferenceProjectReferences,
         sourceFiles: sources,
         warnings: ctx.warnings,
         evaluationTrace: {

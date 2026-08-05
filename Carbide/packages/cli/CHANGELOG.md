@@ -17,8 +17,23 @@ flag, exit-code, and error-category surface frozen by this release is recorded i
   nothing.
 - **Source generators from resolved NuGet packages are attached automatically.** Unlike
   `--analyzer`, where the user named a file and a mistake should stop the build, an asset
-  picked out of a dependency may legitimately be a diagnostic analyzer, which Carbide does not
-  run — that is reported as an `MSNUGET018` warning and the build continues.
+  picked out of a dependency may legitimately carry nothing Carbide runs — that is reported as
+  an `MSNUGET018` warning and the build continues.
+- **`<Analyzer Include="..."/>` items from a `.csproj`** are read and attached. A path that
+  cannot be read, or an assembly carrying nothing runnable, is reported as `MSPROJ013` and does
+  not fail the build — the rest of the project is still buildable.
+- **`<ProjectReference OutputItemType="Analyzer" ReferenceOutputAssembly="false"/>`**, the
+  standard idiom for a source generator built alongside the project that uses it. The producer
+  is built by the graph as before; `OutputItemType="Analyzer"` attaches its output as an
+  analyzer and `ReferenceOutputAssembly="false"` keeps it off the consumer's API surface. The
+  two are independent, matching MSBuild, and are decided per consumer — the same producer can
+  be an ordinary reference to one project and an analyzer to another. A producer declared this
+  way that carries no analyzer is reported as `MSPROJ012`.
+
+  Note the boundary: building a Roslyn source generator *with Carbide* needs the
+  `Microsoft.CodeAnalysis` reference assemblies, which Carbide does not supply to compilations.
+  In practice the generator project is built by the .NET SDK and consumed through
+  `<Analyzer Include>` or `--analyzer`.
 
 ## [0.1.0] - 2026-08-04
 

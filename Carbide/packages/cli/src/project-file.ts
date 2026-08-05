@@ -293,10 +293,45 @@ export async function compileGraphInOrder(
         // dotnet-build "private dependencies stay private" rule (M9.5).
         const handle = session.addReference(result.pe, sub.assemblyName);
         const producerKey = canonicalKey(sub.csprojPath);
+        // M12 — a consumer may declare this producer with `OutputItemType="Analyzer"`, the
+        // idiom for a source generator built alongside the project that uses it, and/or
+        // `ReferenceOutputAssembly="false"`, which keeps the producer's types off the
+        // consumer's API surface. Both are per-consumer: the same producer can be an ordinary
+        // reference to one project and an analyzer to another, so the decision is made here
+        // rather than on the producer.
+        let analyzerHandle: ReturnType<CarbideSession["addAnalyzer"]> | null = null;
         for (let j = i + 1; j < multi.subprojects.length; j++) {
             const downstream = multi.subprojects[j];
             const downstreamNode = multi.graph.order[j];
-            if (downstreamNode.transitiveClosure.has(producerKey)) {
+            if (!downstreamNode.transitiveClosure.has(producerKey)) continue;
+
+            const asAnalyzer = declaresProducer(downstream, producerKey, "analyzer");
+            const suppressReference = declaresProducer(downstream, producerKey, "no-reference");
+
+            if (asAnalyzer) {
+                try {
+                    analyzerHandle ??= session.addAnalyzer(result.pe, sub.assemblyName);
+                    downstream.project.addAnalyzer(analyzerHandle);
+                } catch (err) {
+                    // The producer built fine but carries nothing runnable. Say so against the
+                    // consumer that asked for it — silently skipping would leave the consumer
+                    // failing to compile against source that was never generated.
+                    options.warnings?.push({
+                        code: "MSPROJ012",
+                        message:
+                            `'${downstream.csprojPath}' references '${sub.csprojPath}' with ` +
+                            `OutputItemType="Analyzer", but the built assembly carries no source ` +
+                            `generator or diagnostic analyzer: ` +
+                            `${err instanceof Error ? err.message : String(err)}`,
+                        severity: "warning",
+                        category: "project",
+                        project: downstream.csprojPath,
+                    });
+                }
+            }
+            // `ReferenceOutputAssembly="false"` means exactly that — no metadata reference.
+            // A bare `OutputItemType="Analyzer"` still contributes one, matching MSBuild.
+            if (!suppressReference) {
                 downstream.project.addReference(handle);
             }
         }
@@ -311,6 +346,33 @@ export interface CompileGraphOptions {
      * and runs the root via `project.run()` after the producers have emitted their PEs.
      */
     skipRoot?: boolean;
+    /**
+     * M12 — sink for warnings raised while attaching producers, so an
+     * `OutputItemType="Analyzer"` reference whose producer carries no analyzer is reported
+     * rather than dropped. Optional: callers that do not surface warnings simply omit it.
+     */
+    warnings?: PipelineWarning[];
+}
+
+/**
+ * Whether `consumer` declared `producerKey` with the given analyzer-related metadata.
+ *
+ * Both lists are subsets of the consumer's `projectReferences`, so a producer that is merely
+ * reachable transitively — rather than declared by *this* consumer — correctly matches
+ * neither, and keeps ordinary reference semantics.
+ */
+function declaresProducer(
+    consumer: SubprojectPipelineResult,
+    producerKey: string,
+    kind: "analyzer" | "no-reference",
+): boolean {
+    const declared = kind === "analyzer"
+        ? consumer.model.analyzerProjectReferences
+        : consumer.model.noReferenceProjectReferences;
+    for (const candidate of declared ?? []) {
+        if (canonicalKey(candidate) === producerKey) return true;
+    }
+    return false;
 }
 
 export interface SubprojectBuildOutcome {
@@ -473,6 +535,28 @@ async function configureSubproject(
         sourcePaths.add(rel);
     }
 
+    // M12 — `<Analyzer Include="..."/>` items: analyzer or source-generator assemblies the
+    // project supplies directly. A missing file or one carrying nothing runnable is reported
+    // against this project rather than failing the whole graph: the rest of the project is
+    // still buildable, and a silently absent generator surfaces later as an error about a
+    // type nobody wrote.
+    for (const analyzerPath of model.analyzerReferences ?? []) {
+        try {
+            const bytes = new Uint8Array(await readFile(analyzerPath));
+            project.addAnalyzer(session.addAnalyzer(bytes, path.basename(analyzerPath, path.extname(analyzerPath))));
+        } catch (err) {
+            warnings.push({
+                code: "MSPROJ013",
+                message:
+                    `<Analyzer Include="${analyzerPath}"/> was not applied: ` +
+                    `${err instanceof Error ? err.message : String(err)}`,
+                severity: "warning",
+                category: "csproj",
+                project: node.csprojPath,
+            });
+        }
+    }
+
     // MSBLITE013 is emitted only when NuGet resolution doesn't run for this sub-project
     // — when it does run, the captured references are consumed, not left dangling. The
     // graph walker already drops MSBLITE013 from its emission stream so we re-emit here
@@ -552,11 +636,11 @@ async function configureSubproject(
             project.addReference(handle);
         }
 
-        // M12 — source generators shipped inside resolved packages. Unlike `--analyzer`, where
-        // the user named a specific file and a mistake should stop the build, an asset picked
-        // out of a dependency may legitimately carry no generator: packages routinely ship a
-        // code-fix or diagnostic-analyzer assembly beside the generator, and Carbide runs only
-        // generators.
+        // M12 — generators and analyzers shipped inside resolved packages. Unlike `--analyzer`,
+        // where the user named a specific file and a mistake should stop the build, an asset
+        // picked out of a dependency may legitimately carry neither: packages routinely ship a
+        // code-fix assembly beside the generator, and Carbide runs generators and diagnostic
+        // analyzers but not code-fix providers.
         //
         // So the warning is per *package*, not per asset, and fires only when a package's
         // analyzers produced nothing at all. Warning per asset would fire on every build of
@@ -583,8 +667,9 @@ async function configureSubproject(
             warnings.push({
                 code: "MSNUGET018",
                 message:
-                    `Package '${packageId}' ${outcome.version} contributed no source generator. ` +
-                    `Its analyzer asset(s) loaded but carry none: ${outcome.failures.join("; ")}`,
+                    `Package '${packageId}' ${outcome.version} contributed no source generator ` +
+                    `or diagnostic analyzer. Its analyzer asset(s) loaded but carry neither: ` +
+                    `${outcome.failures.join("; ")}`,
                 severity: "warning",
                 category: "nuget",
                 project: node.csprojPath,

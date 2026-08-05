@@ -147,6 +147,15 @@ async function runProjectModeValidate(ctx: ProjectModeValidateContext): Promise<
         return handleProjectGraphError(err, format);
     }
 
+    // Validate every sub-project separately — the root's diagnostics need the producers'
+    // PEs on the session, so we compile producers first and then run getDiagnostics()
+    // per-sub-project. Producer failures surface as diagnostics.
+    //
+    // Warnings are collected *after* this step, not before: attaching producers can raise its
+    // own (an OutputItemType="Analyzer" producer that carries no analyzer, say), and reading
+    // `multi.warnings` first would drop exactly those.
+    await compileGraphInOrder(session, multi, { skipRoot: true, warnings: multi.warnings });
+
     const csprojWarnings = multi.warnings.map((w) => ({
         code: w.code,
         message: w.message,
@@ -165,11 +174,6 @@ async function runProjectModeValidate(ctx: ProjectModeValidateContext): Promise<
             }
         }
     }
-
-    // Validate every sub-project separately — the root's diagnostics need the producers'
-    // PEs on the session, so we compile producers first and then run getDiagnostics()
-    // per-sub-project. Producer failures surface as diagnostics.
-    await compileGraphInOrder(session, multi, { skipRoot: true });
 
     const diagnosticsByKey = new Map<string, import("@carbide/core").Diagnostic[]>();
     for (const sub of multi.subprojects) {
@@ -211,8 +215,8 @@ Input modes (mutually exclusive):
 
 Options:
   --ref <path>             Reference DLL. Repeatable.
-  --analyzer <path>        Roslyn source-generator DLL. Repeatable. Same scoping as --ref.
-                           Refused if the DLL carries no usable source generator.
+  --analyzer <path>        Roslyn source-generator or diagnostic-analyzer DLL. Repeatable.
+                           Same scoping as --ref. Refused if the DLL carries neither.
   --assembly-name <n>      Assembly name. Rejected when --project is used.
   --format json|human      Output format (default: json).
   --help                   Print this message.

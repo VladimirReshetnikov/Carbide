@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Carbide: diagnostic analyzers run in the browser</title>
+</head>
+<body>
+  <pre id="result">pending</pre>
+  <script type="module">
+    // Diagnostic analyzers on the browser host. The Node analyzer tests run against a runtime
+    // with a real thread pool, so they say nothing about whether Roslyn's analyzer driver
+    // works on single-threaded Mono-WASM — this is the fixture that establishes it does.
+    //
+    // It also answers a question worth recording: `concurrentAnalysis` was measured both ways
+    // here, and the driver works under either. Carbide ships `false` because a single-threaded
+    // runtime has no parallelism to win, not because `true` was observed to break.
+    import { CarbideSession, BrowserHostAdapter } from "/dist/index.js";
+
+    const resultEl = document.getElementById("result");
+    resultEl.dataset.status = "module-imported";
+
+    async function run() {
+      const adapter = new BrowserHostAdapter({
+        frameworkAssetsBaseUrl: new URL(
+          "/src/bin/Release/net10.0/publish/wwwroot/_framework/",
+          window.location.origin,
+        ).toString(),
+      });
+      const session = await CarbideSession.initializeAsync({ hostAdapter: adapter });
+      try {
+        const dll = await fetch("/test/fixtures/analyzer-dll/CarbideTestAnalyzer.dll");
+        if (!dll.ok) throw new Error(`analyzer fixture fetch failed: HTTP ${dll.status}`);
+        const bytes = new Uint8Array(await dll.arrayBuffer());
+
+        const project = session.createProject();
+        project.addAnalyzer(session.addAnalyzer(bytes, "CarbideTestAnalyzer"));
+        project.addSource(
+          "Program.cs",
+          'Console.WriteLine(new lowerCased().ToString());\n\npublic class lowerCased { }\n',
+        );
+
+        const diagnostics = await project.getDiagnostics();
+        return {
+          success: true,
+          diagnostics,
+          analyzerIds: diagnostics.map((d) => d.id).filter((id) => id.startsWith("CARBIDE")),
+        };
+      } finally {
+        await session.shutdown();
+      }
+    }
+
+    window.addEventListener("error", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        resultEl.textContent = "UNCAUGHT: " + e.message;
+        resultEl.dataset.status = "error";
+      }
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      if (resultEl.dataset.status === "module-imported" || resultEl.dataset.status == null) {
+        const reason = e.reason;
+        resultEl.textContent = "UNHANDLED: " + (reason?.stack ?? reason);
+        resultEl.dataset.status = "error";
+      }
+    });
+
+    run()
+      .then((payload) => {
+        resultEl.textContent = JSON.stringify(payload);
+        resultEl.dataset.status = payload.success ? "ok" : "fail";
+      })
+      .catch((err) => {
+        resultEl.textContent = "ERR: " + (err?.stack ?? err);
+        resultEl.dataset.status = "error";
+      });
+  </script>
+</body>
+</html>

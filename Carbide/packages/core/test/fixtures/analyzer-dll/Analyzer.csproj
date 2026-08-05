@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>CarbideTestAnalyzer</AssemblyName>
+    <RootNamespace>CarbideTestAnalyzer</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- Carbide's diagnostic-analyzer tests read this DLL's bytes and feed them to
+         session.addAnalyzer. Deliberately analyzer-only, with no source generator: that is
+         the shape Carbide used to refuse, and the shape a real analyzer package ships.
+         Parent Directory.Build.props is inherited, so we opt back out of trimming
+         (incompatible with netstandard2.0) and the strict analysis settings, as the sibling
+         helper-dll and generator-dll fixtures do. -->
+    <IsTrimmable>false</IsTrimmable>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <AnalysisLevel>none</AnalysisLevel>
+    <AnalysisMode>none</AnalysisMode>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableDynamicLoading>false</EnableDynamicLoading>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0"
+                      PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

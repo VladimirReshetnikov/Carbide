@@ -206,6 +206,11 @@ async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number
         return 3;
     }
 
+    // Warnings are collected *after* the compile step, not before: attaching producers can
+    // raise its own (an OutputItemType="Analyzer" producer that carries no analyzer, say), and
+    // reading `multi.warnings` first would drop exactly those.
+    const outcomes = await compileGraphInOrder(session, multi, { warnings: multi.warnings });
+
     const csprojWarnings = normaliseWarnings(multi.warnings);
     if (format === "human") {
         for (const w of multi.warnings) {
@@ -218,8 +223,6 @@ async function runProjectModeBuild(ctx: ProjectModeBuildContext): Promise<number
             }
         }
     }
-
-    const outcomes = await compileGraphInOrder(session, multi);
 
     const allAttributed = attachCs8802Hint(
         attributeDiagnostics(outcomes),
@@ -337,8 +340,8 @@ Input modes (mutually exclusive):
 Options:
   --ref <path>             Reference DLL. Repeatable. Honoured in both input modes.
                            In --project mode the flag attaches to the root project only.
-  --analyzer <path>        Roslyn source-generator DLL. Repeatable. Same scoping as --ref.
-                           Refused if the DLL carries no usable source generator.
+  --analyzer <path>        Roslyn source-generator or diagnostic-analyzer DLL. Repeatable.
+                           Same scoping as --ref. Refused if the DLL carries neither.
   --out <dir>              Output directory. Writes <assembly-name>.dll + .pdb.
                            Pass '-' to write PE bytes to stdout (no PDB). Rejected for
                            multi-project graphs (MSPROJ003).
