@@ -66,6 +66,13 @@ export function selectAnalyzerAssets(
         if (!/^analyzers\//i.test(normalised)) continue;
         // Directory entries carry a trailing slash in some packages; they say nothing.
         if (normalised.endsWith("/")) continue;
+        // Satellite assemblies (`.../<culture>/Foo.resources.dll`) are localised strings for
+        // the analyzer's own diagnostic messages, not analyzers. Every Microsoft package ships
+        // a dozen-plus of them per roslyn folder — reporting those as unplaceable analyzers
+        // buries the real signal and trains callers to ignore MSNUGET017. Carbide loads
+        // analyzers from bytes, so satellites are unavailable either way and messages come out
+        // in the neutral culture.
+        if (/\.resources\.dll$/i.test(normalised)) continue;
 
         const parsedPath = parseAnalyzerPath(normalised);
         if (parsedPath === null) {

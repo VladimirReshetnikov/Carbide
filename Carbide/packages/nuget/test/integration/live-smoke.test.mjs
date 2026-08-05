@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { resolve } from "../../dist/resolver.js";
+import { listEntries } from "../../dist/zip.js";
+import { selectAnalyzerAssets } from "../../dist/analyzer-assets.js";
 
 const LIVE = process.env.CARBIDE_NUGET_LIVE === "1";
 
@@ -100,3 +102,61 @@ test("live smoke: lock replay matches fresh resolve byte-for-byte", { skip: !LIV
         assert.ok(aHead.equals(bHead), `Reference ${a.name} head bytes differ`);
     }
 });
+
+// M12 — analyzer selection against the layouts packages actually ship.
+//
+// The unit fixtures encode a reading of NuGet's convention; these encode reality, and reality
+// found two defects the fixtures could not. Microsoft packages ship thirteen satellite
+// resource assemblies per Roslyn folder, which were being counted as unplaceable analyzers
+// (39 spurious warnings for System.Text.Json alone), and CommunityToolkit.Mvvm ships a
+// code-fix assembly beside its generator, which made a per-asset "no generator" warning fire
+// on every build.
+const ANALYZER_CASES = [
+    {
+        id: "System.Text.Json",
+        version: "9.0.0",
+        expected: ["analyzers/dotnet/roslyn4.4/cs/System.Text.Json.SourceGeneration.dll"],
+    },
+    {
+        id: "Microsoft.Extensions.Logging.Abstractions",
+        version: "9.0.0",
+        expected: ["analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll"],
+    },
+    {
+        id: "CommunityToolkit.Mvvm",
+        version: "8.3.2",
+        expected: [
+            "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.CodeFixers.dll",
+            "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.SourceGenerators.dll",
+        ],
+    },
+    { id: "Newtonsoft.Json", version: "13.0.3", expected: [] },
+];
+
+for (const testCase of ANALYZER_CASES) {
+    test(
+        `live smoke: analyzer selection for ${testCase.id} ${testCase.version}`,
+        { skip: !LIVE },
+        async () => {
+            const url =
+                "https://api.nuget.org/v3-flatcontainer/" +
+                `${testCase.id.toLowerCase()}/${testCase.version}/` +
+                `${testCase.id.toLowerCase()}.${testCase.version}.nupkg`;
+            const res = await fetch(url);
+            assert.ok(res.ok, `HTTP ${res.status} fetching ${url}`);
+            const bytes = new Uint8Array(await res.arrayBuffer());
+
+            const entries = listEntries(bytes).map((e) => e.name);
+            const selection = selectAnalyzerAssets(entries);
+
+            assert.deepEqual(selection.entries, testCase.expected);
+            // Nothing under analyzers/ should be reported as unplaceable for a mainstream
+            // package: a warning that fires on every real package is a warning nobody reads.
+            assert.deepEqual(
+                selection.unrecognised,
+                [],
+                `unexpected unplaceable analyzer assets for ${testCase.id}`,
+            );
+        },
+    );
+}

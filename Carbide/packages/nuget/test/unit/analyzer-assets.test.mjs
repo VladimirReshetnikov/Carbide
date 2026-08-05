@@ -85,6 +85,45 @@ test("an unrecognised layout is reported, not guessed at", () => {
     assert.deepEqual(result.unrecognised, ["analyzers/cs/Pkg.Generators.dll"]);
 });
 
+test("satellite resource assemblies are neither selected nor reported", () => {
+    // Real Microsoft packages ship 13 of these per roslyn folder. Reporting them as
+    // unplaceable analyzers produced 39 spurious MSNUGET017 entries for System.Text.Json
+    // alone — enough noise to make the warning worthless. Found by running the selector
+    // against real nupkgs; no hand-written fixture had the culture sub-folder.
+    const result = selectAnalyzerAssets(
+        [
+            "analyzers/dotnet/roslyn4.4/cs/System.Text.Json.SourceGeneration.dll",
+            "analyzers/dotnet/roslyn4.4/cs/de/System.Text.Json.SourceGeneration.resources.dll",
+            "analyzers/dotnet/roslyn4.4/cs/zh-Hant/System.Text.Json.SourceGeneration.resources.dll",
+            "analyzers/dotnet/roslyn3.11/cs/ja/System.Text.Json.SourceGeneration.resources.dll",
+        ],
+        HOST,
+    );
+    assert.deepEqual(result.entries, [
+        "analyzers/dotnet/roslyn4.4/cs/System.Text.Json.SourceGeneration.dll",
+    ]);
+    assert.deepEqual(result.unrecognised, []);
+});
+
+test("a package shipping several analyzers in one folder selects all of them", () => {
+    // CommunityToolkit.Mvvm's real layout: a code-fix assembly beside the generator. Both are
+    // selected; the consumer discovers which one carries a generator by loading it.
+    const result = selectAnalyzerAssets(
+        [
+            "analyzers/dotnet/roslyn4.0/cs/CommunityToolkit.Mvvm.CodeFixers.dll",
+            "analyzers/dotnet/roslyn4.0/cs/CommunityToolkit.Mvvm.SourceGenerators.dll",
+            "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.CodeFixers.dll",
+            "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.SourceGenerators.dll",
+        ],
+        HOST,
+    );
+    assert.deepEqual(result.entries, [
+        "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.3/cs/CommunityToolkit.Mvvm.SourceGenerators.dll",
+    ]);
+    assert.deepEqual(result.unrecognised, []);
+});
+
 test("non-DLL entries beside an analyzer are neither selected nor reported", () => {
     // Reporting a .pdb or .xml as a missed analyzer would train callers to ignore MSNUGET017.
     const result = selectAnalyzerAssets(

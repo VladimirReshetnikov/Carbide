@@ -16,8 +16,18 @@ surface frozen by this release is recorded in
   with VB and F# assets skipped. `resolve()` returns them as `ResolvedGraph.analyzers`
   (`ResolvedAnalyzer[]`), kept separate from `references` because an analyzer must never
   become a metadata reference.
-- `MSNUGET_CODES.ANALYZER_NO_GENERATOR` (`MSNUGET018`), for an asset that loads but carries
-  no source generator.
+- `MSNUGET_CODES.ANALYZER_NO_GENERATOR` (`MSNUGET018`), for a package whose analyzer assets
+  load but carry no source generator. Raised per package rather than per asset: shipping a
+  code-fix or diagnostic assembly beside the generator is the normal layout (CommunityToolkit.Mvvm
+  does exactly that), and warning on each would fire every build and teach callers to ignore
+  the code.
+
+  Selection was checked against the real layouts of `System.Text.Json`,
+  `Microsoft.Extensions.Logging.Abstractions`, `CommunityToolkit.Mvvm`, and `Newtonsoft.Json`,
+  and their generators verified to load and instantiate. Satellite resource assemblies
+  (`.../<culture>/Foo.resources.dll`) are ignored outright — Microsoft packages ship thirteen
+  per Roslyn folder, and counting them as unplaceable analyzers produced 39 spurious
+  MSNUGET017 entries for `System.Text.Json` alone.
 
 ### Changed
 

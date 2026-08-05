@@ -554,25 +554,41 @@ async function configureSubproject(
 
         // M12 — source generators shipped inside resolved packages. Unlike `--analyzer`, where
         // the user named a specific file and a mistake should stop the build, an asset picked
-        // out of a dependency may legitimately be a diagnostic analyzer, which Carbide does
-        // not run. That is a warning, not a failure — but it is never silent, because a
-        // generator that did not run surfaces downstream as an error about a type nobody
-        // wrote.
+        // out of a dependency may legitimately carry no generator: packages routinely ship a
+        // code-fix or diagnostic-analyzer assembly beside the generator, and Carbide runs only
+        // generators.
+        //
+        // So the warning is per *package*, not per asset, and fires only when a package's
+        // analyzers produced nothing at all. Warning per asset would fire on every build of
+        // any project using CommunityToolkit.Mvvm (which ships CodeFixers.dll beside
+        // SourceGenerators.dll) — noise that teaches callers to ignore MSNUGET018. Warning
+        // never would hide the case that matters: a package whose generator did not run, which
+        // otherwise surfaces as an error about a type nobody wrote.
+        const analyzerOutcomes = new Map<string, { applied: number; failures: string[]; version: string }>();
         for (const analyzer of nugetGraph.analyzers) {
+            const outcome = analyzerOutcomes.get(analyzer.packageId)
+                ?? { applied: 0, failures: [], version: analyzer.packageVersion };
+            analyzerOutcomes.set(analyzer.packageId, outcome);
             try {
                 project.addAnalyzer(session.addAnalyzer(analyzer.bytes, analyzer.name));
+                outcome.applied++;
             } catch (err) {
-                warnings.push({
-                    code: "MSNUGET018",
-                    message:
-                        `Analyzer '${analyzer.entry}' from '${analyzer.packageId}' ` +
-                        `${analyzer.packageVersion} was not applied: ` +
-                        `${err instanceof Error ? err.message : String(err)}`,
-                    severity: "warning",
-                    category: "nuget",
-                    project: node.csprojPath,
-                });
+                outcome.failures.push(
+                    `${analyzer.entry} (${err instanceof Error ? err.message : String(err)})`,
+                );
             }
+        }
+        for (const [packageId, outcome] of analyzerOutcomes) {
+            if (outcome.applied > 0 || outcome.failures.length === 0) continue;
+            warnings.push({
+                code: "MSNUGET018",
+                message:
+                    `Package '${packageId}' ${outcome.version} contributed no source generator. ` +
+                    `Its analyzer asset(s) loaded but carry none: ${outcome.failures.join("; ")}`,
+                severity: "warning",
+                category: "nuget",
+                project: node.csprojPath,
+            });
         }
 
         for (const w of nugetGraph.warnings) {

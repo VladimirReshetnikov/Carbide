@@ -64,7 +64,10 @@ compilation on this host, following NuGet's
   loading two would run the same generator twice;
 - with no qualifying versioned folder, the unversioned `analyzers/dotnet/[cs/]` layout is
   used;
-- VB and F# assets are skipped silently: they were never ours to run.
+- VB and F# assets are skipped silently: they were never ours to run;
+- satellite resource assemblies (`.../<culture>/Foo.resources.dll`) are skipped too — they
+  carry the analyzer's localised diagnostic messages, not analyzers, and Microsoft packages
+  ship thirteen per Roslyn folder.
 
 `resolve()` returns the selected assets as `ResolvedGraph.analyzers`, ready for
 `@carbide/core`'s `session.addAnalyzer`. They are deliberately a separate list from
