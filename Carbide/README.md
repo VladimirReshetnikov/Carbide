@@ -50,11 +50,11 @@ cd ../core
 dotnet publish -c Release src/Carbide.Core.csproj
 npm install
 npm run build:ts
-npm run build:test-fixtures   # builds MyHelper.dll for user-reference tests
+npm run build:test-fixtures   # MyHelper.dll (user-reference tests) + CarbideTestGenerator.dll
 npm run test:fast             # ~30s: smoke + key invariants, suitable as a pre-commit gate
 npm test                      # full Node acceptance (~1 min)
-npm run test:browser:fast     # ~30s: a handful of Playwright fixtures
-npm run test:browser          # full headless Chromium suite (~2 min)
+npm run test:browser:fast     # ~30s: a handful of Playwright fixtures, for local iteration
+npm run test:browser          # full headless Chromium suite (~2 min); this is what CI gates on
 
 # Helper packages that the CLI depends on.
 cd ../msbuild-lite

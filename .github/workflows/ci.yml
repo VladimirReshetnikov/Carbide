@@ -189,9 +189,13 @@ jobs:
       - name: Install Playwright Chromium
         working-directory: Carbide/packages/core
         run: npx playwright install --with-deps chromium
-      - name: Browser smoke slice
+      # The full suite, not the `test:browser:fast` slice. Most of these fixtures exist to pin
+      # defects that no other test could see — output routing between runs, teardown of a
+      # program parked on input, encoding at chunk boundaries. A slice that omits them leaves
+      # those regressions ungated, which is the one thing the fixtures were written to prevent.
+      - name: Browser suite
         working-directory: Carbide/packages/core
-        run: npm run test:browser:fast
+        run: npm run test:browser
       - name: Build + test cli
         working-directory: Carbide/packages/cli
         run: |

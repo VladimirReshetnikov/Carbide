@@ -51,7 +51,7 @@ Three contracts are frozen from `0.1.0` onward, each with its own gate:
 
 The repository requires the .NET 10 SDK version pinned in [`global.json`](global.json), Node.js 20 or newer, and the `wasm-tools` workload. Browser tests additionally require Playwright Chromium. The SDK pin also fixes the Mono WebAssembly runtime at 10.0.6 so the bundled upstream notices remain version-accurate.
 
-Continuous integration runs in [GitHub Actions](.github/workflows/ci.yml) on pushes to `main`, `feature/**` branches, and pull requests: the repository consistency gates and ESLint, the public API surface freeze, the pure-Node package suites, the shell workstream's C# xUnit suites, the full core + CLI validation (including a browser smoke slice), and the Carbide.UI launcher suite.
+Continuous integration runs in [GitHub Actions](.github/workflows/ci.yml) on pushes to `main`, `feature/**` branches, and pull requests: the repository consistency gates and ESLint, the public API surface freeze, the pure-Node package suites, the shell workstream's C# xUnit suites, the full core + CLI validation (including the complete headless-Chromium browser suite), and the Carbide.UI launcher suite.
 
 Run the repository-level gates from the repository root. They need no .NET toolchain:
 
